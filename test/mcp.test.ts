@@ -1,0 +1,147 @@
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { type CallToolResult, ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createMcpServer, INSTRUCTIONS, type McpServerOptions } from '../src/mcp/server.js';
+import { HashEmbedder } from './helpers/hash-embedder.js';
+import { tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
+
+const clients: Client[] = [];
+
+afterEach(async () => {
+  for (const client of clients.splice(0)) await client.close();
+  vi.unstubAllEnvs();
+});
+
+async function connect(options: McpServerOptions, roots?: string[]): Promise<Client> {
+  // Projects are off by default: a throwaway user config turns overseer on for temp dirs and keeps the host's rules out.
+  const server = createMcpServer({ embedder: new HashEmbedder(), ...options, env: { OVERSEER_CONFIG_DIR: tempUserConfig(), ...options.env } });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: roots ? { roots: {} } : {} });
+  if (roots) client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots: roots.map((dir) => ({ uri: pathToFileURL(dir).href })) }));
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  clients.push(client);
+  return client;
+}
+
+async function call(client: Client, name: string, args: Record<string, unknown>) {
+  const result = (await client.callTool({ name, arguments: args })) as CallToolResult;
+  const text = result.content[0]?.type === 'text' ? result.content[0].text : '';
+  return { result, text, data: result.structuredContent as Record<string, unknown> | undefined };
+}
+
+describe('mcp server', () => {
+  it('lists exactly the twelve tools and sends the instructions', async () => {
+    const client = await connect({ cwd: tempRepo() });
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name).sort()).toEqual(
+      [
+        'check_coverage',
+        'create_item',
+        'export_report',
+        'find_similar',
+        'get_item',
+        'import_items',
+        'link_items',
+        'list_items',
+        'open_board',
+        'report',
+        'search',
+        'update_item',
+      ].sort(),
+    );
+    expect(tools.find((tool) => tool.name === 'find_similar')!.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((tool) => tool.name === 'create_item')!.annotations?.readOnlyHint).toBe(false);
+    for (const tool of tools) expect(Object.keys(tool.inputSchema.properties ?? {})).toContain('project_dir');
+    expect(client.getInstructions()).toBe(INSTRUCTIONS);
+  });
+
+  it('creates an item and finds it again, recording the client name', async () => {
+    const repo = tempRepo();
+    const client = await connect({ cwd: repo });
+    const created = await call(client, 'create_item', {
+      kind: 'requirement',
+      title: 'Password reset by email',
+      description: 'When a user requests a password reset, the system shall email a single-use link.',
+      req_type: 'functional',
+    });
+    expect(created.result.isError).toBeFalsy();
+    expect(created.data).toMatchObject({ created: true, item: { id: 'REQ-0001', recorded_via: 'test-client' } });
+    expect(JSON.parse(created.text)).toMatchObject({ created: true });
+
+    const similar = await call(client, 'find_similar', { text: 'Password reset by email single-use link', kind: 'requirement' });
+    expect(similar.data).toMatchObject({ semantic: true, matches: [{ id: 'REQ-0001', coverage: 'untracked' }] });
+
+    const report = await call(client, 'report', { kind: 'coverage' });
+    expect(report.text).toContain('# Requirement coverage');
+    expect(report.data).toMatchObject({ kind: 'coverage', data: { requirements: [{ id: 'REQ-0001' }] } });
+
+    const missing = await call(client, 'get_item', { id: 'REQ-0099' });
+    expect(missing.result.isError).toBe(true);
+    expect(missing.text).toBe('NOT_FOUND: No item with id REQ-0099.');
+  });
+
+  it('answers reads on an uninitialized project without creating it', async () => {
+    const repo = tempRepo();
+    const client = await connect({ cwd: repo });
+    const listed = await call(client, 'list_items', {});
+    expect(listed.data).toEqual({ initialized: false, root: repo });
+    expect(existsSync(join(repo, '.overseer'))).toBe(false);
+  });
+
+  it('refuses writes when the project resolves to the home directory', async () => {
+    const home = tempDir('ovs-home-');
+    vi.stubEnv('HOME', home);
+    const repo = tempRepo();
+    // Only the repo is on: the home guard still answers first, so agents retry with project_dir instead of stopping.
+    const client = await connect({ cwd: home, env: { OVERSEER_CONFIG_DIR: tempUserConfig({ enabled_projects: [repo] }) } });
+    const created = await call(client, 'create_item', { kind: 'task', title: 'Anything' });
+    expect(created.result.isError).toBe(true);
+    expect(created.text).toBe(
+      `NO_PROJECT: No project detected (resolved to ${home}). Run inside a project folder, or pass project_dir / --project.`,
+    );
+    expect(existsSync(join(home, '.overseer'))).toBe(false);
+
+    const retried = await call(client, 'create_item', { kind: 'task', title: 'Anything', project_dir: repo });
+    expect(retried.data).toMatchObject({ created: true, item: { id: 'TASK-0001' } });
+    expect((await call(client, 'create_item', { kind: 'task', title: 'x', project_dir: 'relative/path' })).text).toMatch(/^INVALID_INPUT: /);
+  });
+
+  it('uses the first client root when the client advertises roots', async () => {
+    const home = tempDir('ovs-home-');
+    vi.stubEnv('HOME', home);
+    const repo = tempRepo();
+    mkdirSync(join(repo, 'packages', 'app'), { recursive: true });
+    const client = await connect({ cwd: home }, [join(repo, 'packages', 'app')]);
+    const created = await call(client, 'create_item', { kind: 'epic', title: 'Onboarding' });
+    expect(created.data).toMatchObject({ created: true });
+    expect(existsSync(join(repo, '.overseer', 'overseer.db'))).toBe(true);
+  });
+
+  it('is off in projects the user has not turned on, checked on every call', async () => {
+    const repo = tempRepo();
+    const config = tempUserConfig({});
+    const rules = (value: object) => writeFileSync(join(config, 'config.json'), JSON.stringify(value));
+    const client = await connect({ cwd: repo, env: { OVERSEER_CONFIG_DIR: config } });
+    const off = await call(client, 'create_item', { kind: 'task', title: 'First' });
+    expect(off.result.isError).toBe(true);
+    expect(off.text).toBe(
+      `DISABLED: overseer is off for ${repo} (overseer is off by default and works only in projects the user turned on). Do not use overseer in this project; to turn it on, the user runs: overseer enable --project ${repo}`,
+    );
+    expect((await call(client, 'list_items', {})).text).toMatch(/^DISABLED: /);
+    expect((await call(client, 'open_board', { open_browser: false })).text).toMatch(/^DISABLED: /);
+    expect(existsSync(join(repo, '.overseer'))).toBe(false);
+
+    rules({ enabled_projects: [repo] });
+    expect((await call(client, 'create_item', { kind: 'task', title: 'First' })).data).toMatchObject({ created: true });
+    // The service is cached now; the switch is still read per call. A folder listed twice counts as disabled.
+    rules({ enabled_projects: [repo], disabled_projects: [repo] });
+    expect((await call(client, 'list_items', {})).text).toBe(
+      `DISABLED: overseer is off for ${repo}. Do not use overseer in this project; to turn it on, the user runs: overseer enable --project ${repo}`,
+    );
+  });
+});

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.idea/
+
+
+.overseer/
+*.overseer-backup
+docs/decisions/0001-product-name.md

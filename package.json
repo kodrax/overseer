@@ -1,0 +1,52 @@
+{
+  "name": "overseer-cli",
+  "version": "0.1.0",
+  "description": "Cross-harness requirements registry and Agile board for coding agents: MCP server, CLI and local web board backed by SQLite with local embeddings.",
+  "type": "module",
+  "bin": {
+    "overseer": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "tsdown && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p web",
+    "calibrate": "OVERSEER_CALIBRATE=1 vitest run test/calibrate.test.ts",
+    "dev:web": "vite"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.4",
+    "@huggingface/transformers": "^4.3.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "commander": "^15.0.0",
+    "hono": "^4.13.13",
+    "jsonc-parser": "^3.3.1",
+    "smol-toml": "^1.9.1",
+    "sqlite-vec": "^0.1.9",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.104.1",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "tsdown": "^0.23.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}
