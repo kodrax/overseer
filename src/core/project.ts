@@ -29,7 +29,8 @@ export function pickStartDir(options: StartDirOptions = {}): string {
   return absolute;
 }
 
-function git(cwd: string, args: string[]): string | undefined {
+/** Trimmed stdout of `git -C <cwd> <args>`; undefined when git fails or prints nothing. */
+export function git(cwd: string, args: string[]): string | undefined {
   try {
     const out = execFileSync('git', ['-C', cwd, ...args], {
       encoding: 'utf8',
