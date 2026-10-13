@@ -13,7 +13,7 @@ export function registerServerCommands(program: Command, rt: CliRuntime): void {
     .option('--no-open', 'do not open a browser')
     .action(async (options: { port?: number; open: boolean }, command: Command) => {
       await rt.withService(command, 'write', async (service) => {
-        const port = options.port ?? (Number(service.getConfig().board_port) || undefined);
+        const port = options.port ?? (Number(service.configValue('board_port')) || undefined);
         const board = await startBoardServer({ service, ...(port !== undefined ? { port } : {}), openBrowser: options.open });
         rt.out(`overseer board: ${board.url} (Ctrl+C to stop)`);
         const stop = new AbortController();
