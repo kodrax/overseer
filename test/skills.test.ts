@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 const templates = fileURLToPath(new URL('../templates/', import.meta.url));
 const skillsDir = join(templates, 'skills');
 const MARKER = '<!-- managed-by: overseer-cli -->';
-const SKILLS = ['overseer', 'overseer-bootstrap', 'overseer-import'];
+const SKILLS = ['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship'];
 
 function endsWithMarker(text: string): boolean {
   return text.endsWith(MARKER) || text.endsWith(`${MARKER}\n`);
