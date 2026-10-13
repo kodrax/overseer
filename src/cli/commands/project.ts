@@ -154,13 +154,13 @@ export function registerProjectCommands(program: Command, rt: CliRuntime): void 
     .option('--json', 'print JSON')
     .action(async (key: string | undefined, options: { json?: boolean }, command: Command) => {
       await rt.withService(command, 'read', (service) => {
-        const all = service.getConfig();
         if (key === undefined) {
-          rt.emit(options.json, all, (values) => table(['Key', 'Value'], CONFIG_KEYS.map((name) => [name, values[name]])));
+          rt.emit(options.json, service.getConfig(), (values) => table(['Key', 'Value'], CONFIG_KEYS.map((name) => [name, values[name]])));
           return;
         }
         const name = oneOf(CONFIG_KEYS, key, 'config key');
-        rt.emit(options.json, { [name]: all[name] }, () => all[name]);
+        const value = service.configValue(name);
+        rt.emit(options.json, { [name]: value }, () => value);
       });
     });
   config

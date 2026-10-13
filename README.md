@@ -344,6 +344,11 @@ echo '[{"external_id":"acme/demo#7","url":"https://github.com/acme/demo/issues/7
 | `default_asked_by` | `git config user.name`, else your OS user name |
 | `export_dir` | `docs/overseer` |
 | `board_port` | `4477` |
+| `worktree_root` | `../<project folder name>.worktrees`, relative to the project root |
+| `base_branch` | the remote's default branch (`refs/remotes/origin/HEAD`), else `main` |
+| `branch_pattern` | `{type}/{id}-{slug}`; must contain `{id}` |
+
+The last three are worked out when read until you set them, so `overseer config get <key> --json` always prints the value in effect.
 
 Environment variables:
 

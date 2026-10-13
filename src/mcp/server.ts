@@ -330,7 +330,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         if (existing) return { url: existing.url };
         const board = await startBoardServer({
           service,
-          port: args.port ?? Number(service.getConfig().board_port),
+          port: args.port ?? Number(service.configValue('board_port')),
           openBrowser: args.open_browser,
         });
         boards.set(service.root, board);
