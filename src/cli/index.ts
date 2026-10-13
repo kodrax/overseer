@@ -4,6 +4,7 @@ import { registerDoctorCommand } from './commands/doctor.js';
 import { registerInstallCommands } from './commands/install.js';
 import { registerItemCommands } from './commands/items.js';
 import { registerModelCommands } from './commands/models.js';
+import { registerPrCommands } from './commands/pr.js';
 import { registerProjectCommands } from './commands/project.js';
 import { registerQueryCommands } from './commands/query.js';
 import { registerServerCommands } from './commands/servers.js';
@@ -39,6 +40,7 @@ export async function runCli(
   registerProjectCommands(program, rt);
   registerItemCommands(program, rt);
   registerQueryCommands(program, rt);
+  registerPrCommands(program, rt);
   registerServerCommands(program, rt);
   registerModelCommands(program, rt);
   registerInstallCommands(program, rt);
