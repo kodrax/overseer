@@ -215,6 +215,7 @@ overseer export                             # writes docs/overseer/
 | `report <kind>` | `summary`, `coverage`, `board`, `drift`, `lint`, `traceability` |
 | `export [--out] [--only] [--since]` | write Markdown/JSON reports into the project |
 | `import <file\|-> --source github\|gitlab --repo <repo>` | import issues from a JSON array |
+| `pr draft <id> [--type <type>]` | pull request title and body for a task or bug (see below) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -223,6 +224,13 @@ overseer export                             # writes docs/overseer/
 | `install` / `uninstall` / `doctor` | harness wiring and health checks |
 
 Every data command accepts `--json`. Errors go to stderr as `error: <CODE>: <message>` with exit code 1. With `--json`, they go to stdout as `{"error":{"code","message"}}`.
+
+`overseer pr draft TASK-0058 --json` prints `{"title", "body"}` for a pull request, ready for `gh pr create --title … --body …`:
+
+- **Title**: `<type>: <summary> (<ID>)`, at most 100 characters. The type is `--type`, else the one in the current branch when it is named `<type>/<ID>-…`, else `fix` for bugs and `feat` for tasks. The summary is the item title in imperative form with a lowercase first letter (`Adds the sender` → `add the sender`).
+- **Body**: the repository's `.github/pull_request_template.md`, else `.gitlab/merge_request_templates/Default.md`, else overseer's default template. Branch and template come from the checkout you run it in (linked worktrees included). The command fills the `Item:` line, the Why section (description plus linked requirements with their titles) and the acceptance criteria as a checklist, adding those sections when the template lacks them. For an imported GitHub or GitLab issue it adds `Closes owner/repo#N`. Other sections keep their HTML comment for you to complete.
+
+The same item, template and branch always give the same draft. This command has no MCP tool.
 
 ### Web board
 

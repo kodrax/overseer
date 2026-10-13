@@ -494,3 +494,41 @@ describe('cli enable and disable', () => {
     expect(result.json<ErrorEnvelope>().error).toMatchObject({ code: 'CONFIG_PARSE', message: expect.stringContaining(join(config, 'config.json')) });
   });
 });
+
+describe('cli pr draft', () => {
+  const TASK = ['add', 'task', '--title', 'Adds the reset email sender', '--description', 'Users locked out cannot get back in.', '--ac', 'A reset link is emailed'];
+
+  it("uses the linked worktree's branch and template; --type wins over the branch", async () => {
+    const repo = tempRepo();
+    await cli(repo, TASK);
+    const worktree = join(tempDir(), 'wt');
+    git(repo, 'worktree', 'add', '-q', worktree, '-b', 'docs/TASK-0001-reset-email');
+    mkdirSync(join(worktree, '.github'));
+    writeFileSync(join(worktree, '.github', 'pull_request_template.md'), '## Item\n\nItem: TASK-0000\n\n## Notes\n\n<!-- notes -->\n');
+
+    const draft = await cli(worktree, ['pr', 'draft', 'TASK-0001', '--json']);
+    expect(draft.code).toBe(0);
+    const { title, body } = draft.json<{ title: string; body: string }>();
+    expect(title).toBe('docs: add the reset email sender (TASK-0001)');
+    expect(body).toContain('## Item\n\nItem: TASK-0001\n\n## Why\n\nUsers locked out cannot get back in.\n\n## Acceptance criteria\n\n- [ ] A reset link is emailed\n\n## Notes\n\n<!-- notes -->\n');
+
+    // The main checkout is on main and has no template: feat for a task, overseer's default template.
+    const main = (await cli(repo, ['pr', 'draft', 'TASK-0001', '--json'])).json<{ title: string; body: string }>();
+    expect(main.title).toBe('feat: add the reset email sender (TASK-0001)');
+    expect(main.body).toContain('## Acceptance criteria\n\n- [ ] A reset link is emailed\n\n## What changed\n\n<!--');
+
+    const typed = await cli(worktree, ['pr', 'draft', 'TASK-0001', '--type', 'refactor']);
+    expect(typed.out.split('\n')[0]).toBe('refactor: add the reset email sender (TASK-0001)');
+    expect((await cli(worktree, ['pr', 'draft', 'TASK-0001', '--type', 'style', '--json'])).json<ErrorEnvelope>().error.code).toBe('INVALID_INPUT');
+  });
+
+  it('falls back to the GitLab default template and fix for bugs', async () => {
+    const repo = tempRepo();
+    await cli(repo, ['add', 'bug', '--title', 'Login crashes on Safari']);
+    mkdirSync(join(repo, '.gitlab', 'merge_request_templates'), { recursive: true });
+    writeFileSync(join(repo, '.gitlab', 'merge_request_templates', 'Default.md'), '## Why\n\n<!-- why -->\n');
+    const { title, body } = (await cli(repo, ['pr', 'draft', 'BUG-0001', '--json'])).json<{ title: string; body: string }>();
+    expect(title).toBe('fix: login crashes on Safari (BUG-0001)');
+    expect(body).toBe('## Item\n\nItem: BUG-0001\n\n## Why\n\n<!-- why -->\n');
+  });
+});
