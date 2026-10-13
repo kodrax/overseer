@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { runCli } from '../src/cli/index.js';
@@ -291,6 +291,29 @@ describe('cli init and config', () => {
     const bad = await cli(repo, ['config', 'set', 'nope', 'x', '--json']);
     expect(bad.code).toBe(1);
     expect(bad.json<ErrorEnvelope>().error.code).toBe('INVALID_INPUT');
+  });
+
+  it('worktree settings default on read, follow the remote default branch and reject a pattern without {id}', async () => {
+    const repo = tempRepo();
+    await cli(repo, ['init', '--json']);
+    expect((await cli(repo, ['config', 'get', '--json'])).json()).toMatchObject({
+      worktree_root: `../${basename(repo)}.worktrees`,
+      base_branch: 'main',
+      branch_pattern: '{type}/{id}-{slug}',
+    });
+
+    git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+    expect((await cli(repo, ['config', 'get', 'base_branch', '--json'])).json()).toEqual({ base_branch: 'trunk' });
+
+    expect((await cli(repo, ['config', 'set', 'worktree_root', '../wt'])).out).toBe('worktree_root = ../wt\n');
+    expect((await cli(repo, ['config', 'set', 'base_branch', 'develop'])).out).toBe('base_branch = develop\n');
+    expect((await cli(repo, ['config', 'get', 'worktree_root'])).out).toBe('../wt\n');
+    expect((await cli(repo, ['config', 'get', 'base_branch'])).out).toBe('develop\n');
+
+    const bad = await cli(repo, ['config', 'set', 'branch_pattern', '{type}/{slug}', '--json']);
+    expect(bad.code).toBe(1);
+    expect(bad.json<ErrorEnvelope>().error.code).toBe('INVALID_INPUT');
+    expect((await cli(repo, ['config', 'set', 'branch_pattern', 'wip/{id}'])).out).toBe('branch_pattern = wip/{id}\n');
   });
 });
 

@@ -118,3 +118,10 @@ export function defaultAskedBy(root: string): string {
     return process.env.USER || process.env.USERNAME || 'unknown';
   }
 }
+
+/** Default branch of the `origin` remote (`refs/remotes/origin/HEAD`), else `main`. */
+export function defaultBaseBranch(root: string): string {
+  const prefix = 'refs/remotes/origin/';
+  const ref = git(root, ['symbolic-ref', '--quiet', `${prefix}HEAD`]);
+  return ref?.startsWith(prefix) ? ref.slice(prefix.length) : 'main';
+}
