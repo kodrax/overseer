@@ -19,8 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Lowest Node 22 that passes today; lower it to the engines minimum when BUG-0010 is fixed.
-        node: ['22.20', '24']
+        node: ['22.18', '24']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
