@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { computeCoverage, implementersByRequirement } from './coverage.js';
 import { type Database, nowIso, openDatabase, tx } from './db.js';
 import { type Embedder, TransformersEmbedder } from './embeddings.js';
@@ -7,7 +7,7 @@ import { allocateId, normalizeId, ORDER_BY_ID } from './ids.js';
 import { allRows, columnValue, eventValue, getRow, type ItemRow, toItem, writeFts } from './items.js';
 import { lintItem } from './lint.js';
 import { SCHEMA_VERSION } from './migrations.js';
-import { assertWritableRoot, isGuardedRoot } from './project.js';
+import { assertWritableRoot, defaultBaseBranch, isGuardedRoot } from './project.js';
 import {
   buildReport,
   countsByKind,
@@ -141,8 +141,18 @@ export interface ProjectInfo {
   counts: Record<Kind, Record<string, number>>;
 }
 
-export const CONFIG_KEYS = ['project_name', 'default_asked_by', 'export_dir', 'board_port'] as const;
+export const CONFIG_KEYS = [
+  'project_name',
+  'default_asked_by',
+  'export_dir',
+  'board_port',
+  'worktree_root',
+  'base_branch',
+  'branch_pattern',
+] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
+
+export const DEFAULT_BRANCH_PATTERN = '{type}/{id}-{slug}';
 
 /** Fields that feed the FTS row (and, partly, the embedding text). */
 const TEXT_FIELDS: readonly string[] = ['title', 'description', 'rationale', 'acceptance_criteria', 'fit_criterion', 'tags', 'component'];
@@ -221,7 +231,23 @@ export class OverseerService {
   }
 
   getConfig(): Record<ConfigKey, string> {
-    return Object.fromEntries(CONFIG_KEYS.map((key) => [key, this.getMeta(key) ?? ''])) as Record<ConfigKey, string>;
+    return Object.fromEntries(CONFIG_KEYS.map((key) => [key, this.configValue(key)])) as Record<ConfigKey, string>;
+  }
+
+  /** Stored value of a setting, else its default. Worktree defaults are computed on read: they follow the folder and the remote. */
+  configValue(key: ConfigKey): string {
+    const stored = this.getMeta(key);
+    if (stored !== undefined) return stored;
+    switch (key) {
+      case 'worktree_root':
+        return `../${basename(this.root)}.worktrees`;
+      case 'base_branch':
+        return defaultBaseBranch(this.root);
+      case 'branch_pattern':
+        return DEFAULT_BRANCH_PATTERN;
+      default:
+        return '';
+    }
   }
 
   setConfig(key: string, value: string): Record<ConfigKey, string> {
@@ -234,6 +260,9 @@ export class OverseerService {
       throw new OverseerError('INVALID_INPUT', 'board_port must be an integer between 1 and 65535.');
     }
     if (key === 'export_dir') this.resolveInside(trimmed);
+    if (key === 'branch_pattern' && !trimmed.includes('{id}')) {
+      throw new OverseerError('INVALID_INPUT', `branch_pattern must contain {id}, e.g. ${DEFAULT_BRANCH_PATTERN}.`);
+    }
     tx(this.db, () => this.setMeta(key, trimmed));
     return this.getConfig();
   }
