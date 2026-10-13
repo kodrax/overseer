@@ -349,11 +349,11 @@ export class OverseerService {
   history(id: string): ItemEvent[] {
     const events = this.db
       .prepare(
-        `SELECT * FROM events WHERE item_id = ?1
-           OR (action IN ('link', 'unlink') AND (new_value = ?1 OR old_value = ?1))
+        `SELECT * FROM events WHERE item_id = ?
+           OR (action IN ('link', 'unlink') AND (new_value = ? OR old_value = ?))
          ORDER BY seq`,
       )
-      .all(id) as unknown as ItemEvent[];
+      .all(id, id, id) as unknown as ItemEvent[];
     return events.map((event) => ({ ...event }));
   }
 

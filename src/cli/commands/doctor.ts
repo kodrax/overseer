@@ -11,7 +11,7 @@ import { type CheckLine, checkInstall, harnessStatus, TARGET_IDS } from '../../i
 import type { CliRuntime, GlobalOptions } from '../runtime.js';
 import { installContext } from './install.js';
 
-const MIN_NODE = [22, 13] as const;
+const MIN_NODE = [22, 18] as const;
 
 function nodeCheck(): CheckLine {
   const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);

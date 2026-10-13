@@ -26,7 +26,7 @@ flowchart LR
 
 ## Requirements
 
-- Node.js ≥ 22.13 (uses the built-in `node:sqlite`). Developed and tested on Linux with Node 24.
+- Node.js ≥ 22.18 (uses the built-in `node:sqlite`). Developed and tested on Linux with Node 24.
 - Semantic search needs a prebuilt `sqlite-vec` binary, available for Linux x64/arm64, macOS x64/arm64 and Windows x64. On other platforms, or while the model is not downloaded, overseer falls back to keyword search.
 - About 120 MB of disk space and network access once, to download the embedding model.
 
