@@ -21,7 +21,7 @@ Work is planned on the overseer board: every change belongs to a task (`TASK-…
 2. Commit as often as you like. The pull request is squash-merged, so its title becomes the commit on `main`.
 3. Push and open a pull request. The template asks for the item, why, what changed, how it was verified and the risk.
 4. CI must pass: `check (node …)` (typecheck, tests, build) and `conventions` (branch name and title).
-5. After the merge, remove the worktree: `git worktree remove ../overseer.worktrees/TASK-0032-ship-skill`.
+5. After the merge, clean up with the pull request's head commit: `overseer worktree finish TASK-0032 --merged-head <sha> --pr <url>`. It refuses when uncommitted changes or unmerged commits would be lost, then removes the worktree and the branches, fast-forwards `main` and sets the item done. Without overseer: `git worktree remove ../overseer.worktrees/TASK-0032-ship-skill && git branch -D feat/TASK-0032-ship-skill`.
 
 If a task needs another task that is not merged yet, branch from that task's branch and set it as the pull request's base.
 
