@@ -7,7 +7,13 @@ import type { InstallReport, Scope, TargetId } from '../src/install/index.js';
 import { detectTargets, formatInstallReport, harnessStatus, install, TARGET_IDS } from '../src/install/index.js';
 import { CLI_PATH, GOLDEN_DIR, mtimes, NODE_PATH, sandbox, snapshotTree } from './fixtures/install/harness.js';
 
-const SKILL_FILES = ['overseer/SKILL.md', 'overseer/references/fields.md', 'overseer-bootstrap/SKILL.md', 'overseer-import/SKILL.md'];
+const SKILL_FILES = [
+  'overseer/SKILL.md',
+  'overseer/references/fields.md',
+  'overseer-bootstrap/SKILL.md',
+  'overseer-import/SKILL.md',
+  'overseer-ship/SKILL.md',
+];
 const skills = (dir: string) => SKILL_FILES.map((file) => `${dir}/${file}`);
 
 /** Files each target owns, relative to HOME (user) or the project root (project). */
