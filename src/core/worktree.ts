@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { errorMessage, OverseerError } from './errors.js';
 import { PR_TYPES, type PrType } from './pr-draft.js';
 import { git } from './project.js';
+import { type Ctx, ID_PREFIX } from './schema.js';
 import type { OverseerService } from './service.js';
 
 /** `worktree_setup` value that turns the setup off. */
@@ -22,6 +23,7 @@ const SLUG_WORDS = 4;
 const FILLER_WORDS: Record<string, true> = { a: true, an: true, the: true, and: true, or: true, of: true, to: true, for: true, in: true, on: true, with: true };
 const FETCH_TIMEOUT_MS = 5 * 60_000;
 const WORKTREE_TIMEOUT_MS = 2 * 60_000;
+const SHA = /^[0-9a-f]{7,40}$/i;
 
 export interface WorktreeStartOptions {
   /** Conventional Commit type; default fix for bugs, feat for tasks. */
@@ -71,27 +73,95 @@ export function branchName(pattern: string, values: { type: string; id: string; 
   return pattern.replaceAll('{type}', values.type).replaceAll('{id}', values.id).replaceAll('{slug}', values.slug);
 }
 
-/** Runs git and returns its trimmed stdout; GIT_FAILED with git's stderr when it fails. */
-function gitOrThrow(cwd: string, args: string[], timeout: number): string {
-  const result = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'pipe'] });
-  if (result.status === 0) return result.stdout.trim();
-  const reason = result.error ? result.error.message : result.stderr.trim() || `exit code ${result.status}`;
-  throw new OverseerError('GIT_FAILED', `git ${args.join(' ')} failed: ${reason}`);
+interface GitRun {
+  ok: boolean;
+  /** Untrimmed stdout. */
+  stdout: string;
+  /** git's stderr, else the spawn error or exit code. */
+  reason: string;
 }
 
-/** Worktree path checked out on `refs/heads/<branch>`, from `git worktree list --porcelain`. */
-function worktreeOfBranch(root: string, branch: string): string | undefined {
+function runGit(cwd: string, args: string[], timeout: number): GitRun {
+  const result = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'pipe'] });
+  const reason = result.error ? result.error.message : result.stderr.trim() || `exit code ${result.status}`;
+  return { ok: result.status === 0, stdout: result.stdout ?? '', reason };
+}
+
+/** Runs git and returns its trimmed stdout; GIT_FAILED with git's stderr when it fails. */
+function gitOrThrow(cwd: string, args: string[], timeout: number): string {
+  const result = runGit(cwd, args, timeout);
+  if (result.ok) return result.stdout.trim();
+  throw new OverseerError('GIT_FAILED', `git ${args.join(' ')} failed: ${result.reason}`);
+}
+
+interface WorktreeEntry {
+  path: string;
+  /** Short branch name; null for a detached HEAD. */
+  branch: string | null;
+  /** The main checkout, which git never removes. */
+  main: boolean;
+}
+
+/** Worktrees of the repository at `root`, main checkout first, from `git worktree list --porcelain`. */
+function listGitWorktrees(root: string): WorktreeEntry[] {
   const list = gitOrThrow(root, ['worktree', 'list', '--porcelain'], WORKTREE_TIMEOUT_MS);
-  for (const block of list.split(/\n\n+/)) {
+  return list.split(/\n\n+/).flatMap((block, index) => {
     const lines = block.split('\n');
     const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length);
-    if (path && lines.includes(`branch refs/heads/${branch}`)) return path;
-  }
-  return undefined;
+    const ref = lines.find((line) => line.startsWith('branch refs/heads/'))?.slice('branch refs/heads/'.length);
+    return path ? [{ path, branch: ref ?? null, main: index === 0 }] : [];
+  });
 }
 
 function refExists(root: string, ref: string): boolean {
   return git(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) !== undefined;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Branch names `pattern` can produce for the item IDs matched by the regex source `id`: `{type}` is a Conventional
+ * Commit type and `{slug}` a slug. Group 1 captures the ID.
+ */
+function branchMatcher(pattern: string, id: string): RegExp {
+  const source = pattern
+    .split(/(\{type\}|\{id\}|\{slug\})/)
+    .map((part) => {
+      if (part === '{type}') return `(?:${PR_TYPES.join('|')})`;
+      if (part === '{slug}') return '[a-z0-9]+(?:-[a-z0-9]+)*';
+      if (part === '{id}') return `(${id})`;
+      return escapeRegExp(part);
+    })
+    .join('');
+  return new RegExp(`^${source}$`);
+}
+
+/** Short names of the refs under `prefix` (e.g. `refs/heads/`) that `matcher` accepts. */
+function matchingRefs(root: string, prefix: string, matcher: RegExp): string[] {
+  const refs = gitOrThrow(root, ['for-each-ref', '--format=%(refname)', prefix], WORKTREE_TIMEOUT_MS);
+  return refs
+    .split('\n')
+    .map((ref) => ref.slice(prefix.length))
+    .filter((name) => matcher.test(name));
+}
+
+/** Remote of the branch's upstream, else `origin` when that remote exists, else null. */
+function remoteFor(root: string, branch: string | null): string | null {
+  const upstream = branch === null ? undefined : git(root, ['for-each-ref', '--format=%(upstream:remotename)', `refs/heads/${branch}`]);
+  if (upstream) return upstream;
+  return git(root, ['remote', 'get-url', 'origin']) !== undefined ? 'origin' : null;
+}
+
+function assertGitRepo(root: string): void {
+  if (git(root, ['rev-parse', '--git-dir']) === undefined) throw new OverseerError('INVALID_INPUT', `${root} is not a git repository.`);
+}
+
+function assertWorkItem(item: { id: string; kind: string }, action: string): asserts item is { id: string; kind: 'task' | 'bug' } {
+  if (item.kind !== 'task' && item.kind !== 'bug') {
+    throw new OverseerError('INVALID_INPUT', `${item.id} is a ${item.kind}; worktrees are ${action} for tasks and bugs only.`);
+  }
 }
 
 /** Runs `command` through the shell in `cwd`, forwarding its output; resolves with the exit code (null: killed or not started). */
@@ -138,14 +208,12 @@ function resolveSlug(title: string, id: string, requested: string | undefined): 
  */
 export async function startWorktree(service: OverseerService, id: string, options: WorktreeStartOptions = {}): Promise<WorktreeStartResult> {
   const { item } = service.getItem(id);
-  if (item.kind !== 'task' && item.kind !== 'bug') {
-    throw new OverseerError('INVALID_INPUT', `${item.id} is a ${item.kind}; worktrees are started for tasks and bugs only.`);
-  }
+  assertWorkItem(item, 'started');
   const type = resolveType(item.kind, item.id, options.type);
   const slug = resolveSlug(item.title, item.id, options.slug);
   const branch = branchName(service.configValue('branch_pattern'), { type, id: item.id, slug });
   const root = service.root;
-  if (git(root, ['rev-parse', '--git-dir']) === undefined) throw new OverseerError('INVALID_INPUT', `${root} is not a git repository.`);
+  assertGitRepo(root);
   if (git(root, ['check-ref-format', '--branch', branch]) === undefined) {
     throw new OverseerError('INVALID_INPUT', `"${branch}" is not a valid branch name; check branch_pattern and --slug.`);
   }
@@ -156,7 +224,7 @@ export async function startWorktree(service: OverseerService, id: string, option
     return command === SETUP_NONE ? null : command;
   };
 
-  const existing = worktreeOfBranch(root, branch);
+  const existing = listGitWorktrees(root).find((entry) => entry.branch === branch)?.path;
   if (existing !== undefined) {
     if (!existsSync(existing)) {
       throw new OverseerError('CONFLICT', `${branch} is registered to the missing worktree ${existing}; run "git worktree prune" and retry.`);
@@ -185,4 +253,198 @@ export async function startWorktree(service: OverseerService, id: string, option
     throw new OverseerError('SETUP_FAILED', `Setup "${command}" failed (${code === null ? 'not run' : `exit code ${code}`}) in ${path}; the worktree is kept.`);
   }
   return { path, branch, base, reused: false, setup: { command, ran: true } };
+}
+
+export interface WorktreeListEntry {
+  id: string;
+  branch: string;
+  path: string;
+}
+
+/** Worktrees on a branch that fills `branch_pattern` with a task or bug ID, in `git worktree list` order; the main checkout is left out. */
+export function listWorktrees(service: OverseerService): WorktreeListEntry[] {
+  const root = service.root;
+  assertGitRepo(root);
+  const matcher = branchMatcher(service.configValue('branch_pattern'), `(?:${ID_PREFIX.task}|${ID_PREFIX.bug})-\\d{4,}`);
+  return listGitWorktrees(root).flatMap((entry) => {
+    if (entry.main || entry.branch === null) return [];
+    const id = matcher.exec(entry.branch)?.[1];
+    return id === undefined ? [] : [{ id, branch: entry.branch, path: entry.path }];
+  });
+}
+
+export interface WorktreeFinishOptions {
+  /** Head commit of the merged pull request, 7 to 40 hex digits. */
+  mergedHead: string;
+  /** Pull request URL for delivered_in. Default: the item's delivered_in. */
+  pr?: string;
+  /** Default: the base_branch setting. */
+  base?: string;
+}
+
+export interface WorktreeBaseUpdate {
+  branch: string;
+  /** Local base branch after the update; null when there is none. */
+  head: string | null;
+  fast_forwarded: boolean;
+  /** Why the base was not fast-forwarded; null when it was, or was already up to date. */
+  reason: string | null;
+}
+
+export interface WorktreeFinishResult {
+  id: string;
+  status: string;
+  /** Deleted local branch; null when there was none. */
+  branch: string | null;
+  /** Removed worktree; null when the branch had none. */
+  path: string | null;
+  /** Deleted remote branch as `<remote>/<branch>`; null when it was already gone. */
+  remote_branch: string | null;
+  base: WorktreeBaseUpdate;
+  delivered_in: string;
+  code_refs: string[];
+}
+
+function indent(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => `    ${line}`)
+    .join('\n');
+}
+
+/**
+ * Files the merged branch changed: `git diff --name-only <baseRef>...<head>`. When `baseRef` already contains `head`
+ * (merged with a merge commit), the diff starts from the first parent of the commit that merged it.
+ */
+function changedFiles(root: string, baseRef: string, head: string): string[] {
+  let from = baseRef;
+  if (runGit(root, ['merge-base', '--is-ancestor', head, baseRef], WORKTREE_TIMEOUT_MS).ok) {
+    const merge = gitOrThrow(root, ['rev-list', '--first-parent', '--ancestry-path', '--reverse', `${head}..${baseRef}`], WORKTREE_TIMEOUT_MS).split('\n')[0];
+    if (!merge) return [];
+    from = `${merge}^1`;
+  }
+  const files = gitOrThrow(root, ['diff', '--name-only', `${from}...${head}`], WORKTREE_TIMEOUT_MS);
+  return files === '' ? [] : files.split('\n');
+}
+
+/** Deletes `branch` on `remote`; a branch someone else deleted meanwhile only loses its stale tracking ref. */
+function deleteRemoteBranch(root: string, remote: string, branch: string): void {
+  const pushed = runGit(root, ['push', '--quiet', remote, '--delete', branch], FETCH_TIMEOUT_MS);
+  if (pushed.ok) return;
+  const listed = runGit(root, ['ls-remote', '--heads', remote, `refs/heads/${branch}`], FETCH_TIMEOUT_MS);
+  if (!listed.ok || listed.stdout.trim() !== '') {
+    throw new OverseerError('GIT_FAILED', `git push ${remote} --delete ${branch} failed: ${pushed.reason}; nothing was removed.`);
+  }
+  gitOrThrow(root, ['update-ref', '-d', `refs/remotes/${remote}/${branch}`], WORKTREE_TIMEOUT_MS);
+}
+
+/** Fast-forwards the local `base` to `<remote>/<base>`: with `git merge --ff-only` where it is checked out, else by moving the ref. */
+function fastForwardBase(root: string, base: string, remote: string | null): WorktreeBaseUpdate {
+  const local = `refs/heads/${base}`;
+  const update = (head: string | null, fast_forwarded: boolean, reason: string | null): WorktreeBaseUpdate => ({ branch: base, head, fast_forwarded, reason });
+  const before = git(root, ['rev-parse', '--verify', '--quiet', local]);
+  if (before === undefined) return update(null, false, `there is no local branch ${base}`);
+  const target = remote === null ? undefined : git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${base}^{commit}`]);
+  if (target === undefined) return update(before, false, remote === null ? 'the repository has no remote' : `${remote}/${base} does not exist`);
+  if (target === before) return update(before, false, null);
+  if (!runGit(root, ['merge-base', '--is-ancestor', before, target], WORKTREE_TIMEOUT_MS).ok) {
+    return update(before, false, `${base} has commits that are not on ${remote}/${base}`);
+  }
+  const checkout = listGitWorktrees(root).find((entry) => entry.branch === base);
+  if (checkout === undefined) {
+    gitOrThrow(root, ['update-ref', local, target, before], WORKTREE_TIMEOUT_MS);
+  } else {
+    const merged = runGit(checkout.path, ['merge', '--ff-only', '--quiet', target], WORKTREE_TIMEOUT_MS);
+    if (!merged.ok) return update(before, false, `git merge --ff-only in ${checkout.path} failed: ${merged.reason}`);
+  }
+  return update(target, true, null);
+}
+
+/**
+ * Cleans up a task or bug whose pull request was merged with head `mergedHead` (REQ-0252, REQ-0257). The branch is the
+ * local or remote-tracking branch that fills `branch_pattern` with the item ID; its remote is the branch's upstream,
+ * else origin, which is fetched with --prune first.
+ * - Refuses with CONFLICT, removing nothing, when the worktree has uncommitted or untracked changes, or the local or
+ *   remote branch has commits that `mergedHead` lacks. The error lists them.
+ * - Otherwise deletes the remote branch when it is still there, removes the worktree (ignored files go with it),
+ *   deletes the local branch, prunes worktrees and fast-forwards the local base branch to its remote.
+ * - Sets the item done with delivered_in (`pr`, else the item's) and code_refs (the files the branch changed against
+ *   the base, else the item's code_refs).
+ */
+export async function finishWorktree(service: OverseerService, id: string, options: WorktreeFinishOptions, ctx: Ctx): Promise<WorktreeFinishResult> {
+  const { item } = service.getItem(id);
+  assertWorkItem(item, 'finished');
+  const root = service.root;
+  assertGitRepo(root);
+  const mergedHead = options.mergedHead.trim();
+  if (!SHA.test(mergedHead)) {
+    throw new OverseerError('INVALID_INPUT', `Invalid merged head "${mergedHead}": pass the pull request's head commit SHA.`);
+  }
+  const deliveredIn = options.pr?.trim() || item.delivered_in;
+  if (!deliveredIn) throw new OverseerError('INVALID_INPUT', `${item.id} has no delivered_in; pass --pr with the pull request URL.`);
+  const base = options.base ?? service.configValue('base_branch');
+
+  const matcher = branchMatcher(service.configValue('branch_pattern'), escapeRegExp(item.id));
+  const locals = matchingRefs(root, 'refs/heads/', matcher);
+  const remote = remoteFor(root, locals.length === 1 ? locals[0]! : null);
+  const baseRemote = remoteFor(root, refExists(root, `refs/heads/${base}`) ? base : null);
+  for (const name of new Set([remote, baseRemote])) {
+    if (name !== null) gitOrThrow(root, ['fetch', '--quiet', '--prune', name], FETCH_TIMEOUT_MS);
+  }
+  const remotes = remote === null ? [] : matchingRefs(root, `refs/remotes/${remote}/`, matcher);
+  const branches = [...new Set([...locals, ...remotes])];
+  if (branches.length > 1) {
+    throw new OverseerError('CONFLICT', `${item.id} matches several branches (${branches.join(', ')}); delete the extra ones and retry.`);
+  }
+  const branch = branches[0] ?? null;
+  const head = git(root, ['rev-parse', '--verify', '--quiet', `${mergedHead}^{commit}`]);
+  if (head === undefined) {
+    throw new OverseerError('NOT_FOUND', `Merged head ${mergedHead} is not in this repository; fetch the pull request's commits and retry.`);
+  }
+
+  const localRef = branch !== null && locals.includes(branch) ? `refs/heads/${branch}` : null;
+  const remoteBranch = branch !== null && remotes.includes(branch) ? `${remote}/${branch}` : null;
+  const worktree = branch === null ? undefined : listGitWorktrees(root).find((entry) => entry.branch === branch);
+  if (worktree?.main) {
+    throw new OverseerError('CONFLICT', `${branch} is checked out in the main checkout ${worktree.path}; switch it to ${base} and retry.`);
+  }
+
+  const lost: string[] = [];
+  if (worktree !== undefined && existsSync(worktree.path)) {
+    const changes = runGit(worktree.path, ['status', '--porcelain', '--untracked-files=all'], WORKTREE_TIMEOUT_MS);
+    if (!changes.ok) throw new OverseerError('GIT_FAILED', `git status in ${worktree.path} failed: ${changes.reason}`);
+    if (changes.stdout.trim() !== '') lost.push(`uncommitted changes in ${worktree.path}:\n${indent(changes.stdout.trimEnd())}`);
+  }
+  for (const ref of [localRef, remoteBranch === null ? null : `refs/remotes/${remoteBranch}`]) {
+    if (ref === null) continue;
+    const commits = gitOrThrow(root, ['log', '--oneline', '--no-decorate', `${head}..${ref}`], WORKTREE_TIMEOUT_MS);
+    if (commits !== '') lost.push(`commits on ${ref.replace(/^refs\/(heads|remotes)\//, '')} that ${mergedHead} lacks:\n${indent(commits)}`);
+  }
+  if (lost.length > 0) {
+    throw new OverseerError('CONFLICT', `Nothing was removed; finishing ${item.id} would lose:\n${lost.map((entry) => `- ${entry}`).join('\n')}`, { lost });
+  }
+
+  const baseRef = [`refs/heads/${base}`, baseRemote === null ? null : `refs/remotes/${baseRemote}/${base}`].find((ref) => ref !== null && refExists(root, ref));
+  const files = baseRef ? changedFiles(root, baseRef, head) : [];
+  const codeRefs = files.length > 0 ? files : item.code_refs;
+
+  if (remoteBranch !== null) deleteRemoteBranch(root, remote!, branch!);
+  if (worktree !== undefined && existsSync(worktree.path)) gitOrThrow(root, ['worktree', 'remove', worktree.path], WORKTREE_TIMEOUT_MS);
+  if (localRef !== null) gitOrThrow(root, ['branch', '--quiet', '-D', branch!], WORKTREE_TIMEOUT_MS);
+  gitOrThrow(root, ['worktree', 'prune'], WORKTREE_TIMEOUT_MS);
+  const baseUpdate = fastForwardBase(root, base, baseRemote);
+
+  const removed = [worktree && `worktree ${worktree.path}`, localRef && `branch ${branch}`, remoteBranch && `remote branch ${remoteBranch}`].filter(Boolean);
+  const comment = `Pull request merged: ${deliveredIn}${removed.length > 0 ? `; removed ${removed.join(', ')}` : ''}.`;
+  const { item: updated } = await service.updateItem({ id: item.id, status: 'done', delivered_in: deliveredIn, code_refs: codeRefs, comment }, ctx);
+  return {
+    id: updated.id,
+    status: updated.status,
+    branch: localRef === null ? null : branch,
+    path: worktree?.path ?? null,
+    remote_branch: remoteBranch,
+    base: baseUpdate,
+    delivered_in: deliveredIn,
+    code_refs: updated.code_refs,
+  };
 }

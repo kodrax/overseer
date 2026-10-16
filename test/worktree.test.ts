@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { runCli } from '../src/cli/index.js';
 import type { OverseerService } from '../src/core/service.js';
-import { detectSetupCommand, slugFromTitle, startWorktree } from '../src/core/worktree.js';
+import { detectSetupCommand, finishWorktree, listWorktrees, slugFromTitle, startWorktree } from '../src/core/worktree.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { ctx, openService } from './helpers/service.js';
 import { git, tempDir, tempUserConfig } from './helpers/tmp.js';
@@ -37,16 +37,50 @@ async function project(): Promise<Project> {
   return { base, repo, origin, service };
 }
 
-/** Commits `file` on origin's main through a separate clone; returns the new commit. */
-function pushToOrigin(p: Project, file: string): string {
+/** Clone of origin under `<base>/clone`, on an up-to-date main. */
+function originClone(p: Project): string {
   const clone = join(p.base, 'clone');
   if (!existsSync(clone)) git(p.base, 'clone', '-q', p.origin, clone);
+  git(clone, 'fetch', '-q', 'origin');
+  git(clone, 'checkout', '-q', 'main');
+  git(clone, 'merge', '-q', '--ff-only', 'origin/main');
+  return clone;
+}
+
+/** Commits `file` on origin's main through a separate clone; returns the new commit. */
+function pushToOrigin(p: Project, file: string): string {
+  const clone = originClone(p);
   writeFileSync(join(clone, file), '{}\n');
   git(clone, 'add', file);
   git(clone, 'commit', '-q', '-m', `add ${file}`);
   git(clone, 'push', '-q', 'origin', 'main');
   return git(clone, 'rev-parse', 'HEAD');
 }
+
+/** Starts TASK-0001's worktree, commits `files` there and pushes the branch to origin with upstream tracking. */
+async function pushedBranch(p: Project, files: Record<string, string> = { 'feature.txt': 'done\n' }): Promise<{ path: string; branch: string; head: string }> {
+  const { path, branch } = await startWorktree(p.service, 'TASK-0001', { slug: 'start', setup: false });
+  for (const [file, content] of Object.entries(files)) writeFileSync(join(path, file), content);
+  git(path, 'add', '.');
+  git(path, 'commit', '-q', '-m', 'feat: start');
+  git(path, 'push', '-q', '-u', 'origin', branch);
+  return { path, branch, head: git(path, 'rev-parse', 'HEAD') };
+}
+
+/** Merges origin's `branch` into origin's main like a pull request: squashed, or with a merge commit. Returns origin's new main. */
+function mergeOnOrigin(p: Project, branch: string, how: 'squash' | 'merge' = 'squash'): string {
+  const clone = originClone(p);
+  if (how === 'squash') {
+    git(clone, 'merge', '-q', '--squash', `origin/${branch}`);
+    git(clone, 'commit', '-q', '-m', 'feat: start (#1)');
+  } else {
+    git(clone, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #1', `origin/${branch}`);
+  }
+  git(clone, 'push', '-q', 'origin', 'main');
+  return git(clone, 'rev-parse', 'HEAD');
+}
+
+const PR = 'https://github.com/acme/app/pull/1';
 
 async function rejection(promise: Promise<unknown>): Promise<{ code: string; message: string }> {
   try {
@@ -237,6 +271,159 @@ describe('startWorktree', () => {
   });
 });
 
+describe('finishWorktree', () => {
+  it('removes the worktree and both branches, fast-forwards the checked-out main and sets the item done', async () => {
+    const p = await project();
+    const shipped = await pushedBranch(p, { 'feature.txt': 'done\n', '.gitignore': 'deps/\n' });
+    mkdirSync(join(shipped.path, 'deps'));
+    writeFileSync(join(shipped.path, 'deps', 'lib.js'), 'ignored');
+    const merged = mergeOnOrigin(p, shipped.branch);
+
+    const result = await finishWorktree(p.service, 'task-1', { mergedHead: shipped.head, pr: PR }, ctx);
+
+    expect(result).toEqual({
+      id: 'TASK-0001',
+      status: 'done',
+      branch: shipped.branch,
+      path: shipped.path,
+      remote_branch: `origin/${shipped.branch}`,
+      base: { branch: 'main', head: merged, fast_forwarded: true, reason: null },
+      delivered_in: PR,
+      code_refs: ['.gitignore', 'feature.txt'],
+    });
+    expect(existsSync(shipped.path)).toBe(false);
+    expect(git(p.repo, 'branch', '--list', 'feat/*')).toBe('');
+    expect(git(p.repo, 'branch', '-r', '--list', 'origin/feat/*')).toBe('');
+    expect(git(p.repo, 'ls-remote', '--heads', 'origin')).not.toContain(shipped.branch);
+    expect(git(p.repo, 'rev-parse', 'HEAD')).toBe(merged);
+    expect(readFileSync(join(p.repo, 'feature.txt'), 'utf8')).toBe('done\n');
+    expect(git(p.repo, 'worktree', 'list').split('\n')).toHaveLength(1);
+    const { item, history } = p.service.getItem('TASK-0001', { history: true });
+    expect(item).toMatchObject({ status: 'done', delivered_in: PR, code_refs: ['.gitignore', 'feature.txt'] });
+    expect(history?.find((event) => event.action === 'comment')?.new_value).toContain(PR);
+  });
+
+  it('refuses, removing nothing, when uncommitted changes or commits missing from the merged head would be lost', async () => {
+    const p = await project();
+    const shipped = await pushedBranch(p);
+    mergeOnOrigin(p, shipped.branch);
+    git(p.repo, 'fetch', '-q', 'origin');
+    const state = () => [git(p.repo, 'worktree', 'list'), git(p.repo, 'for-each-ref'), git(p.origin, 'for-each-ref'), p.service.getItem('TASK-0001').item.status];
+
+    writeFileSync(join(shipped.path, 'notes.txt'), 'draft');
+    writeFileSync(join(shipped.path, 'feature.txt'), 'changed\n');
+    let before = state();
+    const dirty = await rejection(finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head, pr: PR }, ctx));
+    expect(dirty.code).toBe('CONFLICT');
+    expect(dirty.message).toContain(`uncommitted changes in ${shipped.path}`);
+    expect(dirty.message).toContain(' M feature.txt');
+    expect(dirty.message).toContain('?? notes.txt');
+    expect(state()).toEqual(before);
+
+    git(shipped.path, 'add', '.');
+    git(shipped.path, 'commit', '-q', '-m', 'late fix');
+    before = state();
+    const local = await rejection(finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head, pr: PR }, ctx));
+    expect(local.code).toBe('CONFLICT');
+    expect(local.message).toMatch(new RegExp(`commits on ${shipped.branch} that ${shipped.head} lacks:\\n +[0-9a-f]+ late fix`));
+    expect(local.message).not.toContain('uncommitted');
+    expect(state()).toEqual(before);
+
+    git(shipped.path, 'push', '-q', 'origin', shipped.branch);
+    git(shipped.path, 'reset', '-q', '--hard', shipped.head);
+    before = state();
+    const remote = await rejection(finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head, pr: PR }, ctx));
+    expect(remote.message).toContain(`commits on origin/${shipped.branch} that ${shipped.head} lacks`);
+    expect(remote.message).not.toContain(`commits on ${shipped.branch} `);
+    expect(state()).toEqual(before);
+  });
+
+  it('diffs from before the merge commit already in the local base and skips a remote branch deleted on merge', async () => {
+    const p = await project();
+    const shipped = await pushedBranch(p);
+    const merged = mergeOnOrigin(p, shipped.branch, 'merge');
+    git(originClone(p), 'push', '-q', 'origin', '--delete', shipped.branch);
+    git(p.repo, 'checkout', '-q', '--detach');
+    git(p.repo, 'fetch', '-q', 'origin');
+    git(p.repo, 'branch', '-q', '-f', 'main', 'origin/main');
+    await p.service.updateItem({ id: 'TASK-0001', status: 'review', delivered_in: PR }, ctx);
+
+    const result = await finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head.slice(0, 12) }, ctx);
+
+    expect(result).toMatchObject({
+      branch: shipped.branch,
+      remote_branch: null,
+      base: { branch: 'main', head: merged, fast_forwarded: false, reason: null },
+      delivered_in: PR,
+      code_refs: ['feature.txt'],
+    });
+    expect(git(p.repo, 'branch', '-a', '--list', '*TASK-0001*')).toBe('');
+  });
+
+  it('moves a base checked out nowhere and leaves a diverged base alone', async () => {
+    const p = await project();
+    const shipped = await pushedBranch(p);
+    const merged = mergeOnOrigin(p, shipped.branch);
+    git(p.repo, 'checkout', '-q', '--detach');
+
+    const moved = await finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head, pr: PR }, ctx);
+    expect(moved.base).toEqual({ branch: 'main', head: merged, fast_forwarded: true, reason: null });
+    expect(git(p.repo, 'rev-parse', 'main')).toBe(merged);
+
+    git(p.repo, 'checkout', '-q', 'main');
+    git(p.repo, 'commit', '-q', '--allow-empty', '-m', 'local only');
+    const local = git(p.repo, 'rev-parse', 'HEAD');
+    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false });
+    pushToOrigin(p, 'other.txt');
+
+    const kept = await finishWorktree(p.service, 'BUG-0001', { mergedHead: git(bug.path, 'rev-parse', 'HEAD'), pr: PR }, ctx);
+    expect(kept.base).toEqual({ branch: 'main', head: local, fast_forwarded: false, reason: 'main has commits that are not on origin/main' });
+    expect(kept.status).toBe('done');
+    expect(git(p.repo, 'rev-parse', 'main')).toBe(local);
+  });
+
+  it('validates the item, the merged head and delivered_in before touching anything', async () => {
+    const p = await project();
+    const shipped = await pushedBranch(p);
+    await p.service.createItem({ kind: 'story', title: 'As a user I want worktrees so that I can work in parallel', allow_duplicate: true }, ctx);
+    const before = [git(p.repo, 'worktree', 'list'), git(p.repo, 'for-each-ref')];
+
+    expect(await rejection(finishWorktree(p.service, 'US-0001', { mergedHead: shipped.head, pr: PR }, ctx))).toMatchObject({
+      code: 'INVALID_INPUT',
+      message: expect.stringContaining('is a story'),
+    });
+    expect((await rejection(finishWorktree(p.service, 'TASK-0001', { mergedHead: 'main', pr: PR }, ctx))).code).toBe('INVALID_INPUT');
+    expect(await rejection(finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head }, ctx))).toMatchObject({
+      code: 'INVALID_INPUT',
+      message: expect.stringContaining('--pr'),
+    });
+    expect((await rejection(finishWorktree(p.service, 'TASK-0001', { mergedHead: 'deadbeefdeadbeef', pr: PR }, ctx))).code).toBe('NOT_FOUND');
+    git(p.repo, 'branch', 'fix/TASK-0001-other', shipped.head);
+    expect(await rejection(finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head, pr: PR }, ctx))).toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('several branches'),
+    });
+    git(p.repo, 'branch', '-D', 'fix/TASK-0001-other');
+    expect([git(p.repo, 'worktree', 'list'), git(p.repo, 'for-each-ref')]).toEqual(before);
+    expect(p.service.getItem('TASK-0001').item.status).toBe('backlog');
+  });
+});
+
+describe('listWorktrees', () => {
+  it('lists worktrees on item branches with their ids, skipping the main checkout and other branches', async () => {
+    const p = await project();
+    const task = await startWorktree(p.service, 'TASK-0001', { setup: false });
+    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false });
+    git(p.repo, 'worktree', 'add', '-q', '-b', 'spike', join(p.base, 'spike'), 'main');
+    git(p.repo, 'checkout', '-q', '-b', 'feat/TASK-0002-main');
+
+    expect(listWorktrees(p.service)).toEqual([
+      { id: 'BUG-0001', branch: bug.branch, path: bug.path },
+      { id: 'TASK-0001', branch: task.branch, path: task.path },
+    ]);
+  });
+});
+
 describe('overseer worktree start', () => {
   it('resolves to the main checkout from inside another worktree, prints JSON on stdout and setup output on stderr', async () => {
     const p = await project();
@@ -266,5 +453,32 @@ describe('overseer worktree start', () => {
     out = '';
     expect(await runCli(['worktree', 'start', 'BUG-0001', '--type', 'feat', '--json'], io, { embedder: new HashEmbedder(), env: { OVERSEER_CONFIG_DIR: tempUserConfig() }, cwd: other })).toBe(1);
     expect(JSON.parse(out)).toEqual({ error: { code: 'INVALID_INPUT', message: expect.stringContaining('type fix') } });
+  });
+});
+
+describe('overseer worktree list and finish', () => {
+  it('lists the item worktree, refuses a dirty one with exit code 1 and finishes it once clean', async () => {
+    const p = await project();
+    const shipped = await pushedBranch(p);
+    mergeOnOrigin(p, shipped.branch);
+    p.service.close();
+    writeFileSync(join(shipped.path, 'notes.txt'), 'draft');
+    let out = '';
+    const io = { stdout: { write: (chunk: string) => (out += chunk) }, stderr: { write: () => true }, stdin: Readable.from([]) };
+    const run = (...args: string[]) => runCli(args, io, { embedder: new HashEmbedder(), env: { OVERSEER_CONFIG_DIR: tempUserConfig() }, cwd: p.repo });
+
+    expect(await run('worktree', 'list', '--json')).toBe(0);
+    expect(JSON.parse(out)).toEqual([{ id: 'TASK-0001', branch: shipped.branch, path: shipped.path }]);
+
+    out = '';
+    expect(await run('worktree', 'finish', 'TASK-0001', '--merged-head', shipped.head, '--pr', PR, '--json')).toBe(1);
+    expect(JSON.parse(out)).toEqual({ error: { code: 'CONFLICT', message: expect.stringContaining('?? notes.txt') } });
+    expect(existsSync(shipped.path)).toBe(true);
+
+    rmSync(join(shipped.path, 'notes.txt'));
+    out = '';
+    expect(await run('worktree', 'finish', 'TASK-0001', '--merged-head', shipped.head, '--pr', PR, '--json')).toBe(0);
+    expect(JSON.parse(out)).toMatchObject({ id: 'TASK-0001', status: 'done', path: shipped.path, base: { fast_forwarded: true } });
+    expect(existsSync(shipped.path)).toBe(false);
   });
 });

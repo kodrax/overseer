@@ -117,17 +117,32 @@ overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] [--no-setup] -
 
 ## 6. After the merge
 
-Run when the user says the pull request is merged, or asks to finish or clean up the item.
+Run when the user says the pull request is merged, or asks to finish or clean up the item. "Clean up
+everything" → `overseer worktree list --json` (`[{id, branch, path}]`) and run the steps for each
+entry whose pull request is merged; leave the others alone. Run from the project root, never from the
+worktree being removed.
 
-1. Confirm the merge and read the pull request's head commit:
-   - `gh pr view <url> --json state,headRefOid` → `state` must be `MERGED`; the SHA is `headRefOid`.
+1. Confirm the merge and read the pull request's URL and head commit (find it by its branch when you
+   lack the URL: `gh pr list --head <branch> --state all --json url,state,headRefOid`):
+   - `gh pr view <url> --json state,url,headRefOid` → `state` must be `MERGED`; the SHA is `headRefOid`.
    - GitHub MCP server: `pull_request_read` (`method: get`) → `merged: true`, `head.sha`.
    - GitLab MCP server: `get_merge_request` (`url`) → `state: merged`, `sha`.
    - Not merged → stop; nothing is removed.
-2. `overseer worktree finish <ID> --merged-head <sha> --json`. It removes the worktree and the branch,
-   fast-forwards the base branch and sets the item `done` with `delivered_in` and `code_refs`. If it
-   refuses (uncommitted changes, or commits missing from the merged head), show the user what would be
-   lost and stop; never force it.
+2. `overseer worktree finish <ID> --merged-head <sha> --pr <url> [--base <B>] --json` (`--base`: the
+   pull request's base when it is not `base_branch`):
+   ```
+   {"id", "status": "done", "branch", "path", "remote_branch",
+    "base": {"branch", "head", "fast_forwarded", "reason"}, "delivered_in", "code_refs"}
+   ```
+   It deletes the remote branch when it is still there, removes the worktree (ignored files such as
+   dependencies and build output go with it) and the local branch, prunes, fast-forwards the local base
+   branch and sets the item `done` with `delivered_in` and `code_refs` (the files the branch changed).
+   `base.reason` says why the base was not fast-forwarded (local commits, or changes in its checkout
+   that block it); tell the user.
+   - `CONFLICT` "would lose" → nothing was removed. Show the user the listed uncommitted changes or
+     commits and stop; never force it, never delete them yourself.
+   - `NOT_FOUND` for the merged head → this clone lacks the merged commit even after fetching; nothing
+     was removed. Tell the user and stop.
 3. Set the linked requirements to `implemented` once all their work is done, run `report drift`, and
    report the IDs and statuses.
 
