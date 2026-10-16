@@ -7,7 +7,10 @@ export type ErrorCode =
   | 'INVALID_PARENT'
   | 'NOT_MANAGED'
   | 'CONFIG_PARSE'
-  | 'DISABLED';
+  | 'DISABLED'
+  | 'CONFLICT'
+  | 'GIT_FAILED'
+  | 'SETUP_FAILED';
 
 /** User-facing error: surfaces as `<CODE>: <message>` in the CLI, MCP tools and the board API. */
 export class OverseerError extends Error {

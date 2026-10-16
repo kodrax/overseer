@@ -7,8 +7,15 @@ Work is planned on the overseer board: every change belongs to a task (`TASK-…
 1. Pick a task or bug and create a worktree on its branch:
 
    ```sh
+   overseer worktree start TASK-0032 --slug ship-skill --json
+   ```
+
+   It fetches `origin`, creates `feat/TASK-0032-ship-skill` from `origin/main` in `../overseer.worktrees/TASK-0032-ship-skill`, runs `npm ci` there and prints the path. Without overseer, use git directly:
+
+   ```sh
    git fetch origin
-   git worktree add -b feat/TASK-0032-ship-skill ../overseer.worktrees/TASK-0032-ship-skill origin/main
+   git worktree add --no-track -b feat/TASK-0032-ship-skill ../overseer.worktrees/TASK-0032-ship-skill origin/main
+   cd ../overseer.worktrees/TASK-0032-ship-skill && npm ci
    ```
 
 2. Commit as often as you like. The pull request is squash-merged, so its title becomes the commit on `main`.

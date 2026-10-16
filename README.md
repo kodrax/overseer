@@ -216,6 +216,7 @@ overseer export                             # writes docs/overseer/
 | `export [--out] [--only] [--since]` | write Markdown/JSON reports into the project |
 | `import <file\|-> --source github\|gitlab --repo <repo>` | import issues from a JSON array |
 | `pr draft <id> [--type <type>]` | pull request title and body for a task or bug (see below) |
+| `worktree start <id> [--type] [--slug] [--base] [--no-setup]` | create or reuse the git worktree and branch of a task or bug (see [Worktrees](#worktrees)) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -231,6 +232,18 @@ Every data command accepts `--json`. Errors go to stderr as `error: <CODE>: <mes
 - **Body**: the repository's `.github/pull_request_template.md`, else `.gitlab/merge_request_templates/Default.md`, else overseer's default template. Branch and template come from the checkout you run it in (linked worktrees included). The command fills the `Item:` line, the Why section (description plus linked requirements with their titles) and the acceptance criteria as a checklist, adding those sections when the template lacks them. For an imported GitHub or GitLab issue it adds `Closes owner/repo#N`. Other sections keep their HTML comment for you to complete.
 
 The same item, template and branch always give the same draft. This command has no MCP tool.
+
+### Worktrees
+
+`overseer worktree start TASK-0038 --json` gives a task or bug its own branch and worktree and prints `{"path", "branch", "base", "reused", "setup": {"command", "ran"}}`:
+
+- **Branch**: `branch_pattern` filled with the type (`--type`, else `fix` for bugs and `feat` for tasks; bugs always use `fix`), the ID and the slug (`--slug`, else the first four words of the title without accents and filler words: `Create and reuse issue worktrees` → `create-reuse-issue-worktrees`).
+- **Path**: `<worktree_root>/<ID>-<slug>`, with `worktree_root` taken relative to the main checkout, also when you run the command inside another worktree.
+- **New branch**: overseer fetches `origin` and starts from `origin/<base>`, else from the local `<base>`. The base is `--base`, else `base_branch`.
+- **Reuse**: a worktree already on the branch is returned with `reused: true`. A branch without a worktree gets one, and no new branch is created. A path that exists but is not the branch's worktree gives `CONFLICT`, and nothing is changed.
+- **Setup**: a new worktree runs `worktree_setup`, its output going to stderr. Without the setting, the command follows the lockfile: `npm ci`, `pnpm install --frozen-lockfile` or `yarn install --immutable`. `--no-setup` skips it. If the setup fails, the worktree is kept and the command exits with `SETUP_FAILED`, naming the command and the path.
+
+The command never changes the item's status. This command has no MCP tool.
 
 ### Web board
 
@@ -355,8 +368,9 @@ echo '[{"external_id":"acme/demo#7","url":"https://github.com/acme/demo/issues/7
 | `worktree_root` | `../<project folder name>.worktrees`, relative to the project root |
 | `base_branch` | the remote's default branch (`refs/remotes/origin/HEAD`), else `main` |
 | `branch_pattern` | `{type}/{id}-{slug}`; must contain `{id}` |
+| `worktree_setup` | from the lockfile: `npm ci` (`package-lock.json`), `pnpm install --frozen-lockfile` (`pnpm-lock.yaml`), `yarn install --immutable` (`yarn.lock`), else `none`; `none` turns the setup off |
 
-The last three are worked out when read until you set them, so `overseer config get <key> --json` always prints the value in effect.
+The last four are worked out when read until you set them, so `overseer config get <key> --json` always prints the value in effect.
 
 Environment variables:
 

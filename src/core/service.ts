@@ -48,6 +48,7 @@ import {
 import { type ExportOptions, type ExportResult, exportReports } from './export.js';
 import { type ImportResult, importItems } from './import.js';
 import { type SearchResult, SemanticIndex, type SimilarMatch, type SimilarResult } from './search.js';
+import { detectSetupCommand, SETUP_NONE } from './worktree.js';
 
 export interface CreatedResult {
   created: true;
@@ -149,6 +150,7 @@ export const CONFIG_KEYS = [
   'worktree_root',
   'base_branch',
   'branch_pattern',
+  'worktree_setup',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -234,7 +236,11 @@ export class OverseerService {
     return Object.fromEntries(CONFIG_KEYS.map((key) => [key, this.configValue(key)])) as Record<ConfigKey, string>;
   }
 
-  /** Stored value of a setting, else its default. Worktree defaults are computed on read: they follow the folder and the remote. */
+  /**
+   * Stored value of a setting, else its default. Worktree defaults are computed on read: they follow the folder, the
+   * remote and the lockfile (`worktree_setup` here is detected in the project root; `worktree start` detects it in the
+   * new worktree).
+   */
   configValue(key: ConfigKey): string {
     const stored = this.getMeta(key);
     if (stored !== undefined) return stored;
@@ -245,6 +251,8 @@ export class OverseerService {
         return defaultBaseBranch(this.root);
       case 'branch_pattern':
         return DEFAULT_BRANCH_PATTERN;
+      case 'worktree_setup':
+        return detectSetupCommand(this.root) ?? SETUP_NONE;
       default:
         return '';
     }

@@ -63,13 +63,21 @@ tasks default to `feat`. Follow the project's CONTRIBUTING file when it defines 
 ## 3. Start the worktree
 
 ```sh
-overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] --json
-# → {"path": "…", "branch": "…", "base": "…", "reused": false}
+overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] [--no-setup] --json
+# → {"path": "…", "branch": "…", "base": "…", "reused": false,
+#    "setup": {"command": "npm ci", "ran": true}}
 ```
 
 - `--slug`: only to override overseer's slug (two to four lowercase words with hyphens).
 - `--base`: when the item `depends_on` an item that is not merged yet, ask whether to start from that
   item's branch; the pull request then targets that branch. Otherwise omit it (`base_branch` applies).
+- `setup`: a new worktree runs the project setup (`worktree_setup`, else `npm ci`, `pnpm install
+  --frozen-lockfile` or `yarn install --immutable` from the lockfile; `none` turns it off) so the checks
+  work there; `command: null` means there is none. `--no-setup` skips it (`ran: false`).
+- `SETUP_FAILED` → the worktree is kept; the message names the command and the path. Fix the cause,
+  then run the setup command yourself inside `path`. Rerunning `worktree start` reuses the worktree and
+  does not run the setup again.
+- `CONFLICT` → the path exists but is not this branch's worktree. Show it to the user; never delete it.
 - `reused: true` → work already exists. Read `git -C <path> status` and `git -C <path> log <base>..HEAD`
   and continue from there instead of starting over.
 - `update_item`: `status: in_progress`, `comment` with the branch name.
