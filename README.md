@@ -1,6 +1,6 @@
 # overseer
 
-A requirements registry and Agile board for coding agents. overseer stores each project's functional and non-functional requirements, epics, user stories, tasks and bugs in a local SQLite database with multilingual semantic search. It plugs into the coding harnesses you use (Claude Code, OMP, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor, OpenCode) as a subagent, three skills and an MCP server. You can ask your agent "is password reset already covered?" or "record this requirement", or you can use the CLI and the local web board.
+A requirements registry and Agile board for coding agents. overseer stores each project's functional and non-functional requirements, epics, user stories, tasks and bugs in a local SQLite database with multilingual semantic search. It plugs into the coding harnesses you use (Claude Code, OMP, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor, OpenCode) as a subagent, four skills and an MCP server. You can ask your agent "is password reset already covered?" or "record this requirement", or you can use the CLI and the local web board.
 
 - **Off until you turn it on**: overseer works only in the projects where you run `overseer enable`. Everywhere else its tools and commands refuse and create nothing.
 - **Local**: data stays in `<project>/.overseer/`. Embeddings run on your machine with `Xenova/multilingual-e5-small` (about 118 MB, downloaded once). overseer never calls an LLM; your harness's model does the reasoning.
@@ -87,7 +87,7 @@ There are three kinds of files. The harness files say how a harness reaches over
 | Cursor | `~/.agents/skills/` | `~/.cursor/agents/overseer.md` | `~/.cursor/mcp.json` |
 | OpenCode | `~/.config/opencode/skills/` | `~/.config/opencode/agents/overseer.md` | `~/.config/opencode/opencode.json` |
 
-- **Skills**: three folders, `overseer`, `overseer-bootstrap` and `overseer-import`.
+- **Skills**: four folders, `overseer`, `overseer-bootstrap`, `overseer-import` and `overseer-ship`.
 - **Shared skills folder**: Codex, Gemini, Copilot and Cursor all read `~/.agents/skills/`, so overseer writes it once and removes it only when none of them still uses it.
 - **Custom config folders**: the installer honours `CLAUDE_CONFIG_DIR`, `PI_CONFIG_DIR` / `PI_CODING_AGENT_DIR` (OMP), `CODEX_HOME`, `COPILOT_HOME` and `XDG_CONFIG_HOME`.
 - **OMP named profiles** (`omp --profile work`) read `~/.omp/profiles/work/agent/` instead. Install there with `PI_CODING_AGENT_DIR=~/.omp/profiles/work/agent overseer install --targets omp`.
@@ -181,6 +181,7 @@ In a project you turned on, talk to your agent as usual. The main agent calls th
 - "Plan an epic for checkout with stories and tasks."
 - "Use the overseer agent to bootstrap requirements from this codebase."
 - "Import our GitHub issues into the board."
+- "Ship TASK-0012: branch, implement and open the pull request."
 - "US-0003 is done, delivered in PR #42. Anything drifting?"
 - "Export the overseer reports."
 
