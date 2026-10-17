@@ -224,7 +224,7 @@ overseer export                             # writes docs/overseer/
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
 | `reindex` | rebuild the keyword index and re-embed every item |
-| `config get [key]` / `config set <key> <value>` | project settings |
+| `config get [key] [--stored]` / `config set <key> <value>` | project settings (`--stored`: only the ones set in this project) |
 | `install` / `uninstall` / `doctor` | harness wiring and health checks |
 
 Every data command accepts `--json`. Errors go to stderr as `error: <CODE>: <message>` with exit code 1. With `--json`, they go to stdout as `{"error":{"code","message"}}`.
@@ -383,7 +383,7 @@ echo '[{"external_id":"acme/demo#7","url":"https://github.com/acme/demo/issues/7
 | `branch_pattern` | `{type}/{id}-{slug}`; must contain `{id}` |
 | `worktree_setup` | from the lockfile: `npm ci` (`package-lock.json`), `pnpm install --frozen-lockfile` (`pnpm-lock.yaml`), `yarn install --immutable` (`yarn.lock`), else `none`; `none` turns the setup off |
 
-The last four are worked out when read until you set them, so `overseer config get <key> --json` always prints the value in effect.
+The last four are worked out when read until you set them, so `overseer config get <key> --json` always prints the value in effect. Add `--stored` to see only what was set in this project: `overseer config get --stored --json` leaves out the settings that still fall back to a default, and `overseer config get <key> --stored` fails with `NOT_FOUND` when that key was never set. The ship skill uses it to tell a first run from a later one.
 
 Environment variables:
 

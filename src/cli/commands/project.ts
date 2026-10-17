@@ -151,15 +151,22 @@ export function registerProjectCommands(program: Command, rt: CliRuntime): void 
     .command('get')
     .description('print one setting, or all of them')
     .argument('[key]', `setting: ${CONFIG_KEYS.join(' | ')}`)
+    .option('--stored', 'only settings stored in this project, without defaults')
     .option('--json', 'print JSON')
-    .action(async (key: string | undefined, options: { json?: boolean }, command: Command) => {
+    .action(async (key: string | undefined, options: { json?: boolean; stored?: boolean }, command: Command) => {
       await rt.withService(command, 'read', (service) => {
         if (key === undefined) {
-          rt.emit(options.json, service.getConfig(), (values) => table(['Key', 'Value'], CONFIG_KEYS.map((name) => [name, values[name]])));
+          const values: Partial<Record<string, string>> = options.stored ? service.storedConfig() : service.getConfig();
+          rt.emit(options.json, values, (shown) =>
+            table(['Key', 'Value'], CONFIG_KEYS.flatMap((name) => (shown[name] === undefined ? [] : [[name, shown[name]]]))),
+          );
           return;
         }
         const name = oneOf(CONFIG_KEYS, key, 'config key');
-        const value = service.configValue(name);
+        const value = options.stored ? service.getMeta(name) : service.configValue(name);
+        if (value === undefined) {
+          throw new OverseerError('NOT_FOUND', `${name} is not stored in this project; "overseer config get ${name}" prints the value in effect.`);
+        }
         rt.emit(options.json, { [name]: value }, () => value);
       });
     });
