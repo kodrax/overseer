@@ -315,6 +315,28 @@ describe('cli init and config', () => {
     expect(bad.json<ErrorEnvelope>().error.code).toBe('INVALID_INPUT');
     expect((await cli(repo, ['config', 'set', 'branch_pattern', 'wip/{id}'])).out).toBe('branch_pattern = wip/{id}\n');
   });
+
+  it('config get --stored prints only stored settings and reports an unset key as NOT_FOUND', async () => {
+    const repo = tempRepo();
+    await cli(repo, ['init', '--json']);
+    const worktreeKeys = ['worktree_root', 'base_branch', 'branch_pattern', 'worktree_setup'];
+    const fresh = (await cli(repo, ['config', 'get', '--stored', '--json'])).json<Record<string, string>>();
+    for (const key of worktreeKeys) expect(fresh).not.toHaveProperty(key);
+    expect(fresh).toMatchObject({ project_name: basename(repo), board_port: '4477' });
+    expect(Object.keys((await cli(repo, ['config', 'get', '--json'])).json<object>())).toEqual(expect.arrayContaining(worktreeKeys));
+
+    const unset = await cli(repo, ['config', 'get', 'base_branch', '--stored', '--json']);
+    expect(unset.code).toBe(1);
+    expect(unset.json<ErrorEnvelope>().error.code).toBe('NOT_FOUND');
+
+    await cli(repo, ['config', 'set', 'base_branch', 'main']);
+    const stored = (await cli(repo, ['config', 'get', '--stored', '--json'])).json<Record<string, string>>();
+    expect(stored.base_branch).toBe('main');
+    expect(stored).not.toHaveProperty('worktree_root');
+    expect(stored).not.toHaveProperty('branch_pattern');
+    expect((await cli(repo, ['config', 'get', 'base_branch', '--stored', '--json'])).json()).toEqual({ base_branch: 'main' });
+    expect((await cli(repo, ['config', 'get', 'base_branch', '--stored'])).out).toBe('main\n');
+  });
 });
 
 describe('cli install and doctor', () => {

@@ -236,6 +236,16 @@ export class OverseerService {
     return Object.fromEntries(CONFIG_KEYS.map((key) => [key, this.configValue(key)])) as Record<ConfigKey, string>;
   }
 
+  /** Settings stored in this project, leaving out the ones that still fall back to a default. */
+  storedConfig(): Partial<Record<ConfigKey, string>> {
+    const stored: Partial<Record<ConfigKey, string>> = {};
+    for (const key of CONFIG_KEYS) {
+      const value = this.getMeta(key);
+      if (value !== undefined) stored[key] = value;
+    }
+    return stored;
+  }
+
   /**
    * Stored value of a setting, else its default. Worktree defaults are computed on read: they follow the folder, the
    * remote and the lockfile (`worktree_setup` here is detected in the project root; `worktree start` detects it in the
