@@ -111,6 +111,25 @@ describe('mcp server', () => {
     expect((await call(client, 'create_item', { kind: 'task', title: 'x', project_dir: 'relative/path' })).text).toMatch(/^INVALID_INPUT: /);
   });
 
+  it('reports invalid tool arguments as INVALID_INPUT naming the field', async () => {
+    const repo = tempRepo();
+    const client = await connect({ cwd: repo });
+    const kind = await call(client, 'find_similar', { text: 'probe', kind: 'nope' });
+    expect(kind.result.isError).toBe(true);
+    expect(kind.text).toBe('INVALID_INPUT: kind: Invalid option: expected one of "requirement"|"epic"|"story"|"task"|"bug"');
+    const id = await call(client, 'get_item', { id: 42 });
+    expect(id.result.isError).toBe(true);
+    expect(id.text).toBe('INVALID_INPUT: id: Invalid input: expected string, received number');
+    const title = await call(client, 'create_item', { kind: 'task' });
+    expect(title.result.isError).toBe(true);
+    expect(title.text).toBe('INVALID_INPUT: title: Invalid input: expected string, received undefined');
+    expect(existsSync(join(repo, '.overseer'))).toBe(false);
+
+    // Errors overseer raises itself and valid calls are unchanged.
+    expect((await call(client, 'create_item', { kind: 'task', title: 'Valid' })).data).toMatchObject({ created: true, item: { id: 'TASK-0001' } });
+    expect((await call(client, 'get_item', { id: 'TASK-0999' })).text).toBe('NOT_FOUND: No item with id TASK-0999.');
+  });
+
   it('uses the first client root when the client advertises roots', async () => {
     const home = tempDir('ovs-home-');
     vi.stubEnv('HOME', home);

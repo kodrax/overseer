@@ -1,8 +1,8 @@
 import { isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { type CallToolResult, RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { type CallToolResult, CallToolRequestSchema, RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { startBoardServer, type BoardServer } from '../board/server.js';
 import { type Embedder, TransformersEmbedder } from '../core/embeddings.js';
@@ -16,6 +16,7 @@ import {
   type Ctx,
   EXPORT_PARTS,
   KINDS,
+  parseInput,
   RELATIONS,
   REPORT_KINDS,
   REQ_TYPES,
@@ -110,9 +111,43 @@ function fail(error: unknown): CallToolResult {
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
+/**
+ * Answers invalid tool arguments with `INVALID_INPUT: <field>: <problem>` like any other failure. The SDK checks
+ * arguments against each tool's inputSchema before the handler runs and would answer
+ * `MCP error -32602: Input validation error: …`, so tools/call checks them first with the same schemas.
+ * The advertised schemas (tools/list) stay as registered. Call before the first registerTool.
+ */
+function reportInvalidArguments(server: McpServer): void {
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = server.registerTool.bind(server) as (...args: unknown[]) => RegisteredTool;
+  server.registerTool = ((name: string, ...rest: unknown[]) => {
+    const tool = registerTool(name, ...rest);
+    tools.set(name, tool);
+    return tool;
+  }) as typeof server.registerTool;
+
+  const setRequestHandler = server.server.setRequestHandler.bind(server.server);
+  type CallToolHandler = Parameters<typeof setRequestHandler<typeof CallToolRequestSchema>>[1];
+  server.server.setRequestHandler = ((schema: typeof CallToolRequestSchema, handler: CallToolHandler) => {
+    if (schema !== CallToolRequestSchema) return setRequestHandler(schema, handler);
+    return setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      const tool = tools.get(request.params.name);
+      if (tool?.enabled && tool.inputSchema) {
+        try {
+          parseInput(tool.inputSchema as z.ZodType, request.params.arguments ?? {});
+        } catch (error) {
+          return fail(error);
+        }
+      }
+      return handler(request, extra);
+    });
+  }) as typeof server.server.setRequestHandler;
+}
+
 /** MCP server exposing the overseer tools (S7). Projects are resolved lazily per call and cached by root. */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const server = new McpServer({ name: 'overseer', version: packageVersion() }, { instructions: INSTRUCTIONS });
+  reportInvalidArguments(server);
   const env = options.env ?? process.env;
   const embedder = options.embedder === undefined ? new TransformersEmbedder() : options.embedder;
   const services = new Map<string, OverseerService>();
