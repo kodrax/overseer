@@ -362,7 +362,7 @@ The `overseer-import` skill reads issues through the GitHub or GitLab MCP server
 
 - **Re-running is safe**: re-imports update titles, descriptions and labels. An issue without `body` keeps its stored description; `"body": ""` clears it. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
 - **One-way**: nothing is pushed back to GitHub or GitLab.
-- **Setup**: commands for connecting each harness to GitHub or GitLab are in [`templates/skills/overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md).
+- **Setup**: [`templates/skills/overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md) is a per-harness guide (Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor, OMP, OpenCode) with a source for each snippet. GitHub: the official server, read-only for import or with issue write access plus label and project reads. GitLab: [zereight/gitlab-mcp](https://github.com/zereight/gitlab-mcp) (`npx -y @zereight/mcp-gitlab`, read-only switch for import) or GitLab's built-in server.
 
 `import_items` takes the issues in one of two fields, never both:
 
