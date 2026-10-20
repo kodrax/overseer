@@ -63,7 +63,7 @@ Numbers or names (comma-separated), "all", or Enter for [claude, omp]:
 A harness counts as installed when its CLI is on `PATH`. A config folder alone does not count, because it may be left over from an uninstalled tool. The exception is Cursor: the desktop app often adds no shell command, so `~/.cursor` is enough.
 
 - `--targets claude,omp` chooses without asking.
-- Outside a terminal (scripts, CI), `install` uses the detected harnesses. If it finds none, it asks you to pass `--targets`.
+- Without `--targets`, outside a terminal (scripts, CI) or with `--json`, `install` never prompts: it uses the detected harnesses plus those overseer is already installed for. If there are none, it asks you to pass `--targets`.
 - `--dry-run` prints every planned file write and command and changes nothing.
 - `--skip-model` skips the model download; run `overseer models pull` later.
 
@@ -150,7 +150,7 @@ With a user-scope install, one MCP server serves every project. It works out the
 4. the first workspace root the harness advertises over MCP (`roots/list`)
 5. the current directory
 
-The result is then mapped to the root of the git repository's main checkout. Outside git, overseer uses the nearest parent folder that has a `.overseer/`. If that lands on your home directory or the filesystem root, overseer refuses to write (`NO_PROJECT`) rather than creating a registry there; the skills tell the agent to retry with `project_dir`.
+The result is then mapped to the root of the git repository's main checkout. Outside git, overseer uses the nearest parent folder that has a `.overseer/`. If that lands on your home directory, one of its ancestors (such as `/home`) or the filesystem root, overseer refuses to write (`NO_PROJECT`) rather than creating a registry there; the skills tell the agent to retry with `project_dir`.
 
 ## Turning overseer on and off
 
@@ -209,7 +209,7 @@ overseer export                             # writes docs/overseer/
 | `add <kind> --title …` | record a requirement, epic, story, task or bug; refuses likely duplicates unless `--allow-duplicate` (`--json` prints a compact result, `--full` the whole item) |
 | `update <id> …` | change fields or status, `--comment`, `--delivered-in`, `--clear <field>` (`--json` prints a compact result, `--full` the whole item) |
 | `show <id>… [--context] [--history]` | items with links, children, coverage and history; several IDs (up to 50) print `{items:[…]}` with `--json`; `--context` adds the parent and the linked requirements with their acceptance criteria |
-| `list [--kind] [--status] [--coverage] [--tag] [--all]` | list items (closed ones hidden unless `--all`) |
+| `list [--kind] [--status] [--type] [--coverage] [--tag] [--parent] [--all] [--limit] [--offset]` | list items (closed ones hidden unless `--all`); `--type` filters requirements by `functional` or `non_functional`, `--parent <id>` lists an item's children; pages of `--limit` items (default 50) starting at `--offset` |
 | `search <query>` | hybrid keyword + semantic search |
 | `similar <text>` | duplicate check |
 | `coverage <text>` | is this already covered, tracked or delivered? |
@@ -332,6 +332,8 @@ Requirement coverage is worked out from the linked work:
 | `verified` | the requirement is `verified` |
 | `not_applicable` | the requirement is `deferred`, `rejected` or `obsolete` |
 
+Cancelled implementing items are ignored: they neither count as work nor keep a requirement from being delivered.
+
 - **`report drift`** flags status mismatches. It catches three cases: the work is done but the requirement is still open; the requirement is marked implemented while its work is unfinished; work has started on an unapproved requirement.
 - **Lint warnings** (`report lint`, and the warnings returned when you create or update an item) cover:
   - vague terms in English and Spanish
@@ -339,6 +341,7 @@ Requirement coverage is worked out from the linked work:
   - non-functional requirements that can't be measured or lack a category
   - missing acceptance criteria
   - stories not written as "As a… I want… so that…"
+  - titles over 100 characters (`title_too_long`)
 
   Warnings never block a write.
 
@@ -360,7 +363,7 @@ Requirement coverage is worked out from the linked work:
 
 The `overseer-import` skill reads issues through the GitHub or GitLab MCP server configured in your harness, so overseer itself stores no tokens. It maps issues to items and calls `import_items` in batches.
 
-- **Re-running is safe**: re-imports update titles, descriptions and labels. An issue without `body` keeps its stored description; `"body": ""` clears it. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
+- **Re-running is safe**: re-imports update titles, descriptions, labels, the assignee, the milestone and the issue URL. An issue without `body` keeps its stored description; `"body": ""` clears it. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
 - **One-way**: nothing is pushed back to GitHub or GitLab.
 - **Setup**: commands for connecting each harness to GitHub or GitLab are in [`templates/skills/overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md).
 
