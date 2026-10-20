@@ -70,8 +70,10 @@ describe('mcp server', () => {
       req_type: 'functional',
     });
     expect(created.result.isError).toBeFalsy();
-    expect(created.data).toMatchObject({ created: true, item: { id: 'REQ-0001', recorded_via: 'test-client' } });
+    expect(created.data).toMatchObject({ created: true, id: 'REQ-0001' });
     expect(JSON.parse(created.text)).toMatchObject({ created: true });
+    const updated = await call(client, 'update_item', { id: 'REQ-0001', full: true });
+    expect(updated.data).toMatchObject({ item: { id: 'REQ-0001', recorded_via: 'test-client' }, changed_fields: [] });
 
     const similar = await call(client, 'find_similar', { text: 'Password reset by email single-use link', kind: 'requirement' });
     expect(similar.data).toMatchObject({ semantic: true, matches: [{ id: 'REQ-0001', coverage: 'untracked' }] });
@@ -125,6 +127,68 @@ describe('mcp server', () => {
     expect(tooMany.text).toMatch(/^INVALID_INPUT: /);
   });
 
+  it('returns compact create and update results unless full is set', async () => {
+    const repo = tempRepo();
+    const client = await connect({ cwd: repo });
+    const { tools } = await client.listTools();
+    for (const name of ['create_item', 'update_item']) {
+      expect(Object.keys(tools.find((tool) => tool.name === name)!.inputSchema.properties ?? {})).toContain('full');
+    }
+    const reset = {
+      kind: 'requirement',
+      title: 'Password reset by email',
+      description: 'When a user requests a password reset, the system shall email a single-use link.',
+      req_type: 'functional',
+      acceptance_criteria: ['Given a registered email, when a reset is requested, then a link is sent'],
+    };
+
+    const created = await call(client, 'create_item', reset);
+    expect(created.data).toEqual({ created: true, id: 'REQ-0001', title: 'Password reset by email', status: 'proposed', verdict: 'new', candidates: [], warnings: [] });
+    expect(JSON.parse(created.text)).toEqual(created.data);
+
+    const duplicate = await call(client, 'create_item', reset);
+    expect(duplicate.data).toEqual({
+      created: false,
+      reason: 'possible_duplicate',
+      verdict: 'duplicate',
+      candidates: [{ id: 'REQ-0001', title: 'Password reset by email', similarity: expect.any(Number), match: 'duplicate' }],
+    });
+
+    const forced = await call(client, 'create_item', { ...reset, allow_duplicate: true });
+    expect(forced.data).toEqual({
+      created: true,
+      id: 'REQ-0002',
+      title: 'Password reset by email',
+      status: 'proposed',
+      verdict: 'duplicate',
+      candidates: [{ id: 'REQ-0001', title: 'Password reset by email', similarity: expect.any(Number), match: 'duplicate' }],
+      warnings: [],
+    });
+
+    const fullCreate = await call(client, 'create_item', { ...reset, allow_duplicate: true, full: true });
+    expect(fullCreate.data).toMatchObject({
+      created: true,
+      item: { id: 'REQ-0003', kind: 'requirement', description: reset.description, recorded_via: 'test-client' },
+      warnings: [],
+      similar: [{ id: 'REQ-0001', kind: 'requirement', status: 'proposed', match: 'duplicate' }, { id: 'REQ-0002' }],
+    });
+    expect(Object.keys(fullCreate.data!).sort()).toEqual(['created', 'item', 'similar', 'warnings']);
+    const fullDuplicate = await call(client, 'create_item', { ...reset, full: true });
+    expect(fullDuplicate.data).toMatchObject({ created: false, reason: 'possible_duplicate' });
+    expect((fullDuplicate.data!.candidates as object[])[0]).toMatchObject({ id: 'REQ-0001', kind: 'requirement', status: 'proposed', coverage: 'untracked' });
+    expect(fullDuplicate.data).not.toHaveProperty('verdict');
+
+    const updated = await call(client, 'update_item', { id: 'REQ-0001', status: 'approved', priority: 'must' });
+    expect(updated.data).toEqual({ id: 'REQ-0001', title: 'Password reset by email', status: 'approved', changed_fields: ['priority', 'status'], warnings: [] });
+    const fullUpdate = await call(client, 'update_item', { id: 'REQ-0001', acceptance_criteria: [], full: true });
+    expect(fullUpdate.data).toMatchObject({
+      item: { id: 'REQ-0001', status: 'approved', priority: 'must', acceptance_criteria: [] },
+      changed_fields: ['acceptance_criteria'],
+      warnings: [expect.objectContaining({ rule: expect.any(String) })],
+    });
+    expect(Object.keys(fullUpdate.data!).sort()).toEqual(['changed_fields', 'item', 'warnings']);
+  });
+
   it('answers reads on an uninitialized project without creating it', async () => {
     const repo = tempRepo();
     const client = await connect({ cwd: repo });
@@ -147,7 +211,7 @@ describe('mcp server', () => {
     expect(existsSync(join(home, '.overseer'))).toBe(false);
 
     const retried = await call(client, 'create_item', { kind: 'task', title: 'Anything', project_dir: repo });
-    expect(retried.data).toMatchObject({ created: true, item: { id: 'TASK-0001' } });
+    expect(retried.data).toMatchObject({ created: true, id: 'TASK-0001' });
     expect((await call(client, 'create_item', { kind: 'task', title: 'x', project_dir: 'relative/path' })).text).toMatch(/^INVALID_INPUT: /);
   });
 
@@ -166,7 +230,7 @@ describe('mcp server', () => {
     expect(existsSync(join(repo, '.overseer'))).toBe(false);
 
     // Errors overseer raises itself and valid calls are unchanged.
-    expect((await call(client, 'create_item', { kind: 'task', title: 'Valid' })).data).toMatchObject({ created: true, item: { id: 'TASK-0001' } });
+    expect((await call(client, 'create_item', { kind: 'task', title: 'Valid' })).data).toMatchObject({ created: true, id: 'TASK-0001' });
     expect((await call(client, 'get_item', { id: 'TASK-0999' })).text).toBe('NOT_FOUND: No item with id TASK-0999.');
   });
 

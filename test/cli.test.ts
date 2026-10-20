@@ -6,7 +6,7 @@ import { runCli } from '../src/cli/index.js';
 import type { ExportResult } from '../src/core/export.js';
 import type { ImportResult } from '../src/core/import.js';
 import type { SimilarResult } from '../src/core/search.js';
-import type { CreatedResult, ItemDetail, ListResult, UpdateResult } from '../src/core/service.js';
+import type { CompactCreatedResult, CompactUpdateResult, ItemDetail, ListResult, UpdateResult } from '../src/core/service.js';
 import type { CheckLine } from '../src/install/index.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { git, tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
@@ -72,9 +72,14 @@ describe('cli add', () => {
 
     const json = await cli(repo, ['add', 'bug', '--title', 'Safari login broken', '--steps', 'open /login', '--steps', 'click Login', '--actual', 'nothing', '--severity', 'major', '--json']);
     expect(json.code).toBe(0);
-    expect(json.json()).toMatchObject({
+    expect(json.json()).toEqual({ created: true, id: 'BUG-0001', title: 'Safari login broken', status: 'backlog', verdict: 'new', candidates: [], warnings: expect.any(Array) });
+
+    const full = await cli(repo, ['add', 'bug', '--title', 'Dark mode toggle missing', '--steps', 'open settings', '--actual', 'no toggle', '--severity', 'minor', '--json', '--full']);
+    expect(full.json()).toMatchObject({
       created: true,
-      item: { id: 'BUG-0001', severity: 'major', bug_details: { steps: ['open /login', 'click Login'], expected: '', actual: 'nothing' } },
+      item: { id: 'BUG-0002', severity: 'minor', bug_details: { steps: ['open settings'], expected: '', actual: 'no toggle' } },
+      warnings: expect.any(Array),
+      similar: expect.any(Array),
     });
 
     const shown = (await cli(repo, ['show', 'REQ-0001', '--json'])).json<ItemDetail>();
@@ -86,14 +91,24 @@ describe('cli add', () => {
     await cli(repo, RESET);
     const refused = await cli(repo, [...RESET, '--json']);
     expect(refused.code).toBe(0);
-    expect(refused.json()).toMatchObject({ created: false, reason: 'possible_duplicate', candidates: [{ id: 'REQ-0001', match: 'duplicate' }] });
+    expect(refused.json()).toEqual({
+      created: false,
+      reason: 'possible_duplicate',
+      verdict: 'duplicate',
+      candidates: [{ id: 'REQ-0001', title: 'Password reset by email', similarity: expect.any(Number), match: 'duplicate' }],
+    });
+    expect((await cli(repo, [...RESET, '--json', '--full'])).json()).toMatchObject({
+      created: false,
+      reason: 'possible_duplicate',
+      candidates: [{ id: 'REQ-0001', kind: 'requirement', status: 'approved', coverage: 'untracked', match: 'duplicate' }],
+    });
 
     const human = await cli(repo, RESET);
     expect(human.out).toContain('possible duplicate');
     expect(human.out).toContain('--allow-duplicate');
 
     const forced = await cli(repo, [...RESET, '--allow-duplicate', '--json']);
-    expect(forced.json()).toMatchObject({ created: true, item: { id: 'REQ-0002' } });
+    expect(forced.json()).toMatchObject({ created: true, id: 'REQ-0002', verdict: 'duplicate', candidates: [{ id: 'REQ-0001', match: 'duplicate' }] });
   });
 
   it('--implements links the story and puts the requirement in the backlog', async () => {
@@ -110,7 +125,7 @@ describe('cli add', () => {
       'REQ-0001',
       '--json',
     ]);
-    expect(story.json<CreatedResult>().item.id).toBe('US-0001');
+    expect(story.json<CompactCreatedResult>().id).toBe('US-0001');
     const req = (await cli(repo, ['show', 'REQ-0001', '--json'])).json<ItemDetail>();
     expect(req.item).toMatchObject({ in_backlog: true, coverage: 'tracked' });
     expect(req.links.incoming).toEqual([expect.objectContaining({ id: 'US-0001', rel: 'implements' })]);
@@ -196,9 +211,14 @@ describe('cli update', () => {
     await cli(repo, [...RESET, '--rationale', 'Users forget passwords', '--tag', 'auth']);
     const updated = await cli(repo, ['update', 'REQ-0001', '--status', 'implemented', '--clear', 'rationale', '--clear', 'tags', '--comment', 'Shipped', '--json']);
     expect(updated.code).toBe(0);
-    const result = updated.json<UpdateResult>();
+    const compact = updated.json<CompactUpdateResult>();
+    expect(Object.keys(compact).sort()).toEqual(['changed_fields', 'id', 'status', 'title', 'warnings']);
+    expect(compact).toMatchObject({ id: 'REQ-0001', title: 'Password reset by email', status: 'implemented' });
+    expect(compact.changed_fields.sort()).toEqual(['rationale', 'status', 'tags']);
+
+    const result = (await cli(repo, ['update', 'REQ-0001', '--clear', 'component', '--json', '--full'])).json<UpdateResult>();
     expect(result.item).toMatchObject({ status: 'implemented', rationale: null, tags: [] });
-    expect(result.changed_fields.sort()).toEqual(['rationale', 'status', 'tags']);
+    expect(result.changed_fields).toEqual([]);
     expect(result.item.delivered_at).not.toBeNull();
 
     const history = (await cli(repo, ['show', 'REQ-0001', '--history', '--json'])).json<ItemDetail>().history;
@@ -212,7 +232,7 @@ describe('cli update', () => {
   it('merges partial bug flags into the stored details', async () => {
     const repo = tempRepo();
     await cli(repo, ['add', 'bug', '--title', 'Crash', '--steps', 'open app', '--expected', 'works', '--actual', 'crash']);
-    const result = (await cli(repo, ['update', 'BUG-0001', '--environment', 'Safari 18', '--no-in-backlog', '--json'])).json<UpdateResult>();
+    const result = (await cli(repo, ['update', 'BUG-0001', '--environment', 'Safari 18', '--no-in-backlog', '--json', '--full'])).json<UpdateResult>();
     expect(result.item.bug_details).toEqual({ steps: ['open app'], expected: 'works', actual: 'crash', environment: 'Safari 18' });
   });
 
@@ -293,7 +313,7 @@ describe('cli errors and uninitialized projects', () => {
     const repo = tempRepo();
     const elsewhere = tempDir();
     const added = await cli(elsewhere, ['--project', repo, ...RESET, '--json']);
-    expect(added.json<CreatedResult>().item.id).toBe('REQ-0001');
+    expect(added.json<CompactCreatedResult>().id).toBe('REQ-0001');
     expect((await cli(elsewhere, ['list', '--project', repo, '--json'])).json<ListResult>().total).toBe(1);
   });
 
