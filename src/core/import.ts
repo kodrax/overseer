@@ -150,7 +150,7 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
         const value = incoming[field];
         sets.push(`${field} = ?`);
         params.push(columnValue(value));
-        if (field !== 'external_url') service.addEvent(row.id, importCtx, now, 'update', field, current[field], value);
+        service.addEvent(row.id, importCtx, now, 'update', field, current[field], value);
       }
       if (stateChanged) {
         sets.push('external_state = ?');
