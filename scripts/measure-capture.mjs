@@ -13,7 +13,7 @@
 //
 // Writes <prefix>.json (every sample) and <prefix>.md (summary and method). Not part of `npm test`: it takes minutes
 // and --live spends model tokens.
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { arch, cpus, homedir, loadavg, platform, release, tmpdir, totalmem } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -500,8 +500,12 @@ function brief(args = {}) {
   return String(text).replace(/\s+/g, ' ').slice(0, 160);
 }
 
-/** Usage and tool calls of the assistant messages; `who` = main or the subagent file name. */
-function tally(messages, who) {
+/**
+ * Usage and tool calls of the assistant messages; `who` = main or the subagent file name. `requestsDuring(id)` counts
+ * the overseer requests received while tool call `id` ran (main agent only); a call that runs code (eval) and sent
+ * requests through a helper it defined earlier counts as reaching overseer.
+ */
+function tally(messages, who, requestsDuring = () => 0) {
   const usage = { input: 0, output: 0, cache_read: 0, cache_write: 0, cost_usd: 0, assistant_messages: 0 };
   const calls = [];
   const models = new Set();
@@ -516,7 +520,9 @@ function tally(messages, who) {
     usage.cost_usd += u.cost?.total ?? 0;
     for (const part of message.content ?? []) {
       if (part.type !== 'toolCall') continue;
-      calls.push({ who, name: part.name, ...classify(part.name, part.arguments), args: brief(part.arguments) });
+      const call = { who, name: part.name, ...classify(part.name, part.arguments), requests_during: requestsDuring(part.id), args: brief(part.arguments) };
+      if (call.category === 'other' && call.requests_during > 0) Object.assign(call, { category: 'overseer', tool: `${part.name} (code)` });
+      calls.push(call);
     }
   }
   return { usage, calls, models };
@@ -541,39 +547,93 @@ function filesUnder(dir, suffix) {
 }
 
 /**
- * `overseer` on PATH for omp: this checkout's build, logging what reaches overseer. `overseer mcp` copies the JSON-RPC
- * requests it receives to mcp-<pid>.jsonl; any other command appends its arguments to cli.log.
+ * `overseer` on PATH for omp: this checkout's build, logging what reaches overseer with a timestamp. `overseer mcp` runs
+ * behind a proxy that logs each JSON-RPC line it receives to mcp-<pid>.jsonl; any other command appends to cli.log
+ * (GNU `date` for milliseconds).
  */
 function writeShim(binDir, logDir) {
   mkdirSync(binDir, { recursive: true });
+  const proxy = join(binDir, 'mcp-proxy.mjs');
+  writeFileSync(
+    proxy,
+    [
+      "import { spawn } from 'node:child_process';",
+      "import { appendFileSync } from 'node:fs';",
+      'const [log, ...command] = process.argv.slice(2);',
+      "const child = spawn(process.execPath, command, { stdio: ['pipe', 'inherit', 'inherit'] });",
+      "let pending = '';",
+      "process.stdin.on('data', (chunk) => {",
+      '  child.stdin.write(chunk);',
+      '  pending += chunk;',
+      "  for (let end = pending.indexOf('\\n'); end !== -1; end = pending.indexOf('\\n')) {",
+      "    appendFileSync(log, JSON.stringify({ t: Date.now(), line: pending.slice(0, end) }) + '\\n');",
+      '    pending = pending.slice(end + 1);',
+      '  }',
+      '});',
+      "process.stdin.on('end', () => child.stdin.end());",
+      "for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal));",
+      "child.on('exit', (code) => process.exit(code ?? 0));",
+      '',
+    ].join('\n'),
+  );
   const shim = join(binDir, 'overseer');
-  const node = `"${process.execPath}" "${CLI}"`;
   writeFileSync(
     shim,
     [
       '#!/bin/sh',
-      'if [ "$1" = "mcp" ]; then',
-      `  tee -a "${logDir}/mcp-$$.jsonl" | ${node} "$@"`,
-      'else',
-      `  printf '%s\\n' "$*" >> "${logDir}/cli.log"`,
-      `  exec ${node} "$@"`,
-      'fi',
+      `if [ "$1" = "mcp" ]; then exec "${process.execPath}" "${proxy}" "${logDir}/mcp-$$.jsonl" "${CLI}" "$@"; fi`,
+      `printf '%s %s\\n' "$(date +%s%3N)" "$*" >> "${logDir}/cli.log"`,
+      `exec "${process.execPath}" "${CLI}" "$@"`,
       '',
     ].join('\n'),
   );
   chmodSync(shim, 0o755);
 }
 
-/** Requests overseer received from the agent: MCP tools/call by tool name, CLI commands by subcommand. */
+/** Requests overseer received from the agent (MCP tools/call by tool name, CLI commands by subcommand), with times. */
 function overseerRequests(logDir) {
   const byTool = {};
-  const add = (tool) => (byTool[tool] = (byTool[tool] ?? 0) + 1);
+  const times = [];
+  const add = (tool, time) => {
+    byTool[tool] = (byTool[tool] ?? 0) + 1;
+    times.push(time);
+  };
   for (const file of readdirSync(logDir)) {
     const text = readFileSync(join(logDir, file), 'utf8');
-    if (file === 'cli.log') for (const line of text.split('\n').filter(Boolean)) add(`cli ${line.split(' ')[0]}`);
-    else for (const message of jsonLines(text)) if (message.method === 'tools/call') add(message.params?.name ?? 'unknown');
+    if (file === 'cli.log') {
+      for (const line of text.split('\n').filter(Boolean)) {
+        const [time, subcommand] = line.split(' ');
+        add(`cli ${subcommand}`, Number(time));
+      }
+      continue;
+    }
+    for (const { t, line } of jsonLines(text)) {
+      const [message] = jsonLines(line);
+      if (message?.method === 'tools/call') add(message.params?.name ?? 'unknown', t);
+    }
   }
-  return { total: Object.values(byTool).reduce((sum, n) => sum + n, 0), by_tool: byTool };
+  return { total: times.length, by_tool: byTool, times };
+}
+
+/** Runs omp, stamping each JSON event with its arrival time (`at`, ms since the epoch). */
+function runOmp(args, cwd, env) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn('omp', args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const events = [];
+    let pending = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk) => {
+      pending += chunk;
+      for (let end = pending.indexOf('\n'); end !== -1; end = pending.indexOf('\n')) {
+        const at = Date.now();
+        for (const event of jsonLines(pending.slice(0, end))) events.push({ ...event, at });
+        pending = pending.slice(end + 1);
+      }
+    });
+    child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk));
+    child.on('error', reject);
+    child.on('close', (status) => resolvePromise({ status, events, stderr }));
+  });
 }
 
 async function liveRun(run, options) {
@@ -604,12 +664,26 @@ async function liveRun(run, options) {
     const args = ['-p', '--mode', 'json', '--session-dir', sessions, '--auto-approve', '--max-time', '20m', ...(options.model ? ['--model', options.model] : []), prompt];
     console.error(`live run ${run}: omp in ${repo}`);
     const start = performance.now();
-    const result = spawnSync('omp', args, { cwd: repo, env, encoding: 'utf8', maxBuffer: 1 << 30 });
+    const result = await runOmp(args, repo, env);
     const wallSeconds = (performance.now() - start) / 1000;
-    if (result.error) throw result.error;
 
-    const events = jsonLines(result.stdout);
-    const main = tally(events.filter((event) => event.type === 'message_end' && event.message?.role === 'assistant').map((event) => event.message), 'main');
+    const { events } = result;
+    const requests = overseerRequests(logs);
+    // When each main-agent tool call ran, from the arrival times of its tool_execution_start/end events.
+    const windows = new Map();
+    for (const event of events) {
+      if (event.type === 'tool_execution_start') windows.set(event.toolCallId, { start: event.at, end: Infinity });
+      if (event.type === 'tool_execution_end' && windows.has(event.toolCallId)) windows.get(event.toolCallId).end = event.at;
+    }
+    const requestsDuring = (id) => {
+      const window = windows.get(id);
+      return window ? requests.times.filter((time) => time >= window.start && time <= window.end).length : 0;
+    };
+    const main = tally(
+      events.filter((event) => event.type === 'message_end' && event.message?.role === 'assistant').map((event) => event.message),
+      'main',
+      requestsDuring,
+    );
     // Subagents write their own transcripts next to the main session file: <session-dir>/<main session>/<Agent>.jsonl.
     const subagentFiles = filesUnder(sessions, '.jsonl').filter((file) => dirname(file) !== sessions);
     const subagents = subagentFiles.map((file) =>
@@ -623,7 +697,6 @@ async function liveRun(run, options) {
     const count = (category) => calls.filter((call) => call.category === category).length;
     const overseerToolCalls = {};
     for (const call of calls.filter((entry) => entry.category === 'overseer')) overseerToolCalls[call.tool] = (overseerToolCalls[call.tool] ?? 0) + 1;
-    const requests = overseerRequests(logs);
 
     // What the run left in the registry.
     const listed = cli(['list', '--all', '--limit', '1000', '--json'], repo, env).json;
@@ -650,6 +723,11 @@ async function liveRun(run, options) {
       overseer_requests_by_tool: requests.by_tool,
       overseer_tool_calls: count('overseer'),
       overseer_tool_calls_by_tool: overseerToolCalls,
+      // Main-agent MCP/CLI calls (found from their arguments) that had a request in their time window: checks the timing.
+      timing_check: {
+        calls_by_arguments: main.calls.filter((call) => call.category === 'overseer' && !call.tool.endsWith('(code)')).length,
+        with_request_in_window: main.calls.filter((call) => call.category === 'overseer' && !call.tool.endsWith('(code)') && call.requests_during > 0).length,
+      },
       codebase_reads: count('codebase_read'),
       skill_reads: count('skill_read'),
       tool_doc_reads: count('tool_docs'),
@@ -744,7 +822,8 @@ function markdown(data, command) {
     for (const run of live.runs) {
       lines.push(`| ${run.run} | ${run.wall_s} | ${run.overseer_requests} | ${list(run.overseer_requests_by_tool)} | ${run.overseer_tool_calls} | ${list(run.overseer_tool_calls_by_tool)} | ${run.codebase_reads} | ${run.skill_reads} | ${run.tool_doc_reads} | ${run.subagent_calls} | ${run.other_calls} | ${run.total_tool_calls} | ${fmt(run.tokens.prompt_total)} | ${fmt(run.tokens.cache_read)} | ${fmt(run.tokens.output)} | ${run.tokens.cost_usd} | ${run.registry.items_created} | ${run.registry.with_parent} | ${run.registry.implements_links} |`);
     }
-    lines.push('', `Expected from the dictation: 20 items, 14 with a parent, 12 implements links.`, '');
+    const timing = live.runs.map((run) => `${run.timing_check.with_request_in_window}/${run.timing_check.calls_by_arguments}`).join(', ');
+    lines.push('', `Expected from the dictation: 20 items, 14 with a parent, 12 implements links. Timing check (MCP/CLI tool calls with an overseer request in their time window, per run): ${timing}.`, '');
   }
 
   lines.push('## Method', '');
@@ -755,8 +834,8 @@ function markdown(data, command) {
   lines.push(`- **Embedder**: the CLI's default, ${MODEL} (q8 ONNX via transformers.js), from the local model cache (\`${data.embedder.cache_dir}\`); "semantic results" counts \`similar\` answers with \`semantic: true\`.`);
   lines.push('- **Tokens**: the files as shipped in `templates/` (the subagent prompt with its `{{…}}` placeholders) and the JSON of the MCP `tools/list` answer. `≈ chars/4` needs no tokenizer; `o200k_base` (OpenAI) and `claude-v5` (Claude Opus 5+) come from `omp toks --json`, the offline tokenizers bundled with omp; `n/a` when omp is not installed. No dependency added.');
   lines.push('- **Live**: per run a new temp git repository (README and one source file), `overseer install --scope project --targets omp` with this checkout\'s build on `PATH` (current skills, subagent and MCP server), `overseer enable`, the same 300 seeded items, then `omp -p --mode json --session-dir <tmp> --auto-approve --max-time 20m "<prompt>"`. Agent tool calls and token usage come from the assistant messages of the JSON event stream and of the subagent transcripts omp writes under `--session-dir`. After the run `overseer disable` and the repository is deleted.');
-  lines.push('- **overseer requests**: what overseer itself received. The `overseer` on `PATH` is a shim that copies the JSON-RPC input of `overseer mcp` to a log (MCP `tools/call` requests by tool) and logs every other `overseer` command. An agent can send many requests from one tool call (a loop in an eval cell), so requests and agent tool calls are both reported.');
-  lines.push('- **Agent tool call classes**: reaching overseer = MCP tool calls (`write xd://mcp__overseer_<tool>` in omp, `mcp__overseer_<tool>` elsewhere), shell commands running `overseer`, and eval cells whose code calls `mcp__overseer_*`; codebase reads = `read`/`grep`/`glob`/`find`/`lsp` on files and shell commands such as `cat`, `ls`, `grep`, `git`; skill reads = `skill://` and `.omp/skills|agents` files; tool doc reads = `read xd://mcp__overseer_<tool>` (schema lookups); subagents = `task`; other = the rest.');
+  lines.push('- **overseer requests**: what overseer itself received. The `overseer` on `PATH` is a shim: `overseer mcp` runs behind a small proxy that logs every JSON-RPC line it receives with a timestamp (MCP `tools/call` requests by tool), and every other `overseer` command is logged with a timestamp (GNU `date`). An agent can send many requests from one tool call (a loop in an eval cell), so requests and agent tool calls are both reported.');
+  lines.push('- **Agent tool call classes**: reaching overseer = MCP tool calls (`write xd://mcp__overseer_<tool>` in omp, `mcp__overseer_<tool>` elsewhere), shell commands running `overseer`, and code-running calls (eval) whose code names `mcp__overseer_*` or during which overseer received a request (each main-agent call\'s time window comes from the arrival times of its `tool_execution_start`/`tool_execution_end` events; subagent calls are classified by their arguments only); codebase reads = `read`/`grep`/`glob`/`find`/`lsp` on files and shell commands such as `cat`, `ls`, `grep`, `git`; skill reads = `skill://` and `.omp/skills|agents` files; tool doc reads = `read xd://mcp__overseer_<tool>` (schema lookups); subagents = `task`; other = the rest.');
   lines.push('');
   lines.push('### Repeat (TASK-0047)', '');
   lines.push('On the same machine, with the model cached (`overseer models pull`), omp logged in with the same default model, from a clean checkout of the commit to compare:', '');
