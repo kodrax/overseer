@@ -1,0 +1,4 @@
+#!/bin/sh
+# $3 is 1 on a branch switch, 0 on a file checkout.
+[ "$3" = 1 ] || exit 0
+exec "$(dirname "$0")/ensure-build.sh"

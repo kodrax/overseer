@@ -15,10 +15,12 @@
   },
   "scripts": {
     "build": "tsdown && vite build",
+    "postbuild": "node scripts/ensure-build.mjs --record",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p web",
     "calibrate": "OVERSEER_CALIBRATE=1 vitest run test/calibrate.test.ts",
-    "dev:web": "vite"
+    "dev:web": "vite",
+    "prepare": "node scripts/install-hooks.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.4",
