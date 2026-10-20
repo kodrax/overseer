@@ -77,7 +77,7 @@ export interface ItemEvent {
   at: string;
   actor: string;
   via: string;
-  action: 'create' | 'update' | 'status' | 'link' | 'unlink' | 'comment' | 'import';
+  action: 'create' | 'update' | 'status' | 'link' | 'unlink' | 'comment' | 'import' | 'delete';
   field: string | null;
   old_value: string | null;
   new_value: string | null;
