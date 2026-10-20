@@ -424,7 +424,7 @@ npm rm -g overseer-cli                # remove the command itself
 ```sh
 npm install
 npm run typecheck
-npm test                  # vitest; a deterministic hash embedder, no model download
+npm test                  # vitest; a deterministic hash embedder, no model download; SPA tests in jsdom
 npm run build             # tsdown → dist/cli.js, vite → dist/web/
 npm run dev:web           # SPA dev server; proxies /api to `overseer board` on 4477
 OVERSEER_REAL_MODEL=1 npx vitest run test/real-model.test.ts   # duplicate detection with the real model
@@ -442,7 +442,7 @@ OVERSEER_UPDATE_GOLDEN=1 npx vitest run test/install.test.ts   # regenerate inst
 | `src/board/`, `web/` | board server and React app |
 | `src/install/` | harness installer and doctor checks |
 | `templates/` | skills and the subagent prompt that `install` copies |
-| `test/` | test suites and fixtures |
+| `test/` | test suites and fixtures; `test/web/` tests the React app in jsdom with Testing Library against a stubbed `/api` |
 
 ## Status and limitations
 
