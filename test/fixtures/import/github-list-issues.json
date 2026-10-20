@@ -1,0 +1,60 @@
+{
+  "issues": [
+    {
+      "number": 1,
+      "title": "Checkout",
+      "body": "Everything needed to pay for a cart.",
+      "state": "OPEN",
+      "user": { "login": "octocat" },
+      "labels": ["epic"],
+      "assignees": [],
+      "comments": 2,
+      "created_at": "2026-09-01T10:00:00Z",
+      "updated_at": "2026-09-03T08:30:00Z"
+    },
+    {
+      "number": 7,
+      "title": "Login fails on Safari",
+      "body": "Clicking Login does nothing on Safari 17.",
+      "state": "OPEN",
+      "user": { "login": "octocat" },
+      "labels": ["needs-triage"],
+      "assignees": ["hubot"],
+      "comments": 0,
+      "created_at": "2026-09-02T09:15:00Z",
+      "updated_at": "2026-09-02T09:15:00Z",
+      "issue_type": "Bug"
+    },
+    {
+      "number": 8,
+      "title": "Saved carts",
+      "body": "Keep a cart across sessions.",
+      "state": "OPEN",
+      "user": { "login": "monalisa" },
+      "assignees": [],
+      "created_at": "2026-09-02T11:00:00Z",
+      "updated_at": "2026-09-04T16:45:00Z",
+      "issue_type": "Feature"
+    },
+    {
+      "number": 9,
+      "title": "Update dependencies",
+      "state": "CLOSED",
+      "user": { "login": "monalisa" },
+      "labels": ["chore"],
+      "assignees": ["octocat"],
+      "comments": 1,
+      "created_at": "2026-09-03T07:00:00Z",
+      "updated_at": "2026-09-05T12:00:00Z",
+      "issue_type": "Task",
+      "field_values": [{ "field": "Priority", "value": "P2" }]
+    }
+  ],
+  "totalCount": 4,
+  "pageInfo": {
+    "hasNextPage": false,
+    "hasPreviousPage": false,
+    "startCursor": "Y3Vyc29yOnYyOpHOAAAAAQ==",
+    "endCursor": "Y3Vyc29yOnYyOpHOAAAACQ=="
+  }
+}

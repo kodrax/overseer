@@ -1,0 +1,22 @@
+{
+  "id": "gid://gitlab/WorkItem/905",
+  "iid": "5",
+  "title": "Checkout",
+  "state": "OPEN",
+  "type": "Epic",
+  "webUrl": "https://gitlab.com/groups/acme/-/work_items/5",
+  "description": "Everything needed to pay for a cart.",
+  "author": "alice",
+  "createdAt": "2026-08-20T08:00:00Z",
+  "labels": ["checkout"],
+  "children": [
+    {
+      "iid": "1",
+      "title": "Saved carts",
+      "state": "OPEN",
+      "type": "Issue",
+      "project": "acme/demo",
+      "webUrl": "https://gitlab.com/acme/demo/-/work_items/1"
+    }
+  ]
+}

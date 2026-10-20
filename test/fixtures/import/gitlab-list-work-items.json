@@ -1,0 +1,42 @@
+{
+  "items": [
+    {
+      "iid": "1",
+      "title": "Saved carts",
+      "state": "OPEN",
+      "type": "Issue",
+      "webUrl": "https://gitlab.com/acme/demo/-/work_items/1",
+      "status": "In progress",
+      "labels": ["feature"],
+      "assignees": ["alice"],
+      "milestone": "M1"
+    },
+    {
+      "iid": "2",
+      "title": "Persist the cart in local storage",
+      "state": "OPEN",
+      "type": "Task",
+      "webUrl": "https://gitlab.com/acme/demo/-/work_items/2",
+      "status": "To do",
+      "weight": 2
+    },
+    {
+      "iid": "3",
+      "title": "Checkout down after deploy",
+      "state": "CLOSED",
+      "type": "Incident",
+      "webUrl": "https://gitlab.com/acme/demo/-/issues/incident/3",
+      "labels": ["severity::1"],
+      "healthStatus": "atRisk"
+    },
+    {
+      "iid": "4",
+      "title": "Card data is never stored",
+      "state": "OPEN",
+      "type": "Requirement",
+      "webUrl": "https://gitlab.com/acme/demo/-/work_items/4",
+      "labels": ["security"]
+    }
+  ],
+  "pageInfo": { "hasNextPage": false, "endCursor": "eyJpZCI6IjQifQ" }
+}
