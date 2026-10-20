@@ -269,6 +269,45 @@ describe('startWorktree', () => {
     const again = await startWorktree(p.service, 'TASK-0001', { slug: 'start' });
     expect(again).toMatchObject({ path, reused: true, setup: { ran: false } });
   });
+
+  it('refuses, creating nothing, while depends_on tasks or bugs are open, listing their status and branch', async () => {
+    const p = await project();
+    const dep = await pushedBranch(p);
+    await p.service.updateItem({ id: 'TASK-0001', status: 'in_progress' }, ctx);
+    await p.service.createItem({ kind: 'task', title: 'Stack the follow-up work', allow_duplicate: true }, ctx);
+    p.service.link('TASK-0002', 'depends_on', 'TASK-0001', ctx);
+    p.service.link('TASK-0002', 'depends_on', 'BUG-0001', ctx);
+
+    const error = await rejection(startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', setup: false }));
+    expect(error.code).toBe('CONFLICT');
+    expect(error.message).toContain(`- TASK-0001 (in_progress): branch ${dep.branch}`);
+    expect(error.message).toContain('- BUG-0001 (backlog): no branch yet');
+    expect(git(p.repo, 'branch', '--list', 'feat/TASK-0002-*')).toBe('');
+    expect(existsSync(join(p.base, 'main.worktrees', 'TASK-0002-follow-up'))).toBe(false);
+
+    const stacked = await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', base: dep.branch, setup: false });
+    expect(stacked).toMatchObject({ base: dep.branch, reused: false });
+    expect(git(stacked.path, 'rev-parse', 'HEAD')).toBe(dep.head);
+    expect(await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up' })).toMatchObject({ path: stacked.path, reused: true });
+
+    const anyway = await startWorktree(p.service, 'TASK-0002', { slug: 'on-main', base: 'main', setup: false });
+    expect(anyway).toMatchObject({ base: 'main', reused: false });
+    expect(git(anyway.path, 'rev-parse', 'HEAD')).toBe(git(p.repo, 'rev-parse', 'main'));
+  });
+
+  it('starts as usual once depends_on work is done or cancelled, ignoring requirements', async () => {
+    const p = await project();
+    await p.service.createItem({ kind: 'task', title: 'Stack the follow-up work', allow_duplicate: true }, ctx);
+    await p.service.createItem({ kind: 'requirement', title: 'Worktrees per item', req_type: 'functional', allow_duplicate: true }, ctx);
+    p.service.link('TASK-0002', 'depends_on', 'TASK-0001', ctx);
+    p.service.link('TASK-0002', 'depends_on', 'BUG-0001', ctx);
+    p.service.link('TASK-0002', 'depends_on', 'REQ-0001', ctx);
+    await p.service.updateItem({ id: 'TASK-0001', status: 'done' }, ctx);
+    await p.service.updateItem({ id: 'BUG-0001', status: 'cancelled' }, ctx);
+
+    const result = await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', setup: false });
+    expect(result).toMatchObject({ base: 'main', reused: false });
+  });
 });
 
 describe('finishWorktree', () => {
