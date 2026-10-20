@@ -448,9 +448,12 @@ npm run dev:web           # SPA dev server; proxies /api to `overseer board` on 
 OVERSEER_REAL_MODEL=1 npx vitest run test/real-model.test.ts   # duplicate detection with the real model
 npm run calibrate         # suggested similarity thresholds; regenerates src/core/reference-means.ts
 OVERSEER_UPDATE_GOLDEN=1 npx vitest run test/install.test.ts   # regenerate installer golden files
+npm run measure:capture -- --out docs/measurements/capture-<label> [--live]   # capture calls, CLI latency, tokens
 ```
 
 `npm ci` (its `prepare` script) points `core.hooksPath` at `.githooks/`. The hooks run `scripts/ensure-build.mjs` after `git pull`/`git merge` (including the fast-forward in `overseer worktree finish`), branch switches and rebases: it hashes the build inputs (files under `src/` and `web/`, `package.json`, `package-lock.json`, `tsconfig.json`, `tsdown.config.ts`, `vite.config.ts`), compares the hash with `dist/.build-hash` and runs `npm run build` when they differ, so the global `overseer` command runs the merged code. `npm run build` records the hash itself (`postbuild`). In a checkout without `node_modules` the hooks skip the build with a message. Run `node scripts/ensure-build.mjs` to check by hand.
+
+`npm run measure:capture` records the fixed 20-item dictation in a temp project seeded with 300 items, the way the `overseer` skill prescribes, and writes `<prefix>.json` and `<prefix>.md`: overseer calls, CLI latency p50/p95 per command, and the tokens of the skill, subagent prompt, references and MCP tool definitions. `--live` also sends the dictation 3 times to `omp -p --mode json` in throwaway repositories and records tool calls and tokens; it spends model tokens. It is not part of `npm test`. The baseline and the exact method to repeat are in [docs/measurements/capture-baseline.md](docs/measurements/capture-baseline.md).
 
 | Path | Contents |
 |---|---|
@@ -460,6 +463,8 @@ OVERSEER_UPDATE_GOLDEN=1 npx vitest run test/install.test.ts   # regenerate inst
 | `src/board/`, `web/` | board server and React app |
 | `src/install/` | harness installer and doctor checks |
 | `templates/` | skills and the subagent prompt that `install` copies |
+| `scripts/` | build check, git hooks, `measure-capture.mjs` |
+| `docs/measurements/` | committed measurement results |
 | `test/` | test suites and fixtures; `test/web/` tests the React app in jsdom with Testing Library against a stubbed `/api` |
 
 ## Status and limitations
