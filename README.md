@@ -357,7 +357,7 @@ Requirement coverage is worked out from the linked work:
 
 The `overseer-import` skill reads issues through the GitHub or GitLab MCP server configured in your harness, so overseer itself stores no tokens. It maps issues to items and calls `import_items` in batches.
 
-- **Re-running is safe**: re-imports update titles, descriptions and labels. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
+- **Re-running is safe**: re-imports update titles, descriptions and labels. An issue without `body` keeps its stored description; `"body": ""` clears it. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
 - **One-way**: nothing is pushed back to GitHub or GitLab.
 - **Setup**: commands for connecting each harness to GitHub or GitLab are in [`templates/skills/overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md).
 
@@ -366,7 +366,7 @@ The `overseer-import` skill reads issues through the GitHub or GitLab MCP server
 - `items`: ImportItems (`external_id`, `url`, `title`, `state`, optional `body`, `labels`, `type_hint`, `assignees`, `milestone`, `created_at`, `updated_at`, `parent_external_id`).
 - `payload`: a raw MCP response, as an object or as the tool's JSON text. overseer maps it:
   - GitHub `list_issues` (`{"issues": [...]}`, or an array of REST issues): `external_id` is `<repo>#<number>`; issue type Bug, Feature or Task becomes `bug`, `story` or `task`; pull requests are skipped and named in `warnings`.
-  - GitLab `list_work_items` (`{"items": [...], "pageInfo": {...}}`), `get_work_item` (one work item) or an array of work items: `external_id` is `group/project#<iid>`; type Epic, Task, Incident or Requirement becomes `epic`, `task`, `bug` or `requirement`; type Issue gets no type hint; state `opened`/`OPEN` becomes `open`; the hierarchy parent becomes `parent_external_id`. List results carry no description, so import `get_work_item` for the bodies.
+  - GitLab `list_work_items` (`{"items": [...], "pageInfo": {...}}`), `get_work_item` (one work item) or an array of work items: `external_id` is `group/project#<iid>`; type Epic, Task, Incident or Requirement becomes `epic`, `task`, `bug` or `requirement`; type Issue gets no type hint; state `opened`/`OPEN` becomes `open`; the hierarchy parent becomes `parent_external_id`. List results carry no description, so they leave stored descriptions alone; import `get_work_item` for the bodies.
   - Any other shape fails with `INVALID_INPUT` naming the accepted formats, and nothing is imported.
 
 The CLI accepts both and detects the format: a JSON array of ImportItems (or `{"items": [...]}`) as before, or a saved MCP response.

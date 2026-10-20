@@ -117,6 +117,7 @@ const githubIssueSchema = z.object({
  */
 const gitlabWorkItemSchema = z.object({
   iid: z.union([z.string(), z.number().int()]),
+  id: z.union([z.string(), z.number()]).nullish(),
   title: z.string(),
   state: z.string(),
   description: z.string().nullish(),
@@ -202,7 +203,9 @@ function fromGitlab(workItems: readonly z.infer<typeof gitlabWorkItemSchema>[], 
       external_id: `${path}#${workItem.iid}`,
       url,
       title: workItem.title,
-      body: workItem.description ?? null,
+      // list_work_items items have no description (nor id): omit body so a re-import keeps the stored one.
+      // get_work_item and REST issues (with id) leave out or null an empty description.
+      ...(workItem.id === undefined || workItem.id === null ? {} : { body: workItem.description ?? '' }),
       state: remoteState(workItem.state),
       labels: workItem.labels ?? [],
       ...(typeHint ? { type_hint: typeHint } : {}),
@@ -335,7 +338,8 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
       const current = toItem(row);
       const incoming: Partial<Item> = {
         title: remote.title,
-        description,
+        // A missing body keeps the stored description; an explicit "" or null clears it.
+        ...(remote.body === undefined ? {} : { description }),
         tags: labels,
         assignee: remote.assignees?.[0] ?? null,
         milestone: remote.milestone ?? null,

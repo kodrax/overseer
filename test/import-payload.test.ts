@@ -237,3 +237,27 @@ describe('import of ImportItems', () => {
     expect(empty.json<{ error: { message: string } }>().error.message).toMatch(/^items: /);
   });
 });
+
+describe('re-import without a body', () => {
+  it('keeps the description when the source omits the body and clears it on an explicit empty body', async () => {
+    const service = openService();
+    const descriptionEvents = () =>
+      service.getItem('TASK-0001', { history: true }).history!.filter((event) => event.field === 'description');
+    // get_work_item carries the description; list_work_items has none (zereight/gitlab-mcp listWorkItems).
+    await service.importItems({ source: 'gitlab', repo: 'acme/demo', payload: JSON.parse(fixture('gitlab-get-work-item.json')) }, ctx);
+    const listed = await service.importItems({ source: 'gitlab', repo: 'acme/demo', payload: JSON.parse(fixture('gitlab-list-work-items.json')) }, ctx);
+    expect(listed.updated).toContain('TASK-0001');
+    expect(service.getItem('TASK-0001').item).toMatchObject({ description: 'Write the cart to localStorage on every change.', tags: [] });
+    expect(descriptionEvents()).toEqual([]);
+
+    const item = { external_id: 'acme/demo#2', url: 'https://gitlab.com/acme/demo/-/work_items/2', title: 'Persist the cart in local storage', state: 'open' };
+    const withoutBody = await service.importItems({ source: 'gitlab', repo: 'acme/demo', items: [item] }, ctx);
+    expect(withoutBody.unchanged).toEqual(['TASK-0001']);
+    expect(service.getItem('TASK-0001').item.description).toBe('Write the cart to localStorage on every change.');
+
+    const emptied = await service.importItems({ source: 'gitlab', repo: 'acme/demo', items: [{ ...item, body: '' }] }, ctx);
+    expect(emptied.updated).toEqual(['TASK-0001']);
+    expect(service.getItem('TASK-0001').item.description).toBe('');
+    expect(descriptionEvents()).toMatchObject([{ action: 'update', old_value: 'Write the cart to localStorage on every change.', new_value: '' }]);
+  });
+});
