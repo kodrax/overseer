@@ -207,7 +207,8 @@ function planMcpRemoval(run: Run, target: TargetId, mcp: McpSpec): Op[] {
       if (!result.changed) return [];
       // A file left with nothing but `$schema` holds no user content: delete it without a backup.
       if (result.empty) return [{ kind: 'remove-file', target, path: mcp.path, backup: false }];
-      return [{ kind: 'write', target, path: mcp.path, content: result.text, existed: true, backup: true }];
+      // Uninstall never creates or changes a backup: the one kept holds the pre-overseer original.
+      return [{ kind: 'write', target, path: mcp.path, content: result.text, existed: true, backup: false }];
     }
     case 'toml': {
       const text = readIfExists(mcp.path);
@@ -215,7 +216,7 @@ function planMcpRemoval(run: Run, target: TargetId, mcp: McpSpec): Op[] {
       const result = removeTomlBlock(text, mcp.path);
       if (!result.changed) return [];
       if (result.text.trim() === '') return [{ kind: 'remove-file', target, path: mcp.path, backup: false }];
-      return [{ kind: 'write', target, path: mcp.path, content: result.text, existed: true, backup: true }];
+      return [{ kind: 'write', target, path: mcp.path, content: result.text, existed: true, backup: false }];
     }
     case 'claude-cli': {
       const bin = findExecutable(ctx, 'claude');

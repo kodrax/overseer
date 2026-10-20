@@ -114,7 +114,7 @@ There are three kinds of files. The harness files say how a harness reaches over
 ### How install edits files
 
 - Every file overseer generates carries a `managed-by: overseer-cli` marker. An existing file without the marker is left alone with a warning, unless you pass `--force`.
-- In shared config files (`mcp.json`, `settings.json`, `config.toml`, `opencode.json`), only the `overseer` entry is added or removed, and comments and formatting are kept. Before the first change, the original is copied to `<file>.overseer-backup`.
+- In shared config files (`mcp.json`, `settings.json`, `config.toml`, `opencode.json`), only the `overseer` entry is added or removed, and comments and formatting are kept. Before the first change, the original is copied to `<file>.overseer-backup`. An existing backup is never overwritten, and uninstall never creates or changes one.
 - Running `install` again reports `unchanged` and writes nothing.
 
 ### Project data
