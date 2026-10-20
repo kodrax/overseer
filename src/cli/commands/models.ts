@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { modelCacheDir, TransformersEmbedder } from '../../core/embeddings.js';
+import { TransformersEmbedder } from '../../core/embeddings.js';
 import { errorMessage } from '../../core/errors.js';
 import type { CliRuntime } from '../runtime.js';
 
@@ -8,12 +8,11 @@ export interface ModelPull {
   message: string;
 }
 
-/** Downloads (if needed) and loads the embedding model. */
-export async function pullModel(): Promise<ModelPull> {
-  const embedder = new TransformersEmbedder();
+/** Downloads (if needed) and loads the embedding model; with `overseer install`, the only path that downloads it. */
+export async function pullModel(embedder: TransformersEmbedder = new TransformersEmbedder()): Promise<ModelPull> {
   try {
     await embedder.warmup();
-    return { ready: true, message: `Model ${embedder.model} ready in ${modelCacheDir()}` };
+    return { ready: true, message: `Model ${embedder.model} ready in ${embedder.cacheDir}` };
   } catch (error) {
     return { ready: false, message: `model download failed: ${errorMessage(error)}` };
   }

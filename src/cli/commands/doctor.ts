@@ -40,14 +40,17 @@ function sqliteCheck(): CheckLine {
 
 async function modelChecks(rt: CliRuntime, deep: boolean): Promise<CheckLine[]> {
   const dir = modelCacheDir(rt.env);
+  const cached = isModelCached(DEFAULT_MODEL, dir);
   const lines: CheckLine[] = [
-    isModelCached(DEFAULT_MODEL, dir)
+    cached
       ? { status: 'OK', label: 'model', detail: `${DEFAULT_MODEL} cached in ${dir}` }
       : { status: 'WARN', label: 'model', detail: `${DEFAULT_MODEL} not downloaded (run overseer models pull)` },
   ];
-  if (deep) {
+  if (deep && !cached) {
+    lines.push({ status: 'WARN', label: 'model load', detail: 'skipped: the model is not downloaded (run overseer models pull)' });
+  } else if (deep) {
     try {
-      const [vector] = await new TransformersEmbedder().embed(['overseer doctor']);
+      const [vector] = await new TransformersEmbedder(DEFAULT_MODEL, { cacheDir: dir }).embed(['overseer doctor']);
       lines.push({ status: 'OK', label: 'model load', detail: `embedded a test string (dims ${vector?.length ?? 0})` });
     } catch (error) {
       lines.push({ status: 'FAIL', label: 'model load', detail: errorMessage(error) });

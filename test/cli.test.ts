@@ -421,6 +421,18 @@ describe('cli install and doctor', () => {
     expect(result.code).toBe(checks.some((check) => check.status === 'FAIL') ? 1 : 0);
   });
 
+  it('doctor --deep reports the model as not pulled and loads nothing while the cache is empty', async () => {
+    const home = tempDir('ovs-home-');
+    const result = await cli(tempRepo(), ['doctor', '--deep', '--json'], { env: { HOME: home, PATH: '', OVERSEER_MODEL_DIR: tempDir('ovs-models-') } });
+    const { checks } = result.json<{ checks: CheckLine[] }>();
+    expect(checks.find((check) => check.label === 'model')).toMatchObject({ status: 'WARN', detail: expect.stringContaining('not downloaded') });
+    expect(checks.find((check) => check.label === 'model load')).toEqual({
+      status: 'WARN',
+      label: 'model load',
+      detail: 'skipped: the model is not downloaded (run overseer models pull)',
+    });
+  });
+
   it('install without --targets uses only detected harnesses when not interactive', async () => {
     const home = tempDir('ovs-home-');
     mkdirSync(join(home, '.codex')); // leftover config dir, no codex CLI: not a detected harness
