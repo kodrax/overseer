@@ -87,7 +87,7 @@ export type CoverageState = (typeof COVERAGE_STATES)[number];
 export type ReportKind = (typeof REPORT_KINDS)[number];
 export type ExportPart = (typeof EXPORT_PARTS)[number];
 export type ImportSource = (typeof IMPORT_SOURCES)[number];
-export type EventAction = 'create' | 'update' | 'status' | 'link' | 'unlink' | 'comment' | 'import';
+export type EventAction = 'create' | 'update' | 'status' | 'link' | 'unlink' | 'comment' | 'import' | 'delete';
 
 export const bugDetailsSchema = z.object({
   steps: z.array(z.string()),
