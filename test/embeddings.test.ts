@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pullModel } from '../src/cli/commands/models.js';
 import { DEFAULT_MODEL, isModelCached, type TransformersModule, TransformersEmbedder } from '../src/core/embeddings.js';
 import { OverseerService } from '../src/core/service.js';
@@ -16,11 +16,21 @@ interface PipelineCall {
   local_files_only: boolean;
 }
 
+/** Writes the model files into `cacheDir`, as a finished download leaves them. */
+function cacheModel(cacheDir: string, model: string = DEFAULT_MODEL): void {
+  for (const file of MODEL_FILES) {
+    const path = join(cacheDir, model, file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, '');
+  }
+}
+
 /**
  * transformers.js stand-in: counts imports, records pipeline calls and, when downloads are allowed, writes the model
- * files into the cache the way the hub download does. Its extractor embeds with the hash embedder.
+ * files into the cache the way the hub download does. Its extractor embeds with the hash embedder. With `fail`, every
+ * pipeline call rejects with that error instead.
  */
-function stubTransformers() {
+function stubTransformers(fail?: Error) {
   const hash = new HashEmbedder();
   const calls: PipelineCall[] = [];
   let imports = 0;
@@ -29,13 +39,8 @@ function stubTransformers() {
     async pipeline(_task, model, options) {
       const cacheDir = module.env.cacheDir;
       calls.push({ model, cacheDir, local_files_only: options.local_files_only });
-      if (!options.local_files_only && cacheDir) {
-        for (const file of MODEL_FILES) {
-          const path = join(cacheDir, model, file);
-          mkdirSync(dirname(path), { recursive: true });
-          writeFileSync(path, '');
-        }
-      }
+      if (fail) throw fail;
+      if (!options.local_files_only && cacheDir) cacheModel(cacheDir, model);
       return async (texts: string[]) => {
         const vectors = await hash.embed(texts);
         const data = new Float32Array(vectors.length * hash.dims);
@@ -120,5 +125,48 @@ describe('TransformersEmbedder model cache', () => {
     const [vector] = await embedder.embed(['hello']);
     expect(vector).toHaveLength(384);
     expect(stub.calls.at(-1)).toEqual({ model: DEFAULT_MODEL, cacheDir, local_files_only: true });
+  });
+});
+
+describe('TransformersEmbedder loading', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('imports transformers.js on the first embed, not before, and loads the model once', async () => {
+    const cacheDir = tempDir('ovs-models-');
+    cacheModel(cacheDir);
+    const stub = stubTransformers();
+    const embedder = new TransformersEmbedder(DEFAULT_MODEL, { cacheDir, importTransformers: stub.importTransformers });
+    expect(await embedder.embed([])).toEqual([]);
+    expect(stub.imports()).toBe(0);
+
+    expect(await embedder.embed(['hello'])).toHaveLength(1);
+    expect(await embedder.embed(['again'])).toHaveLength(1);
+    expect(stub.imports()).toBe(1);
+    expect(stub.calls).toEqual([{ model: DEFAULT_MODEL, cacheDir, local_files_only: true }]);
+  });
+
+  it('fails at once for 5 minutes after a failed load, then retries', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-20T12:00:00Z') });
+    const cacheDir = tempDir('ovs-models-');
+    cacheModel(cacheDir);
+    const stub = stubTransformers(new Error('onnxruntime failed to load'));
+    const embedder = new TransformersEmbedder(DEFAULT_MODEL, { cacheDir, importTransformers: stub.importTransformers });
+
+    await expect(embedder.embed(['first'])).rejects.toThrow('onnxruntime failed to load');
+    expect(stub.calls).toHaveLength(1);
+
+    // Within the window: no new import and no pipeline call.
+    vi.advanceTimersByTime(5 * 60_000 - 1);
+    await expect(embedder.embed(['second'])).rejects.toThrow('model load failed recently; retrying later');
+    expect(stub.imports()).toBe(1);
+    expect(stub.calls).toHaveLength(1);
+
+    // Once the window has passed, the next embed loads the model again.
+    vi.advanceTimersByTime(1);
+    await expect(embedder.embed(['third'])).rejects.toThrow('onnxruntime failed to load');
+    expect(stub.imports()).toBe(2);
+    expect(stub.calls).toHaveLength(2);
   });
 });
