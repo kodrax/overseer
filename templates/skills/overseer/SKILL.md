@@ -17,7 +17,7 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 | `check_coverage` | "Is X covered/tracked/delivered?" over requirements | `overseer coverage "<text>"` |
 | `create_item` | Create requirement / epic / story / task / bug (duplicate guard) | `overseer add <kind> --title … [flags]` |
 | `update_item` | Change fields, status, comment, `delivered_in` | `overseer update <id> [flags] [--comment …]` |
-| `get_item` | One item with coverage, links, children, history | `overseer show <id> [--history]` |
+| `get_item` | One item (`id`) or up to 50 (`ids` → `{items}`) with coverage, links, children, history; `context: true` adds the parent and linked requirements with their AC | `overseer show <id>… [--context] [--history]` |
 | `list_items` | Filtered list (kind, status, req_type, coverage, tag, parent) | `overseer list [--kind] [--status]… [--all]` |
 | `search` | Hybrid keyword + semantic search | `overseer search "<query>" [--kind]` |
 | `link_items` | Add/remove a relation (`remove: true`) | `overseer link <src> <rel> <dst>` / `overseer unlink …` |

@@ -385,3 +385,77 @@ describe('lists and reports', () => {
     expect(lint.warnings.map((w) => `${w.id}:${w.rule}`)).toEqual([`${r.id}:missing_acceptance_criteria`, `${story.id}:missing_acceptance_criteria`, `${story.id}:story_format`]);
   });
 });
+
+describe('item details', () => {
+  async function fixture() {
+    const service = openService();
+    const r = await create(service, req('Login', { acceptance_criteria: ['Given a user, when they sign in, then they see the home page'] }));
+    const other = await create(service, req('Audit'));
+    const epic = await create(service, { kind: 'epic', title: 'Accounts' });
+    const story = await create(service, { kind: 'story', title: 'Sign in', parent_id: epic.id, links: [{ rel: 'implements', to: r.id }] });
+    const task = await create(service, {
+      kind: 'task',
+      title: 'Login form',
+      parent_id: story.id,
+      links: [
+        { rel: 'implements', to: r.id },
+        { rel: 'relates_to', to: other.id },
+      ],
+    });
+    const bug = await create(service, { kind: 'bug', title: 'Login crash', parent_id: story.id, links: [{ rel: 'affects', to: other.id }] });
+    return { service, r, other, epic, story, task, bug };
+  }
+
+  it('returns several items in request order as {items}', async () => {
+    const { service, r, story, task } = await fixture();
+    const { items } = service.getItems([task.id, 'req-1', story.id]);
+    expect(items.map((detail) => detail.item.id)).toEqual([task.id, r.id, story.id]);
+    expect(items[0]).toEqual(service.getItem(task.id));
+  });
+
+  it('context adds the parent summary, linked requirements with their AC, and summary links and children', async () => {
+    const { service, r, other, epic, story, task, bug } = await fixture();
+    const detail = service.getItem(story.id, { context: true });
+    expect(detail.parent).toEqual({ id: epic.id, kind: 'epic', title: 'Accounts', status: epic.status });
+    expect(detail.requirements).toEqual([
+      { rel: 'implements', id: r.id, kind: 'requirement', title: 'Login', status: r.status, acceptance_criteria: ['Given a user, when they sign in, then they see the home page'] },
+    ]);
+    expect(detail.children).toEqual([
+      { id: bug.id, kind: 'bug', title: 'Login crash', status: bug.status },
+      { id: task.id, kind: 'task', title: 'Login form', status: task.status },
+    ]);
+
+    const [taskDetail, bugDetail, epicDetail] = service.getItems([task.id, bug.id, epic.id], { context: true }).items;
+    expect(taskDetail!.parent).toEqual({ id: story.id, kind: 'story', title: 'Sign in', status: story.status });
+    // relates_to is a link, not a requirement the task works against
+    expect(taskDetail!.requirements!.map((link) => link.id)).toEqual([r.id]);
+    expect(taskDetail!.links.outgoing).toEqual([
+      { rel: 'implements', id: r.id, kind: 'requirement', title: 'Login', status: r.status },
+      { rel: 'relates_to', id: other.id, kind: 'requirement', title: 'Audit', status: other.status },
+    ]);
+    expect(bugDetail!.requirements).toEqual([{ rel: 'affects', id: other.id, kind: 'requirement', title: 'Audit', status: other.status, acceptance_criteria: [] }]);
+    expect(epicDetail!.parent).toBeNull();
+    expect(epicDetail!.requirements).toEqual([]);
+  });
+
+  it('keeps the single-item shape without context', async () => {
+    const { service, story } = await fixture();
+    expect(Object.keys(service.getItem(story.id))).toEqual(['item', 'links', 'children']);
+    expect(Object.keys(service.getItem('REQ-0001'))).toEqual(['item', 'coverage', 'links', 'children']);
+  });
+
+  it('NOT_FOUND names every unknown ID', async () => {
+    const { service, story } = await fixture();
+    expect(() => service.getItems(['REQ-0099', story.id, 'task-77', 'REQ-0099'])).toThrow(
+      expect.objectContaining({ code: 'NOT_FOUND', message: 'No items with ids REQ-0099, TASK-0077.' }),
+    );
+    expect(() => service.getItems([story.id, 'REQ-0099'])).toThrow(expect.objectContaining({ code: 'NOT_FOUND', message: 'No item with id REQ-0099.' }));
+  });
+
+  it('rejects an empty list or more than 50 IDs', async () => {
+    const { service, story } = await fixture();
+    expect(() => service.getItems([])).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+    expect(() => service.getItems(Array.from({ length: 51 }, () => story.id))).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+    expect(service.getItems(Array.from({ length: 50 }, () => story.id)).items).toHaveLength(50);
+  });
+});

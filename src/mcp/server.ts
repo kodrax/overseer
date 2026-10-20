@@ -23,7 +23,7 @@ import {
   STATUSES,
   updateInputSchema,
 } from '../core/schema.js';
-import { OverseerService } from '../core/service.js';
+import { MAX_ITEM_IDS, OverseerService } from '../core/service.js';
 import { assertProjectEnabled } from '../core/user-config.js';
 
 export const INSTRUCTIONS =
@@ -85,7 +85,7 @@ const toolsHelp = {
     'Record a requirement, epic, user story, task or bug. Returns {created:true, item, warnings, similar} or {created:false, reason:"possible_duplicate", candidates} without writing when a likely duplicate exists. Surface lint warnings to the user.',
   update_item:
     'Update fields or status of an item (nullable fields accept null to clear), optionally adding a comment. Returns the item, changed_fields and lint warnings.',
-  get_item: 'Get one item with coverage, outgoing/incoming links, children and optionally its history.',
+  get_item: `Get one item (id) or up to ${MAX_ITEM_IDS} items (ids, in request order, as {items:[…]}) with coverage, outgoing/incoming links, children and optionally its history. context:true adds the parent summary and the linked requirements (implements/affects) with their acceptance criteria, so one call gives the working context. Pass exactly one of id and ids.`,
   list_items: 'List items with filters (kind, status, req_type, coverage, tag, parent_id). Closed items are hidden unless include_closed.',
   search: 'Hybrid keyword + semantic search over all items.',
   link_items:
@@ -247,10 +247,21 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     {
       title: 'Get item',
       description: toolsHelp.get_item,
-      inputSchema: { id: z.string().min(1), include_history: z.boolean().default(false), project_dir: projectDir },
+      inputSchema: {
+        id: z.string().min(1).optional().describe('One item ID, e.g. TASK-0012. Returns the item detail.'),
+        ids: z.array(z.string().min(1)).optional().describe(`Several item IDs (1–${MAX_ITEM_IDS}). Returns {items:[…]} in request order.`),
+        context: z.boolean().default(false).describe('Add the parent summary and the linked requirements with their acceptance criteria.'),
+        include_history: z.boolean().default(false),
+        project_dir: projectDir,
+      },
       annotations: readOnly,
     },
-    (args) => run(args.project_dir, false, (service) => service.getItem(args.id, { history: args.include_history })),
+    (args) =>
+      run(args.project_dir, false, (service) => {
+        const options = { history: args.include_history, context: args.context };
+        if ((args.id === undefined) === (args.ids === undefined)) throw new OverseerError('INVALID_INPUT', 'Pass exactly one of id and ids.');
+        return args.ids ? service.getItems(args.ids, options) : service.getItem(args.id!, options);
+      }),
   );
 
   server.registerTool(

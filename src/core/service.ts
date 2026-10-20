@@ -71,13 +71,31 @@ export interface UpdateResult {
   warnings: LintWarning[];
 }
 
+/** Requirement linked from an item by `implements` or `affects`, with its acceptance criteria. */
+export interface RequirementRef extends LinkRef {
+  acceptance_criteria: string[];
+}
+
 export interface ItemDetail {
   item: Item;
   coverage?: CoverageState;
+  /** Only with `context`: the parent summary, null when the item has no parent. */
+  parent?: ItemRef | null;
+  /** Only with `context`: requirements this item implements or affects. */
+  requirements?: RequirementRef[];
   links: { outgoing: LinkRef[]; incoming: LinkRef[] };
   children: ItemRef[];
   history?: ItemEvent[];
 }
+
+export interface ItemDetailOptions {
+  history?: boolean;
+  /** Adds `parent` and `requirements` (implements/affects targets with their acceptance criteria). */
+  context?: boolean;
+}
+
+/** Most IDs one `getItems` call accepts. */
+export const MAX_ITEM_IDS = 50;
 
 export interface ListFilter {
   kind?: Kind;
@@ -337,8 +355,24 @@ export class OverseerService {
     return item;
   }
 
-  getItem(id: string, options: { history?: boolean } = {}): ItemDetail {
-    const row = this.requireRow(id);
+  getItem(id: string, options: ItemDetailOptions = {}): ItemDetail {
+    return this.detailOf(this.requireRow(id), options);
+  }
+
+  /** Details of several items in request order; NOT_FOUND names every unknown ID. */
+  getItems(ids: readonly string[], options: ItemDetailOptions = {}): { items: ItemDetail[] } {
+    if (ids.length === 0 || ids.length > MAX_ITEM_IDS) {
+      throw new OverseerError('INVALID_INPUT', `ids must hold 1 to ${MAX_ITEM_IDS} item IDs; got ${ids.length}.`);
+    }
+    const normalized = ids.map(normalizeId);
+    const rows = normalized.map((id) => getRow(this.db, id));
+    const unknown = [...new Set(normalized.filter((_, index) => !rows[index]))];
+    if (unknown.length === 1) throw new OverseerError('NOT_FOUND', `No item with id ${unknown[0]}.`);
+    if (unknown.length > 1) throw new OverseerError('NOT_FOUND', `No items with ids ${unknown.join(', ')}.`);
+    return { items: rows.map((row) => this.detailOf(row!, options)) };
+  }
+
+  private detailOf(row: ItemRow, options: ItemDetailOptions): ItemDetail {
     const item = this.itemOf(row);
     const outgoing = this.db
       .prepare(
@@ -359,6 +393,13 @@ export class OverseerService {
       links: { outgoing: outgoing.map((link) => ({ rel: link.rel, ...toRef(link) })), incoming: incoming.map((link) => ({ rel: link.rel, ...toRef(link) })) },
       children,
     };
+    if (options.context) {
+      const parent = row.parent_id ? getRow(this.db, row.parent_id) : undefined;
+      detail.parent = parent ? toRef(parent) : null;
+      detail.requirements = detail.links.outgoing
+        .filter((link) => (link.rel === 'implements' || link.rel === 'affects') && link.kind === 'requirement')
+        .map((link) => ({ ...link, acceptance_criteria: toItem(getRow(this.db, link.id)!).acceptance_criteria }));
+    }
     if (options.history) detail.history = this.history(row.id);
     return detail;
   }

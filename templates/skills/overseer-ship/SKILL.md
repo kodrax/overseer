@@ -14,8 +14,9 @@ request yourself.
 
 ## 1. Resolve the item
 
-- **Board ID** (`TASK-0012`, `BUG-0003`) → `get_item`. Read the parent, the linked requirements
-  (`implements`, `affects`) with their acceptance criteria, and the `depends_on` items before coding.
+- **Board ID** (`TASK-0012`, `BUG-0003`) → `get_item` with `context: true`: one call returns the parent,
+  the linked requirements (`implements`, `affects`) with their acceptance criteria, and the links. Read
+  them and the `depends_on` items (`get_item` with `ids`) before coding.
   - `done` or `cancelled` → tell the user and stop unless they insist.
   - A story, epic or requirement → propose a task under it (`parent_id` = the story,
     `implements` = the requirement) and ship that task once the user agrees.
