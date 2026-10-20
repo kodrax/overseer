@@ -19,6 +19,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p web && tsc --noEmit -p test/web",
     "calibrate": "OVERSEER_CALIBRATE=1 vitest run test/calibrate.test.ts",
+    "measure:capture": "node scripts/measure-capture.mjs",
     "dev:web": "vite",
     "prepare": "node scripts/install-hooks.mjs"
   },

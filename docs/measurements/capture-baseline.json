@@ -1,0 +1,2364 @@
+{
+  "label": "baseline",
+  "date": "2026-10-20T13:53:31.293Z",
+  "commit": {
+    "sha": "b273986b2a9a3503f8bd840952f2b5d5a0661a06",
+    "merge_base_origin_main": "63290d6392b9193e00fcc06fb0b3ed539b384d76",
+    "dirty_paths": []
+  },
+  "machine": {
+    "os": "linux 7.2.7-1-default x64",
+    "cpu": "AMD Ryzen 7 9800X3D 8-Core Processor (16 threads)",
+    "memory_gb": 60,
+    "node": "v24.18.1",
+    "load_start": [
+      0.81,
+      1.67,
+      1.8
+    ],
+    "load_end": [
+      2.78,
+      2.43,
+      2.11
+    ]
+  },
+  "embedder": {
+    "label": "Xenova/multilingual-e5-small (local cache, semantic results 60/60)",
+    "model": "Xenova/multilingual-e5-small",
+    "cached_before_run": true,
+    "cache_dir": "/home/ignacio/.cache/overseer/models"
+  },
+  "omp_version": "omp/18.12.3",
+  "seed_size": 300,
+  "replays": 3,
+  "fit_criterion": "Recording a dictated batch of up to 20 items with their links takes at most 3 overseer calls and no codebase reads; fetching one item with its parent, links and children takes 1 call; every CLI call finishes under 1 s at p95 on a 300-item registry.",
+  "replay": {
+    "seed": {
+      "items": 300,
+      "seconds": 6.4,
+      "epic": "EPIC-0005",
+      "registry_after_last_replay": 320
+    },
+    "semantic": {
+      "similar_calls": 60,
+      "semantic_true": 60,
+      "warmup_semantic": true
+    },
+    "capture_calls_per_replay": [
+      41,
+      41,
+      41
+    ],
+    "lookup_calls_per_item": 1,
+    "similar_verdicts": {
+      "related": 54,
+      "duplicate": 3,
+      "new": 3
+    },
+    "latency": {
+      "similar": {
+        "n": 60,
+        "p50_ms": 566,
+        "p95_ms": 602,
+        "min_ms": 549,
+        "max_ms": 645,
+        "mean_ms": 572
+      },
+      "add": {
+        "n": 63,
+        "p50_ms": 566,
+        "p95_ms": 588,
+        "min_ms": 536,
+        "max_ms": 616,
+        "mean_ms": 565
+      },
+      "show --context": {
+        "n": 60,
+        "p50_ms": 133,
+        "p95_ms": 138,
+        "min_ms": 128,
+        "max_ms": 139,
+        "mean_ms": 134
+      }
+    },
+    "all_calls": {
+      "n": 183,
+      "p50_ms": 556,
+      "p95_ms": 596,
+      "min_ms": 128,
+      "max_ms": 645,
+      "mean_ms": 426
+    },
+    "runs": [
+      {
+        "replay": 1,
+        "ids": {
+          "R1": "REQ-0061",
+          "R2": "REQ-0062",
+          "R3": "REQ-0063",
+          "R4": "REQ-0064",
+          "R5": "REQ-0065",
+          "R6": "REQ-0066",
+          "S1": "US-0061",
+          "S2": "US-0062",
+          "S3": "US-0063",
+          "S4": "US-0064",
+          "S5": "US-0065",
+          "S6": "US-0066",
+          "T1": "TASK-0141",
+          "T2": "TASK-0142",
+          "T3": "TASK-0143",
+          "T4": "TASK-0144",
+          "T5": "TASK-0145",
+          "T6": "TASK-0146",
+          "T7": "TASK-0147",
+          "T8": "TASK-0148"
+        },
+        "calls": [
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R1",
+            "ms": 572.1598210000002,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0025",
+              "title": "Load the card payment form quickly",
+              "similarity": 0.4186
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R1",
+            "ms": 587.6979539999993,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R2",
+            "ms": 564.752939,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0061",
+              "title": "Email the gift card code to the recipient",
+              "similarity": 0.4082
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R2",
+            "ms": 616.3243490000004,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R3",
+            "ms": 601.5997829999997,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0062",
+              "title": "Redeem a gift card at checkout",
+              "similarity": 0.4763
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R3",
+            "ms": 555.3120690000014,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R4",
+            "ms": 570.682354999999,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0063",
+              "title": "Close used gift cards",
+              "similarity": 0.3473
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R4",
+            "ms": 551.3892510000005,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R5",
+            "ms": 571.7834079999993,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0061",
+              "title": "Email the gift card code to the recipient",
+              "similarity": 0.5266
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R5",
+            "ms": 576.1836469999998,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R6",
+            "ms": 575.688075,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0062",
+              "title": "Redeem a gift card at checkout",
+              "similarity": 0.4791
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R6",
+            "ms": 575.8636729999998,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S1",
+            "ms": 574.6133919999993,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0029",
+              "title": "Share the invoice PDF",
+              "similarity": 0.4756
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S1",
+            "ms": 571.5448120000001,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S2",
+            "ms": 558.4192700000003,
+            "verdict": "duplicate",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0061",
+              "title": "Buy a gift card for a friend",
+              "similarity": 0.6852
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S2",
+            "ms": 578.0422369999997,
+            "created": false,
+            "verdict": "duplicate"
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S2",
+            "ms": 566.3850829999974,
+            "created": true,
+            "verdict": "duplicate",
+            "retry": true
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S3",
+            "ms": 583.7833560000036,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0062",
+              "title": "Pay with a gift card",
+              "similarity": 0.5455
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S3",
+            "ms": 566.323094000003,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S4",
+            "ms": 562.4251459999978,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0063",
+              "title": "Check my gift card balance",
+              "similarity": 0.4906
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S4",
+            "ms": 571.3252550000034,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S5",
+            "ms": 580.325241999999,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0063",
+              "title": "Check my gift card balance",
+              "similarity": 0.4063
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S5",
+            "ms": 542.5408119999993,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S6",
+            "ms": 564.6240209999996,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0065",
+              "title": "Reconcile gift card revenue",
+              "similarity": 0.5164
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S6",
+            "ms": 565.5212869999996,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T1",
+            "ms": 558.7434649999996,
+            "verdict": "new",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0009",
+              "title": "Refactor the product image gallery component",
+              "similarity": 0.1913
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T1",
+            "ms": 560.6913740000018,
+            "created": true,
+            "verdict": "new"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T2",
+            "ms": 645.4284259999986,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0141",
+              "title": "Create the gift card product type",
+              "similarity": 0.391
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T2",
+            "ms": 588.3575439999986,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T3",
+            "ms": 552.3005569999987,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4649
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T3",
+            "ms": 566.2909139999974,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T4",
+            "ms": 575.4869479999979,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0143",
+              "title": "Add the gift card field to checkout",
+              "similarity": 0.4344
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T4",
+            "ms": 565.4048689999981,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T5",
+            "ms": 575.5657680000004,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4723
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T5",
+            "ms": 568.8317040000002,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T6",
+            "ms": 584.9926670000023,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4267
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T6",
+            "ms": 539.8581259999992,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T7",
+            "ms": 573.0266979999979,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0144",
+              "title": "Apply the gift card balance to the order",
+              "similarity": 0.4338
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T7",
+            "ms": 584.5133649999989,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T8",
+            "ms": 557.2787580000004,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.3933
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T8",
+            "ms": 555.0312430000013,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R1",
+            "ms": 134.38995299999806
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R2",
+            "ms": 138.91890100000091
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R3",
+            "ms": 132.4217540000027
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R4",
+            "ms": 132.88910699999906
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R5",
+            "ms": 132.9352859999999
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R6",
+            "ms": 127.86403700000301
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S1",
+            "ms": 135.63141299999916
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S2",
+            "ms": 135.93862900000022
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S3",
+            "ms": 133.151292999999
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S4",
+            "ms": 138.42541900000288
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S5",
+            "ms": 131.26279199999772
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S6",
+            "ms": 138.81960199999958
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T1",
+            "ms": 132.81216800000038
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T2",
+            "ms": 138.88259200000175
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T3",
+            "ms": 130.56347400000232
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T4",
+            "ms": 129.6525380000021
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T5",
+            "ms": 138.1774430000005
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T6",
+            "ms": 131.05134499999986
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T7",
+            "ms": 131.27386300000217
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T8",
+            "ms": 131.53019900000072
+          }
+        ]
+      },
+      {
+        "replay": 2,
+        "ids": {
+          "R1": "REQ-0061",
+          "R2": "REQ-0062",
+          "R3": "REQ-0063",
+          "R4": "REQ-0064",
+          "R5": "REQ-0065",
+          "R6": "REQ-0066",
+          "S1": "US-0061",
+          "S2": "US-0062",
+          "S3": "US-0063",
+          "S4": "US-0064",
+          "S5": "US-0065",
+          "S6": "US-0066",
+          "T1": "TASK-0141",
+          "T2": "TASK-0142",
+          "T3": "TASK-0143",
+          "T4": "TASK-0144",
+          "T5": "TASK-0145",
+          "T6": "TASK-0146",
+          "T7": "TASK-0147",
+          "T8": "TASK-0148"
+        },
+        "calls": [
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R1",
+            "ms": 549.3523239999995,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0025",
+              "title": "Load the card payment form quickly",
+              "similarity": 0.4186
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R1",
+            "ms": 549.3847840000017,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R2",
+            "ms": 553.3776209999996,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0061",
+              "title": "Email the gift card code to the recipient",
+              "similarity": 0.4082
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R2",
+            "ms": 565.8101119999992,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R3",
+            "ms": 579.2152989999959,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0062",
+              "title": "Redeem a gift card at checkout",
+              "similarity": 0.4763
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R3",
+            "ms": 559.8831659999996,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R4",
+            "ms": 597.7200840000005,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0063",
+              "title": "Close used gift cards",
+              "similarity": 0.3473
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R4",
+            "ms": 567.5877939999991,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R5",
+            "ms": 602.3511609999987,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0061",
+              "title": "Email the gift card code to the recipient",
+              "similarity": 0.5266
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R5",
+            "ms": 561.3097930000004,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R6",
+            "ms": 561.3663929999966,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0062",
+              "title": "Redeem a gift card at checkout",
+              "similarity": 0.4791
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R6",
+            "ms": 552.5167739999961,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S1",
+            "ms": 555.1331819999978,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0029",
+              "title": "Share the invoice PDF",
+              "similarity": 0.4756
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S1",
+            "ms": 555.0031739999977,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S2",
+            "ms": 564.8591669999951,
+            "verdict": "duplicate",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0061",
+              "title": "Buy a gift card for a friend",
+              "similarity": 0.6852
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S2",
+            "ms": 572.6353040000031,
+            "created": false,
+            "verdict": "duplicate"
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S2",
+            "ms": 555.4096770000033,
+            "created": true,
+            "verdict": "duplicate",
+            "retry": true
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S3",
+            "ms": 562.1466500000024,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0062",
+              "title": "Pay with a gift card",
+              "similarity": 0.5455
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S3",
+            "ms": 567.1972900000037,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S4",
+            "ms": 584.676582,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0063",
+              "title": "Check my gift card balance",
+              "similarity": 0.4906
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S4",
+            "ms": 557.2852769999954,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S5",
+            "ms": 565.5297070000015,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0063",
+              "title": "Check my gift card balance",
+              "similarity": 0.4063
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S5",
+            "ms": 546.8433640000003,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S6",
+            "ms": 551.551539,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0065",
+              "title": "Reconcile gift card revenue",
+              "similarity": 0.5164
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S6",
+            "ms": 549.7246180000002,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T1",
+            "ms": 560.9475190000012,
+            "verdict": "new",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0009",
+              "title": "Refactor the product image gallery component",
+              "similarity": 0.1913
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T1",
+            "ms": 549.6472490000015,
+            "created": true,
+            "verdict": "new"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T2",
+            "ms": 560.2678700000033,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0141",
+              "title": "Create the gift card product type",
+              "similarity": 0.391
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T2",
+            "ms": 545.8169309999939,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T3",
+            "ms": 549.0967380000002,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4649
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T3",
+            "ms": 554.8719459999993,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T4",
+            "ms": 562.7713099999964,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0143",
+              "title": "Add the gift card field to checkout",
+              "similarity": 0.4344
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T4",
+            "ms": 596.1090200000035,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T5",
+            "ms": 551.8630740000008,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4723
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T5",
+            "ms": 578.5779800000018,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T6",
+            "ms": 550.7095530000006,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4267
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T6",
+            "ms": 569.6568409999963,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T7",
+            "ms": 573.5977379999968,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0144",
+              "title": "Apply the gift card balance to the order",
+              "similarity": 0.4338
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T7",
+            "ms": 535.5930530000041,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T8",
+            "ms": 556.6978069999968,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.3933
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T8",
+            "ms": 567.513844999994,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R1",
+            "ms": 134.5064710000006
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R2",
+            "ms": 135.76247099999455
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R3",
+            "ms": 132.78098799999862
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R4",
+            "ms": 133.39443799999572
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R5",
+            "ms": 133.01051499999448
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R6",
+            "ms": 133.28469999999652
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S1",
+            "ms": 135.2359590000051
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S2",
+            "ms": 132.51282199999696
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S3",
+            "ms": 133.45677699999942
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S4",
+            "ms": 134.5916600000055
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S5",
+            "ms": 133.2591309999989
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S6",
+            "ms": 128.37468799999624
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T1",
+            "ms": 129.3409329999995
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T2",
+            "ms": 135.10758599999826
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T3",
+            "ms": 132.61200400000234
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T4",
+            "ms": 132.30165899999702
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T5",
+            "ms": 135.718194999994
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T6",
+            "ms": 131.07760899999994
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T7",
+            "ms": 135.35998100000143
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T8",
+            "ms": 131.36764400000538
+          }
+        ]
+      },
+      {
+        "replay": 3,
+        "ids": {
+          "R1": "REQ-0061",
+          "R2": "REQ-0062",
+          "R3": "REQ-0063",
+          "R4": "REQ-0064",
+          "R5": "REQ-0065",
+          "R6": "REQ-0066",
+          "S1": "US-0061",
+          "S2": "US-0062",
+          "S3": "US-0063",
+          "S4": "US-0064",
+          "S5": "US-0065",
+          "S6": "US-0066",
+          "T1": "TASK-0141",
+          "T2": "TASK-0142",
+          "T3": "TASK-0143",
+          "T4": "TASK-0144",
+          "T5": "TASK-0145",
+          "T6": "TASK-0146",
+          "T7": "TASK-0147",
+          "T8": "TASK-0148"
+        },
+        "calls": [
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R1",
+            "ms": 549.3222170000008,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0025",
+              "title": "Load the card payment form quickly",
+              "similarity": 0.4186
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R1",
+            "ms": 546.5157719999988,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R2",
+            "ms": 568.6080600000059,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0061",
+              "title": "Email the gift card code to the recipient",
+              "similarity": 0.4082
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R2",
+            "ms": 587.769484000004,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R3",
+            "ms": 569.092721999994,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0062",
+              "title": "Redeem a gift card at checkout",
+              "similarity": 0.4763
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R3",
+            "ms": 570.8843730000008,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R4",
+            "ms": 560.4024800000043,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0063",
+              "title": "Close used gift cards",
+              "similarity": 0.3473
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R4",
+            "ms": 554.2985279999994,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R5",
+            "ms": 619.4606090000016,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0061",
+              "title": "Email the gift card code to the recipient",
+              "similarity": 0.5266
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R5",
+            "ms": 554.5666239999991,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "R6",
+            "ms": 579.6899630000044,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "REQ-0062",
+              "title": "Redeem a gift card at checkout",
+              "similarity": 0.4791
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "R6",
+            "ms": 587.417978999998,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S1",
+            "ms": 585.870373999991,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0029",
+              "title": "Share the invoice PDF",
+              "similarity": 0.4756
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S1",
+            "ms": 572.1574229999969,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S2",
+            "ms": 589.2232000000076,
+            "verdict": "duplicate",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0061",
+              "title": "Buy a gift card for a friend",
+              "similarity": 0.6852
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S2",
+            "ms": 565.7896239999973,
+            "created": false,
+            "verdict": "duplicate"
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S2",
+            "ms": 546.2769550000085,
+            "created": true,
+            "verdict": "duplicate",
+            "retry": true
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S3",
+            "ms": 555.9640110000037,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0062",
+              "title": "Pay with a gift card",
+              "similarity": 0.5455
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S3",
+            "ms": 571.7254190000094,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S4",
+            "ms": 596.5590040000097,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0063",
+              "title": "Check my gift card balance",
+              "similarity": 0.4906
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S4",
+            "ms": 569.0883420000027,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S5",
+            "ms": 577.186652999997,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0063",
+              "title": "Check my gift card balance",
+              "similarity": 0.4063
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S5",
+            "ms": 568.7532369999972,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "S6",
+            "ms": 580.0433969999867,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "US-0065",
+              "title": "Reconcile gift card revenue",
+              "similarity": 0.5164
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "S6",
+            "ms": 590.4368119999999,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T1",
+            "ms": 560.3635409999988,
+            "verdict": "new",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0009",
+              "title": "Refactor the product image gallery component",
+              "similarity": 0.1913
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T1",
+            "ms": 569.7363809999952,
+            "created": true,
+            "verdict": "new"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T2",
+            "ms": 559.4939150000137,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0141",
+              "title": "Create the gift card product type",
+              "similarity": 0.391
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T2",
+            "ms": 561.5534320000006,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T3",
+            "ms": 559.0336019999959,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4649
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T3",
+            "ms": 551.7911279999971,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T4",
+            "ms": 554.1641200000013,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0143",
+              "title": "Add the gift card field to checkout",
+              "similarity": 0.4344
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T4",
+            "ms": 571.9072869999945,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T5",
+            "ms": 570.2570330000017,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4723
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T5",
+            "ms": 546.3897840000136,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T6",
+            "ms": 626.682433000009,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.4267
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T6",
+            "ms": 555.6623660000041,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T7",
+            "ms": 596.084852,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0144",
+              "title": "Apply the gift card balance to the order",
+              "similarity": 0.4338
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T7",
+            "ms": 567.041824999993,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "capture",
+            "command": "similar",
+            "item": "T8",
+            "ms": 556.7141100000008,
+            "verdict": "related",
+            "semantic": true,
+            "top_match": {
+              "id": "TASK-0142",
+              "title": "Send the gift card email",
+              "similarity": 0.3933
+            }
+          },
+          {
+            "step": "capture",
+            "command": "add",
+            "item": "T8",
+            "ms": 582.8324629999988,
+            "created": true,
+            "verdict": "related"
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R1",
+            "ms": 136.6950599999982
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R2",
+            "ms": 137.12927299999865
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R3",
+            "ms": 135.6830259999988
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R4",
+            "ms": 133.7878960000089
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R5",
+            "ms": 133.43889099999797
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R6",
+            "ms": 134.7494999999908
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S1",
+            "ms": 131.8547969999927
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S2",
+            "ms": 131.1883269999962
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S3",
+            "ms": 137.67278399999486
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S4",
+            "ms": 134.30712800000038
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S5",
+            "ms": 135.24858300000778
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S6",
+            "ms": 133.85040399999707
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T1",
+            "ms": 128.97005299999728
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T2",
+            "ms": 129.2316390000051
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T3",
+            "ms": 133.5748089999979
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T4",
+            "ms": 135.55810799999745
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T5",
+            "ms": 134.39464600000065
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T6",
+            "ms": 131.34869500000787
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T7",
+            "ms": 130.06485499998962
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T8",
+            "ms": 132.87174100000993
+          }
+        ]
+      }
+    ],
+    "tools": [
+      "find_similar",
+      "check_coverage",
+      "create_item",
+      "update_item",
+      "get_item",
+      "list_items",
+      "search",
+      "link_items",
+      "report",
+      "export_report",
+      "import_items",
+      "open_board"
+    ]
+  },
+  "tokens": {
+    "rows": [
+      {
+        "name": "skill",
+        "path": "templates/skills/overseer/SKILL.md",
+        "loaded": "read when the agent records items",
+        "chars": 9112,
+        "approx_chars_div_4": 2278,
+        "o200k_base": 2422,
+        "claude-v5": 3524
+      },
+      {
+        "name": "subagent prompt",
+        "path": "templates/agent-prompt.md",
+        "loaded": "system prompt of the overseer subagent",
+        "chars": 1978,
+        "approx_chars_div_4": 495,
+        "o200k_base": 493,
+        "claude-v5": 713
+      },
+      {
+        "name": "reference: ears.md",
+        "path": "templates/skills/overseer/references/ears.md",
+        "loaded": "Capture a requirement, step 1",
+        "chars": 2844,
+        "approx_chars_div_4": 711,
+        "o200k_base": 692,
+        "claude-v5": 1124
+      },
+      {
+        "name": "reference: nfr-iso25010.md",
+        "path": "templates/skills/overseer/references/nfr-iso25010.md",
+        "loaded": "Capture a requirement, step 2 (non-functional)",
+        "chars": 2481,
+        "approx_chars_div_4": 621,
+        "o200k_base": 593,
+        "claude-v5": 958
+      },
+      {
+        "name": "reference: fields.md",
+        "path": "templates/skills/overseer/references/fields.md",
+        "loaded": "field dictionary the skill points to",
+        "chars": 4743,
+        "approx_chars_div_4": 1186,
+        "o200k_base": 1333,
+        "claude-v5": 1958
+      },
+      {
+        "name": "MCP tool definitions",
+        "path": "(tools/list of overseer mcp, JSON)",
+        "loaded": "by the harness in every session",
+        "chars": 17888,
+        "approx_chars_div_4": 4472,
+        "o200k_base": 4346,
+        "claude-v5": 7114
+      }
+    ],
+    "total_skill_prompt_references": {
+      "chars": 21158,
+      "approx_chars_div_4": 5291,
+      "o200k_base": 5533,
+      "claude-v5": 8277
+    },
+    "total_with_tool_definitions": {
+      "chars": 39046,
+      "approx_chars_div_4": 9763,
+      "o200k_base": 9879,
+      "claude-v5": 15391
+    }
+  },
+  "live": {
+    "models": [
+      "anthropic/claude-opus-5-5"
+    ],
+    "runs": [
+      {
+        "run": 1,
+        "exit_code": 0,
+        "wall_s": 63.4,
+        "models": [
+          "anthropic/claude-opus-5-5"
+        ],
+        "subagents": 0,
+        "overseer_requests": 49,
+        "overseer_requests_by_tool": {
+          "get_item": 7,
+          "find_similar": 20,
+          "create_item": 22
+        },
+        "overseer_tool_calls": 9,
+        "overseer_tool_calls_by_tool": {
+          "eval (code)": 9
+        },
+        "timing_check": {
+          "calls_by_arguments": 0,
+          "with_request_in_window": 0
+        },
+        "codebase_reads": 0,
+        "skill_reads": 1,
+        "tool_doc_reads": 3,
+        "subagent_calls": 0,
+        "other_calls": 0,
+        "total_tool_calls": 13,
+        "tokens": {
+          "input": 26,
+          "output": 6297,
+          "cache_read": 266518,
+          "cache_write": 17375,
+          "cost_usd": 0.3183,
+          "assistant_messages": 12,
+          "prompt_total": 283919
+        },
+        "registry": {
+          "items_created": 20,
+          "by_kind": {
+            "requirement": 6,
+            "task": 8,
+            "story": 6
+          },
+          "with_parent": 14,
+          "implements_links": 12
+        },
+        "calls": [
+          {
+            "who": "main",
+            "name": "read",
+            "category": "skill_read",
+            "requests_during": 0,
+            "args": "skill://overseer"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_find_similar"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_get_item"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 1,
+            "args": ": import json async def ov(name, args): r = await tool.write({\"path\": f\"xd://mcp__overseer_{name}\", \"content\": json.dumps(args), \"i\": f\"Calling overseer {name}\""
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": ": SRC = \"conversation 2026-10-20 (omp)\" reqs = { \"R1\": dict(title=\"Email gift card code to recipient within 5 minutes\", description=\"When a customer buys a gift",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": ": ids = {} for k,v in reqs.items(): args = dict(kind=\"requirement\", status=\"approved\", verification_method=\"test\", source=SRC, component=\"gift cards\", tags=[\"gi",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": ": stories = { \"S1\": (\"Buy a gift card for a friend\", \"As a customer I want to buy a gift card for a friend so that I can give a present.\", [\"R1\"]), \"S2\": (\"Pay ",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": ": for k,(t,d,rs) in stories.items(): args = dict(kind=\"story\", title=t, description=d, parent_id=\"EPIC-0005\", source=SRC, component=\"gift cards\", tags=[\"gift-ca",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": ": t,d,rs = stories[\"S2\"] r = json.loads((await ov(\"create_item\", dict(kind=\"story\", title=t, description=d, parent_id=\"EPIC-0005\", source=SRC, component=\"gift c",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 9,
+            "args": ": r = json.loads((await ov(\"create_item\", dict(kind=\"story\", title=t, description=d, parent_id=\"EPIC-0005\", source=SRC, component=\"gift cards\", tags=[\"gift-card",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 8,
+            "args": ": for k,(tt,dd,s,rq) in tasks.items(): args = dict(kind=\"task\", title=tt, description=dd, parent_id=ids[s], source=SRC, component=\"gift cards\", tags=[\"gift-card",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 1,
+            "args": ": r = json.loads((await ov(\"get_item\", {\"ids\": [ids[k] for k in [\"R1\",\"R2\",\"R3\",\"R4\",\"R5\",\"R6\"]]}))[\"text\"]) for it in r[\"items\"]: print(it[\"item\"][\"id\"] if \"it",
+            "tool": "eval (code)"
+          }
+        ],
+        "prompt": "Record this dictation in overseer. I dictated the requirements, so they are approved.\n\nRequirements:\nR1 (must): When a customer buys a gift card, the shop shall email the gift card code to the recipient within 5 minutes. Acceptance: Given a paid gift card order, when 5 minutes pass, then the recipient has an email with the code.\nR2 (must): When a customer enters a valid gift card code at checkout, the shop shall subtract the card balance from the order total. Acceptance: Given a card with 30 EUR and an order of 50 EUR, when the code is applied, then 20 EUR remain to pay.\nR3 (should): When a gift card balance reaches zero, the shop shall mark the card as used and reject further redemptions. Acceptance: Given a card with balance 0, when its code is entered, then checkout rejects it as used.\nR4 (must; non-functional, security; target: at most one valid code per 10^12 random guesses): The shop shall generate gift card codes of 16 random characters that cannot be guessed. Acceptance: Given 1000 generated codes, when checked, then all are 16 characters from a 32-symbol alphabet and unique.\nR5 (should): When a gift card is 30 days from its expiry date, the shop shall remind the recipient by email. Acceptance: Given a card expiring in 30 days, when the daily job runs, then the recipient gets one reminder email.\nR6 (should; non-functional, performance efficiency; target: p95 < 500 ms at 50 requests per second): When a customer checks a gift card balance, the shop shall answer within 500 ms. Acceptance: Given 50 requests per second, when balances are checked for 10 minutes, then p95 latency is below 500 ms.\n\nUser stories, all under the existing epic EPIC-0005 (Payments):\nS1 (implements R1): As a customer I want to buy a gift card for a friend so that I can give a present.\nS2 (implements R2 and R3): As a customer I want to pay with a gift card at checkout so that I can use my present.\nS3 (implements R6): As a customer I want to check my gift card balance so that I know how much is left.\nS4 (implements R5): As a gift card recipient I want a reminder before my card expires so that I do not lose the money.\nS5 (implements R3): As a store manager I want to see sold and redeemed gift cards so that I can reconcile revenue.\nS6 (implements R4): As a store manager I want to block a stolen gift card so that nobody can use it.\n\nTasks:\nT1 (story S1): Create the gift card product type. Add a gift card product type with amounts of 25, 50 and 100 EUR.\nT2 (story S1, implements R1): Send the gift card email. Send the recipient an email with the gift card code after payment.\nT3 (story S2): Add the gift card field to checkout. Add a gift card code field to the order review step of checkout.\nT4 (story S2, implements R2): Apply the gift card balance to the order. Subtract the gift card balance from the order total and store the remaining balance.\nT5 (story S3, implements R6): Build the gift card balance page. Page where a customer enters a code and sees the remaining balance.\nT6 (story S4, implements R5): Schedule the gift card expiry reminder job. Daily job that emails recipients whose card expires in 30 days.\nT7 (story S5): Add the gift card report to the admin dashboard. Report of gift cards sold, redeemed and outstanding per month.\nT8 (story S6, implements R4): Generate secure gift card codes. Generate 16-character codes from a cryptographic random source and reject collisions."
+      },
+      {
+        "run": 2,
+        "exit_code": 0,
+        "wall_s": 71,
+        "models": [
+          "anthropic/claude-opus-5-5"
+        ],
+        "subagents": 0,
+        "overseer_requests": 46,
+        "overseer_requests_by_tool": {
+          "get_item": 4,
+          "find_similar": 21,
+          "create_item": 21
+        },
+        "overseer_tool_calls": 9,
+        "overseer_tool_calls_by_tool": {
+          "eval (code)": 9
+        },
+        "timing_check": {
+          "calls_by_arguments": 0,
+          "with_request_in_window": 0
+        },
+        "codebase_reads": 0,
+        "skill_reads": 1,
+        "tool_doc_reads": 3,
+        "subagent_calls": 0,
+        "other_calls": 0,
+        "total_tool_calls": 13,
+        "tokens": {
+          "input": 26,
+          "output": 6562,
+          "cache_read": 283845,
+          "cache_write": 20494,
+          "cost_usd": 0.3521,
+          "assistant_messages": 12,
+          "prompt_total": 304365
+        },
+        "registry": {
+          "items_created": 20,
+          "by_kind": {
+            "requirement": 6,
+            "task": 8,
+            "story": 6
+          },
+          "with_parent": 14,
+          "implements_links": 12
+        },
+        "calls": [
+          {
+            "who": "main",
+            "name": "read",
+            "category": "skill_read",
+            "requests_during": 0,
+            "args": "skill://overseer"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_find_similar"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_get_item"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 1,
+            "args": "Check epic via eval: import json r = await tool.write({\"path\":\"xd://mcp__overseer_get_item\",\"content\":json.dumps({\"id\":\"EPIC-0005\"}),\"i\":\"Checking epic\"}) print"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 7,
+            "args": "Duplicate check requirements: async def call(name, args): r = await tool.write({\"path\":f\"xd://mcp__overseer_{name}\",\"content\":json.dumps(args),\"i\":name}) t = r["
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": "Create requirements: SRC = \"conversation 2026-10-20 (omp)\" ids = {} for k, v in reqs.items(): r = await call(\"create_item\", {**v, \"kind\":\"requirement\", \"status\"",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": "Duplicate check stories: stories = { \"S1\": (\"Buy a gift card for a friend\", \"As a customer I want to buy a gift card for a friend so that I can give a present.\"",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 6,
+            "args": "Create stories: for k,(t,d,rs) in stories.items(): r = await call(\"create_item\", {\"kind\":\"story\",\"title\":t,\"description\":d,\"parent_id\":\"EPIC-0005\",\"source\":SRC,",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 1,
+            "args": "Inspect S2 duplicate: t,d,rs = stories[\"S2\"] r = await call(\"find_similar\", {\"text\": t+\". \"+d, \"kind\":\"story\"}) print(r.get('verdict'), [(m.get('id'), m.get('ti",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 9,
+            "args": "Create S2, check tasks: r = await call(\"create_item\", {\"kind\":\"story\",\"title\":t,\"description\":d,\"parent_id\":\"EPIC-0005\",\"source\":SRC, \"links\":[{\"rel\":\"implement",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 8,
+            "args": "Create tasks: for k,(s,rq,t_,d_) in tasks.items(): args = {\"kind\":\"task\",\"title\":t_,\"description\":d_,\"parent_id\":ids[s],\"source\":SRC} if rq: args[\"links\"] = [{\"",
+            "tool": "eval (code)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "requests_during": 2,
+            "args": "Verify links: r = await call(\"get_item\", {\"ids\":[ids[f\"R{i}\"] for i in range(1,7)]}) for it in r['items']: i = it['item'] inc = [(l.get('from') or l.get('src') ",
+            "tool": "eval (code)"
+          }
+        ],
+        "prompt": "Record this dictation in overseer. I dictated the requirements, so they are approved.\n\nRequirements:\nR1 (must): When a customer buys a gift card, the shop shall email the gift card code to the recipient within 5 minutes. Acceptance: Given a paid gift card order, when 5 minutes pass, then the recipient has an email with the code.\nR2 (must): When a customer enters a valid gift card code at checkout, the shop shall subtract the card balance from the order total. Acceptance: Given a card with 30 EUR and an order of 50 EUR, when the code is applied, then 20 EUR remain to pay.\nR3 (should): When a gift card balance reaches zero, the shop shall mark the card as used and reject further redemptions. Acceptance: Given a card with balance 0, when its code is entered, then checkout rejects it as used.\nR4 (must; non-functional, security; target: at most one valid code per 10^12 random guesses): The shop shall generate gift card codes of 16 random characters that cannot be guessed. Acceptance: Given 1000 generated codes, when checked, then all are 16 characters from a 32-symbol alphabet and unique.\nR5 (should): When a gift card is 30 days from its expiry date, the shop shall remind the recipient by email. Acceptance: Given a card expiring in 30 days, when the daily job runs, then the recipient gets one reminder email.\nR6 (should; non-functional, performance efficiency; target: p95 < 500 ms at 50 requests per second): When a customer checks a gift card balance, the shop shall answer within 500 ms. Acceptance: Given 50 requests per second, when balances are checked for 10 minutes, then p95 latency is below 500 ms.\n\nUser stories, all under the existing epic EPIC-0005 (Payments):\nS1 (implements R1): As a customer I want to buy a gift card for a friend so that I can give a present.\nS2 (implements R2 and R3): As a customer I want to pay with a gift card at checkout so that I can use my present.\nS3 (implements R6): As a customer I want to check my gift card balance so that I know how much is left.\nS4 (implements R5): As a gift card recipient I want a reminder before my card expires so that I do not lose the money.\nS5 (implements R3): As a store manager I want to see sold and redeemed gift cards so that I can reconcile revenue.\nS6 (implements R4): As a store manager I want to block a stolen gift card so that nobody can use it.\n\nTasks:\nT1 (story S1): Create the gift card product type. Add a gift card product type with amounts of 25, 50 and 100 EUR.\nT2 (story S1, implements R1): Send the gift card email. Send the recipient an email with the gift card code after payment.\nT3 (story S2): Add the gift card field to checkout. Add a gift card code field to the order review step of checkout.\nT4 (story S2, implements R2): Apply the gift card balance to the order. Subtract the gift card balance from the order total and store the remaining balance.\nT5 (story S3, implements R6): Build the gift card balance page. Page where a customer enters a code and sees the remaining balance.\nT6 (story S4, implements R5): Schedule the gift card expiry reminder job. Daily job that emails recipients whose card expires in 30 days.\nT7 (story S5): Add the gift card report to the admin dashboard. Report of gift cards sold, redeemed and outstanding per month.\nT8 (story S6, implements R4): Generate secure gift card codes. Generate 16-character codes from a cryptographic random source and reject collisions."
+      },
+      {
+        "run": 3,
+        "exit_code": 0,
+        "wall_s": 65.7,
+        "models": [
+          "anthropic/claude-opus-5-5"
+        ],
+        "subagents": 0,
+        "overseer_requests": 48,
+        "overseer_requests_by_tool": {
+          "get_item": 3,
+          "list_items": 1,
+          "find_similar": 21,
+          "search": 1,
+          "create_item": 22
+        },
+        "overseer_tool_calls": 8,
+        "overseer_tool_calls_by_tool": {
+          "get_item": 1,
+          "list_items": 1,
+          "eval (code)": 6
+        },
+        "timing_check": {
+          "calls_by_arguments": 2,
+          "with_request_in_window": 2
+        },
+        "codebase_reads": 0,
+        "skill_reads": 1,
+        "tool_doc_reads": 2,
+        "subagent_calls": 0,
+        "other_calls": 1,
+        "total_tool_calls": 12,
+        "tokens": {
+          "input": 22,
+          "output": 6689,
+          "cache_read": 242394,
+          "cache_write": 21197,
+          "cost_usd": 0.3519,
+          "assistant_messages": 10,
+          "prompt_total": 263613
+        },
+        "registry": {
+          "items_created": 20,
+          "by_kind": {
+            "requirement": 6,
+            "task": 8,
+            "story": 6
+          },
+          "with_parent": 14,
+          "implements_links": 12
+        },
+        "calls": [
+          {
+            "who": "main",
+            "name": "read",
+            "category": "skill_read",
+            "requests_during": 0,
+            "args": "skill://overseer"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_find_similar"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "get_item",
+            "requests_during": 2,
+            "args": "xd://mcp__overseer_get_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "list_items",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_list_items"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "other",
+            "requests_during": 0,
+            "args": "Listing session tools: print([n for n in dir(tool) if 'overseer' in n or not n.startswith('_')][:80])"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 1,
+            "args": "Probing MCP tool access: r = await tool.mcp__overseer_find_similar({\"text\":\"Email the gift card code to the recipient\",\"kind\":\"requirement\",\"limit\":5}) print(r)"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 20,
+            "args": "Duplicate-checking all 20 items: import json SRC = \"conversation 2026-10-20 (OMP)\" reqs = { \"R1\": dict(title=\"Email the gift card code to the recipient within 5"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 1,
+            "args": "Searching existing gift card items: r = await tool.mcp__overseer_search({\"query\":\"gift card\",\"limit\":10}) print(r[\"text\"][:1500])"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 8,
+            "args": "Creating requirements, stories, tasks: ids = {}; warns = {} async def create(key, args): r = json.loads((await tool.mcp__overseer_create_item(args))[\"text\"]) if"
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 14,
+            "args": "Creating remaining stories and tasks: overridden = {} async def create2(key, args): r = json.loads((await tool.mcp__overseer_create_item(args))[\"text\"]) if not "
+          },
+          {
+            "who": "main",
+            "name": "eval",
+            "category": "overseer",
+            "tool": "eval (code)",
+            "requests_during": 2,
+            "args": "Verifying links and coverage: r = json.loads((await tool.mcp__overseer_get_item({\"ids\":[ids[k] for k in reqs]}))[\"text\"]) for it in r[\"items\"]: i = it[\"item\"] p"
+          }
+        ],
+        "prompt": "Record this dictation in overseer. I dictated the requirements, so they are approved.\n\nRequirements:\nR1 (must): When a customer buys a gift card, the shop shall email the gift card code to the recipient within 5 minutes. Acceptance: Given a paid gift card order, when 5 minutes pass, then the recipient has an email with the code.\nR2 (must): When a customer enters a valid gift card code at checkout, the shop shall subtract the card balance from the order total. Acceptance: Given a card with 30 EUR and an order of 50 EUR, when the code is applied, then 20 EUR remain to pay.\nR3 (should): When a gift card balance reaches zero, the shop shall mark the card as used and reject further redemptions. Acceptance: Given a card with balance 0, when its code is entered, then checkout rejects it as used.\nR4 (must; non-functional, security; target: at most one valid code per 10^12 random guesses): The shop shall generate gift card codes of 16 random characters that cannot be guessed. Acceptance: Given 1000 generated codes, when checked, then all are 16 characters from a 32-symbol alphabet and unique.\nR5 (should): When a gift card is 30 days from its expiry date, the shop shall remind the recipient by email. Acceptance: Given a card expiring in 30 days, when the daily job runs, then the recipient gets one reminder email.\nR6 (should; non-functional, performance efficiency; target: p95 < 500 ms at 50 requests per second): When a customer checks a gift card balance, the shop shall answer within 500 ms. Acceptance: Given 50 requests per second, when balances are checked for 10 minutes, then p95 latency is below 500 ms.\n\nUser stories, all under the existing epic EPIC-0005 (Payments):\nS1 (implements R1): As a customer I want to buy a gift card for a friend so that I can give a present.\nS2 (implements R2 and R3): As a customer I want to pay with a gift card at checkout so that I can use my present.\nS3 (implements R6): As a customer I want to check my gift card balance so that I know how much is left.\nS4 (implements R5): As a gift card recipient I want a reminder before my card expires so that I do not lose the money.\nS5 (implements R3): As a store manager I want to see sold and redeemed gift cards so that I can reconcile revenue.\nS6 (implements R4): As a store manager I want to block a stolen gift card so that nobody can use it.\n\nTasks:\nT1 (story S1): Create the gift card product type. Add a gift card product type with amounts of 25, 50 and 100 EUR.\nT2 (story S1, implements R1): Send the gift card email. Send the recipient an email with the gift card code after payment.\nT3 (story S2): Add the gift card field to checkout. Add a gift card code field to the order review step of checkout.\nT4 (story S2, implements R2): Apply the gift card balance to the order. Subtract the gift card balance from the order total and store the remaining balance.\nT5 (story S3, implements R6): Build the gift card balance page. Page where a customer enters a code and sees the remaining balance.\nT6 (story S4, implements R5): Schedule the gift card expiry reminder job. Daily job that emails recipients whose card expires in 30 days.\nT7 (story S5): Add the gift card report to the admin dashboard. Report of gift cards sold, redeemed and outstanding per month.\nT8 (story S6, implements R4): Generate secure gift card codes. Generate 16-character codes from a cryptographic random source and reject collisions."
+      }
+    ]
+  },
+  "command": "npm run measure:capture -- --live --out docs/measurements/capture-baseline"
+}
