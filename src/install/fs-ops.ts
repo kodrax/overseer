@@ -59,7 +59,6 @@ export class Run {
   readonly warnings: string[] = [];
   /** Skill roots written/removed in this run (shared `.agents/skills` is handled once). */
   readonly skillRoots = new Set<string>();
-  private readonly backedUp = new Set<string>();
 
   constructor(readonly ctx: InstallContext) {}
 
@@ -67,11 +66,14 @@ export class Run {
     this.warnings.push(message);
   }
 
-  /** Copies an existing file to `<file>.overseer-backup` before its first change in this run. */
+  /**
+   * Copies an existing file to `<file>.overseer-backup` before overseer changes it. An existing backup is never
+   * overwritten: it holds the file as it was before overseer first touched it.
+   */
   private backup(path: string): void {
-    if (this.backedUp.has(path) || !existsSync(path)) return;
-    copyFileSync(path, path + BACKUP_SUFFIX);
-    this.backedUp.add(path);
+    const target = path + BACKUP_SUFFIX;
+    if (!existsSync(path) || existsSync(target)) return;
+    copyFileSync(path, target);
   }
 
   /**

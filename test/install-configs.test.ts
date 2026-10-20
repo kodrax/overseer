@@ -59,6 +59,32 @@ describe('JSON configs', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).mcpServers.overseer.args).toEqual(['/new/dist/cli.js', 'mcp']);
     expect(existsSync(`${file}.overseer-backup`)).toBe(true);
   });
+
+  test('BUG-0003: uninstall and later installs keep the original backup', () => {
+    const box = sandbox();
+    const file = join(box.home, '.gemini/settings.json');
+    const original = '{\n  "theme": "Dracula"\n}\n';
+    writeFile(file, original);
+    install(box.ctx('user'), ['gemini']);
+    expect(readFileSync(`${file}.overseer-backup`, 'utf8')).toBe(original);
+    uninstall(box.ctx('user'), ['gemini']);
+    expect(readFileSync(file, 'utf8')).toBe(original);
+    expect(readFileSync(`${file}.overseer-backup`, 'utf8')).toBe(original);
+    // A later install that changes the file does not overwrite the existing backup.
+    writeFile(file, '{\n  "theme": "Light"\n}\n');
+    install(box.ctx('user'), ['gemini']);
+    expect(readFileSync(`${file}.overseer-backup`, 'utf8')).toBe(original);
+  });
+
+  test('BUG-0003: uninstall never creates a backup', () => {
+    const box = sandbox();
+    const file = join(box.home, '.gemini/settings.json');
+    writeFile(file, '{\n  "theme": "Dracula"\n}\n');
+    install(box.ctx('user'), ['gemini']);
+    rmSync(`${file}.overseer-backup`);
+    uninstall(box.ctx('user'), ['gemini']);
+    expect(existsSync(`${file}.overseer-backup`)).toBe(false);
+  });
 });
 
 describe('TOML config (codex)', () => {
