@@ -221,6 +221,7 @@ overseer export                             # writes docs/overseer/
 | `worktree start <id> [--type] [--slug] [--base] [--no-setup]` | create or reuse the git worktree and branch of a task or bug (see [Worktrees](#worktrees)) |
 | `worktree finish <id> --merged-head <sha> [--pr] [--base]` | after the merge: remove the worktree and branches, fast-forward the base, set the item done |
 | `worktree list` | worktrees on task and bug branches, with their item IDs |
+| `sync remotes` | GitHub, GitLab and other repositories named by the project's git remotes (see [Repository remotes](#repository-remotes)) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -260,6 +261,19 @@ The same item, template and branch always give the same draft. This command has 
 - **Item**: set to `done`, with `delivered_in` = `--pr` (else the item's `delivered_in`; one of them is required) and `code_refs` = the files the branch changed against the base (else the item's `code_refs`).
 
 `overseer worktree list --json` prints `[{"id", "branch", "path"}]` for every worktree on a branch that fills `branch_pattern`, the main checkout excluded. These commands have no MCP tool.
+
+### Repository remotes
+
+`overseer sync remotes --json` lists the repositories the project's git remotes point to, as candidates for connecting the project to GitHub or GitLab. It prints `[{"host", "hostname", "repository", "remotes": [{"name", "url"}]}]`; without `--json`, a table:
+
+- **Remotes**: every remote, not only `origin`, with its fetch and push URLs as `git remote -v` shows them. SSH (`git@host:path`), `ssh://host:port/path`, `git://` and `http(s)://` URLs are read, with or without `.git` and a trailing slash. Local paths and `file://` URLs are skipped.
+- **Repository**: `hostname` is lowercase without user or port; `repository` is the path without `.git` and slashes around it (`acme/demo`, `group/sub/project`).
+- **Host**: `github` for `github.com`, `gitlab` for `gitlab.com` and any hostname containing `gitlab` (`gitlab.example.com`), else `unknown` (GitHub Enterprise, `git.example.com`) with the path kept, so the user says what it is.
+- **One entry per repository**: remotes pointing to the same hostname and path (case-insensitive) share an entry listing all of them.
+- **Credentials**: user and password are removed from `http(s)` URLs, so tokens are never printed.
+- **No remotes**, or a folder outside git, print `[]` (`No git remotes.` without `--json`).
+
+It reads only the local git config and makes no network calls. This command has no MCP tool.
 
 ### Web board
 
