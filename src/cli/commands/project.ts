@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import type { Command } from 'commander';
 import { databaseFile } from '../../core/db.js';
 import { OverseerError } from '../../core/errors.js';
@@ -9,28 +8,9 @@ import { EXPORT_PARTS, IMPORT_SOURCES } from '../../core/schema.js';
 import { CONFIG_KEYS } from '../../core/service.js';
 import { type ProjectSwitch, setProjectEnabled } from '../../core/user-config.js';
 import { table } from '../format.js';
+import { parseJsonInput, readInput } from '../input.js';
 import { collectList, oneOf } from '../options.js';
 import type { CliRuntime, GlobalOptions } from '../runtime.js';
-
-async function readInput(rt: CliRuntime, file: string): Promise<string> {
-  if (file !== '-') {
-    const path = resolve(rt.cwd, file);
-    if (!existsSync(path)) throw new OverseerError('INVALID_INPUT', `Import file not found: ${path}`);
-    return readFileSync(path, 'utf8');
-  }
-  const chunks: Buffer[] = [];
-  for await (const chunk of rt.io.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-/** JSON of an import file: ImportItems, or a raw GitHub/GitLab MCP response that the import maps to them. */
-function parseImportJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new OverseerError('INVALID_INPUT', `Import input is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
 
 function formatImport(result: ImportResult): string {
   const lines = [
@@ -125,7 +105,7 @@ export function registerProjectCommands(program: Command, rt: CliRuntime): void 
     .requiredOption('--repo <repo>', 'owner/repo or group/project')
     .option('--json', 'print JSON')
     .action(async (file: string, options: { source: string; repo: string; json?: boolean }, command: Command) => {
-      const request = importRequestFor(parseImportJson(await readInput(rt, file)), options.source, options.repo);
+      const request = importRequestFor(parseJsonInput(await readInput(rt, file, 'Import'), 'Import'), options.source, options.repo);
       await rt.withService(command, 'write', async (service) => {
         rt.emit(options.json, await service.importItems(request, rt.ctx), formatImport);
       });
