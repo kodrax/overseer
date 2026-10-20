@@ -12,7 +12,8 @@ export type Op =
   /** Already-decided outcome (unchanged / skipped / manual). */
   | { kind: 'note'; action: InstallAction }
   | { kind: 'write'; target: Label; path: string; content: string; existed: boolean; backup: boolean }
-  | { kind: 'skill'; target: Label; dir: string; files: { path: string; content: string }[]; existed: boolean }
+  /** `backup`: copy each existing file to `<file>.overseer-backup` before overwriting it (`install --force` over an unmanaged folder). */
+  | { kind: 'skill'; target: Label; dir: string; files: { path: string; content: string }[]; existed: boolean; backup: boolean }
   | { kind: 'remove-file'; target: Label; path: string; backup: boolean }
   | { kind: 'remove-dir'; target: Label; path: string }
   | {
@@ -117,6 +118,7 @@ export class Run {
             break;
           }
           for (const file of op.files) {
+            if (op.backup) this.backup(file.path);
             mkdirSync(dirname(file.path), { recursive: true });
             writeFileSync(file.path, file.content);
           }

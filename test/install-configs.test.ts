@@ -171,6 +171,62 @@ describe('ownership', () => {
     expect(readFileSync(skill, 'utf8')).toBe('---\nname: overseer\ndescription: mine\n---\n');
     expect(existsSync(join(box.home, '.claude/skills/overseer-import'))).toBe(false);
   });
+
+  test('BUG-0004: --force keeps each replaced file of an unmanaged skill folder in <file>.overseer-backup; uninstall keeps them', () => {
+    const box = sandbox();
+    const skills = join(box.home, '.omp/agent/skills');
+    const dir = join(skills, 'overseer');
+    const notes = '---\nname: overseer\ndescription: my notes\n---\n\nMy own notes.\n';
+    writeFile(join(dir, 'SKILL.md'), notes);
+    writeFile(join(dir, 'references/fields.md'), 'my fields\n');
+    writeFile(join(dir, 'extra.md'), 'not shipped by overseer\n');
+    const before = snapshotTree(dir);
+
+    // Without --force: skipped with NOT_MANAGED, nothing changes.
+    const skipped = install(box.ctx('user'), ['omp']);
+    expect(skipped.actions.find((action) => action.path === dir)).toMatchObject({ status: 'skipped', message: 'NOT_MANAGED' });
+    expect(skipped.warnings.join('\n')).toContain(`NOT_MANAGED: ${dir} exists and is not managed by overseer-cli; skipped (use --force to overwrite).`);
+    expect(snapshotTree(dir)).toEqual(before);
+
+    const forced = install(box.ctx('user', { force: true }), ['omp']);
+    expect(forced.actions.find((action) => action.path === dir)?.status).toBe('updated');
+    expect(readFileSync(join(dir, 'SKILL.md'), 'utf8')).toContain('managed-by: overseer-cli');
+    expect(readFileSync(join(dir, 'SKILL.md.overseer-backup'), 'utf8')).toBe(notes);
+    expect(readFileSync(join(dir, 'references/fields.md.overseer-backup'), 'utf8')).toBe('my fields\n');
+    // Files overseer does not ship are left alone; the backups are files, never a second skill folder.
+    expect(readFileSync(join(dir, 'extra.md'), 'utf8')).toBe('not shipped by overseer\n');
+    expect(existsSync(join(dir, 'extra.md.overseer-backup'))).toBe(false);
+    expect(readdirSync(skills).sort()).toEqual(['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship']);
+    const warning = forced.warnings.find((line) => line.startsWith(`${dir} was not managed`));
+    expect(warning).toBe(
+      `${dir} was not managed by overseer-cli; overwritten (--force), previous content in ${join(dir, 'references/fields.md.overseer-backup')}, ${join(dir, 'SKILL.md.overseer-backup')}.`,
+    );
+
+    const removed = uninstall(box.ctx('user'), ['omp']);
+    expect(snapshotTree(dir)).toEqual({ 'SKILL.md.overseer-backup': notes, 'references/fields.md.overseer-backup': 'my fields\n', 'extra.md': 'not shipped by overseer\n' });
+    expect(removed.warnings.join('\n')).toContain(`${dir} keeps the backups install --force made:`);
+    expect(readdirSync(skills)).toEqual(['overseer']);
+  });
+
+  test('BUG-0004: --force says when an older backup is kept instead of the replaced content', () => {
+    const box = sandbox();
+    const agent = join(box.home, '.omp/agent/agents/overseer.md');
+    const skill = join(box.home, '.omp/agent/skills/overseer/SKILL.md');
+    for (const file of [agent, skill]) {
+      writeFile(file, 'mine, now\n');
+      writeFile(`${file}.overseer-backup`, 'mine, earlier\n');
+    }
+    const forced = install(box.ctx('user', { force: true }), ['omp']);
+    for (const file of [agent, skill]) expect(readFileSync(`${file}.overseer-backup`, 'utf8')).toBe('mine, earlier\n');
+    const warnings = forced.warnings.join('\n');
+    expect(warnings).not.toContain(`previous content in ${agent}.overseer-backup`);
+    expect(warnings).toContain(
+      `${agent} was not managed by overseer-cli; overwritten (--force); ${agent}.overseer-backup already existed and was kept: it holds older content, not the content just overwritten.`,
+    );
+    expect(warnings).toContain(
+      `${join(box.home, '.omp/agent/skills/overseer')} was not managed by overseer-cli; overwritten (--force); ${skill}.overseer-backup already existed and was kept: it holds older content, not the content just overwritten.`,
+    );
+  });
 });
 
 describe('uninstall', () => {

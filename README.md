@@ -113,7 +113,8 @@ There are three kinds of files. The harness files say how a harness reaches over
 
 ### How install edits files
 
-- Every file overseer generates carries a `managed-by: overseer-cli` marker. An existing file without the marker is left alone with a warning, unless you pass `--force`.
+- Every file overseer generates carries a `managed-by: overseer-cli` marker. An existing file without the marker, or a skill folder whose `SKILL.md` lacks it, is left alone with a warning, unless you pass `--force`.
+- With `--force`, each existing file overseer replaces is first copied to `<file>.overseer-backup` next to it. In a skill folder, that means `SKILL.md.overseer-backup` and so on for each replaced file, never a copied folder, so the harness doesn't load a second skill. Files overseer doesn't ship stay as they are. An existing backup is never overwritten, and the warning says which backups hold what.
 - In shared config files (`mcp.json`, `settings.json`, `config.toml`, `opencode.json`), only the `overseer` entry is added or removed, and comments and formatting are kept. Before the first change, the original is copied to `<file>.overseer-backup`. An existing backup is never overwritten, and uninstall never creates or changes one.
 - Running `install` again reports `unchanged` and writes nothing.
 
@@ -415,7 +416,7 @@ npm rm -g overseer-cli                # remove the command itself
 ```
 
 - **Removed**: the subagent files, skill folders and MCP entries overseer created, plus any folders that end up empty.
-- **Kept**: `.overseer-backup` copies and any file without the managed marker.
+- **Kept**: `.overseer-backup` copies and any file without the managed marker. A skill folder holding backups from `install --force` stays, with the backups and your other files in it.
 - **Never touched**: a project's `.overseer/` folder. Delete it yourself to drop that project's registry. The model cache and your user config also stay (see [Project data](#project-data)).
 
 ## Development
