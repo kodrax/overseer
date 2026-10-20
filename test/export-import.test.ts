@@ -152,6 +152,33 @@ describe('import', () => {
     expect(service.lastImports()).toEqual([{ source: 'github', repo: 'acme/demo', at: reopened.last_import_at }]);
   });
 
+  it('records a history event when a re-import only changes the issue URL (BUG-0008)', async () => {
+    const service = openService();
+    await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue()] }, ctx);
+    const moved = await service.importItems(
+      { source: 'github', repo: 'acme/demo', items: [issue({ url: 'https://github.com/acme-org/demo/issues/7' })] },
+      ctx,
+    );
+    expect(moved).toMatchObject({ created: [], updated: ['BUG-0001'], unchanged: [] });
+    expect(service.history('BUG-0001')).toMatchObject([
+      { action: 'import', via: 'import:github' },
+      {
+        action: 'update',
+        via: 'import:github',
+        field: 'external_url',
+        old_value: 'https://github.com/acme/demo/issues/7',
+        new_value: 'https://github.com/acme-org/demo/issues/7',
+      },
+    ]);
+
+    const again = await service.importItems(
+      { source: 'github', repo: 'acme/demo', items: [issue({ url: 'https://github.com/acme-org/demo/issues/7' })] },
+      ctx,
+    );
+    expect(again).toMatchObject({ created: [], updated: [], unchanged: ['BUG-0001'] });
+    expect(service.history('BUG-0001')).toHaveLength(2);
+  });
+
   it('maps labels and type hints to kinds and statuses', async () => {
     expect(importKind({ labels: ['Regression'] })).toBe('bug');
     expect(importKind({ labels: ['epic'] })).toBe('epic');
