@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 const created: string[] = [];
 
@@ -42,4 +42,14 @@ export function tempRepo(prefix = 'ovs-repo-'): string {
   git(dir, 'config', 'user.name', 'Test User');
   git(dir, 'commit', '-q', '--allow-empty', '-m', 'init');
   return dir;
+}
+
+/**
+ * Keeps the host's git config (global and system files, GIT_CONFIG_* variables) out of git commands, so remote URLs
+ * are not rewritten by its `url.<base>.insteadOf` rules. Undo with `vi.unstubAllEnvs()`.
+ */
+export function isolateGitConfig(): void {
+  vi.stubEnv('GIT_CONFIG_GLOBAL', '/dev/null');
+  vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  vi.stubEnv('GIT_CONFIG_COUNT', '0');
 }

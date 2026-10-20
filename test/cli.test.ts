@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli/index.js';
 import type { ExportResult } from '../src/core/export.js';
 import type { ImportResult } from '../src/core/import.js';
@@ -9,7 +9,7 @@ import type { SimilarResult } from '../src/core/search.js';
 import type { CompactCreatedResult, CompactUpdateResult, ItemDetail, ListResult, UpdateResult } from '../src/core/service.js';
 import type { CheckLine } from '../src/install/index.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
-import { git, tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
+import { git, isolateGitConfig, tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
 
 interface Run {
   code: number;
@@ -638,5 +638,54 @@ describe('cli pr draft', () => {
     const { title, body } = (await cli(repo, ['pr', 'draft', 'BUG-0001', '--json'])).json<{ title: string; body: string }>();
     expect(title).toBe('fix: login crashes on Safari (BUG-0001)');
     expect(body).toBe('## Item\n\nItem: BUG-0001\n\n## Why\n\n<!-- why -->\n');
+  });
+});
+
+describe('cli sync remotes', () => {
+  beforeEach(isolateGitConfig);
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('lists the repositories of every remote, merges remotes of the same repository and is empty outside git', async () => {
+    const repo = tempRepo();
+    git(repo, 'remote', 'add', 'origin', 'git@github.com:acme/demo.git');
+    git(repo, 'remote', 'add', 'mirror', 'https://token:secret@github.com/acme/demo/');
+    git(repo, 'remote', 'add', 'lab', 'ssh://git@gitlab.example.com:2222/group/sub/project.git');
+    git(repo, 'remote', 'add', 'internal', 'https://git.example.com/team/tool.git');
+
+    const json = await cli(repo, ['sync', 'remotes', '--json']);
+    expect(json.code).toBe(0);
+    // git lists remotes by name: internal, lab, mirror, origin.
+    expect(json.json()).toEqual([
+      { host: 'unknown', hostname: 'git.example.com', repository: 'team/tool', remotes: [{ name: 'internal', url: 'https://git.example.com/team/tool.git' }] },
+      { host: 'gitlab', hostname: 'gitlab.example.com', repository: 'group/sub/project', remotes: [{ name: 'lab', url: 'ssh://git@gitlab.example.com:2222/group/sub/project.git' }] },
+      {
+        host: 'github',
+        hostname: 'github.com',
+        repository: 'acme/demo',
+        remotes: [
+          { name: 'mirror', url: 'https://github.com/acme/demo/' },
+          { name: 'origin', url: 'git@github.com:acme/demo.git' },
+        ],
+      },
+    ]);
+    expect(json.out).not.toContain('secret');
+    expect(existsSync(join(repo, '.overseer'))).toBe(false);
+
+    const text = await cli(repo, ['sync', 'remotes']);
+    expect(text.out.split('\n')[0]).toMatch(/^Host +Hostname +Repository +Remotes$/);
+    expect(text.out).toContain('mirror https://github.com/acme/demo/, origin git@github.com:acme/demo.git');
+
+    expect((await cli(tempRepo(), ['sync', 'remotes', '--json'])).json()).toEqual([]);
+    const outside = await cli(tempDir(), ['sync', 'remotes', '--json']);
+    expect([outside.code, outside.json()]).toEqual([0, []]);
+    expect((await cli(tempDir(), ['sync', 'remotes'])).out).toBe('No git remotes.\n');
+  });
+
+  it('answers DISABLED in a project that is off', async () => {
+    const repo = tempRepo();
+    const run = await cli(repo, ['sync', 'remotes', '--json'], { env: { OVERSEER_CONFIG_DIR: tempUserConfig({}) } });
+    expect([run.code, run.json<ErrorEnvelope>().error.code]).toEqual([1, 'DISABLED']);
   });
 });

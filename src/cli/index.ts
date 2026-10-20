@@ -8,6 +8,7 @@ import { registerPrCommands } from './commands/pr.js';
 import { registerProjectCommands } from './commands/project.js';
 import { registerQueryCommands } from './commands/query.js';
 import { registerServerCommands } from './commands/servers.js';
+import { registerSyncCommands } from './commands/sync.js';
 import { registerWorktreeCommands } from './commands/worktree.js';
 import { type CliDeps, type CliIo, CliRuntime } from './runtime.js';
 
@@ -43,6 +44,7 @@ export async function runCli(
   registerQueryCommands(program, rt);
   registerPrCommands(program, rt);
   registerWorktreeCommands(program, rt);
+  registerSyncCommands(program, rt);
   registerServerCommands(program, rt);
   registerModelCommands(program, rt);
   registerInstallCommands(program, rt);
