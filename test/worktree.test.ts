@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { runCli } from '../src/cli/index.js';
 import type { OverseerService } from '../src/core/service.js';
-import { detectSetupCommand, finishWorktree, listWorktrees, slugFromTitle, startWorktree } from '../src/core/worktree.js';
+import { detectSetupCommand, finishWorktree, itemIdFromBranch, listWorktrees, openPullRequest, slugFromTitle, startWorktree } from '../src/core/worktree.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { ctx, openService } from './helpers/service.js';
 import { git, tempDir, tempUserConfig } from './helpers/tmp.js';
@@ -59,7 +59,7 @@ function pushToOrigin(p: Project, file: string): string {
 
 /** Starts TASK-0001's worktree, commits `files` there and pushes the branch to origin with upstream tracking. */
 async function pushedBranch(p: Project, files: Record<string, string> = { 'feature.txt': 'done\n' }): Promise<{ path: string; branch: string; head: string }> {
-  const { path, branch } = await startWorktree(p.service, 'TASK-0001', { slug: 'start', setup: false });
+  const { path, branch } = await startWorktree(p.service, 'TASK-0001', { slug: 'start', setup: false }, ctx);
   for (const [file, content] of Object.entries(files)) writeFileSync(join(path, file), content);
   git(path, 'add', '.');
   git(path, 'commit', '-q', '-m', 'feat: start');
@@ -122,7 +122,7 @@ describe('startWorktree', () => {
     p.service.setConfig('worktree_setup', WRITE_MARKER);
     let output = '';
 
-    const result = await startWorktree(p.service, 'task-1', { output: (chunk) => (output += chunk) });
+    const result = await startWorktree(p.service, 'task-1', { output: (chunk) => (output += chunk) }, ctx);
 
     const path = join(p.base, 'main.worktrees', 'TASK-0001-create-reuse-issue-worktrees');
     expect(result).toEqual({
@@ -130,6 +130,7 @@ describe('startWorktree', () => {
       branch: 'feat/TASK-0001-create-reuse-issue-worktrees',
       base: 'main',
       reused: false,
+      status: 'in_progress',
       setup: { command: WRITE_MARKER, ran: true },
     });
     expect(git(path, 'rev-parse', 'HEAD')).toBe(head);
@@ -137,18 +138,20 @@ describe('startWorktree', () => {
     expect(git(path, 'for-each-ref', '--format=%(upstream)', `refs/heads/${result.branch}`)).toBe('');
     expect(readFileSync(join(path, 'setup-ran'), 'utf8')).toBe(path);
     expect(output).toBe('');
-    expect(p.service.getItem('TASK-0001').item.status).toBe('backlog');
+    const { item, history } = p.service.getItem('TASK-0001', { history: true });
+    expect(item.status).toBe('in_progress');
+    expect(history?.find((event) => event.action === 'comment')?.new_value).toBe(`Work started on branch ${result.branch}.`);
   });
 
   it('starts from the local base when origin lacks it, and NOT_FOUND when neither has it', async () => {
     const p = await project();
     git(p.repo, 'branch', 'develop');
 
-    const result = await startWorktree(p.service, 'TASK-0001', { base: 'develop', setup: false });
+    const result = await startWorktree(p.service, 'TASK-0001', { base: 'develop', setup: false }, ctx);
     expect(result).toMatchObject({ base: 'develop', reused: false, setup: { command: null, ran: false } });
     expect(git(result.path, 'rev-parse', 'HEAD')).toBe(git(p.repo, 'rev-parse', 'develop'));
 
-    const missing = await rejection(startWorktree(p.service, 'BUG-0001', { base: 'nope' }));
+    const missing = await rejection(startWorktree(p.service, 'BUG-0001', { base: 'nope' }, ctx));
     expect(missing.code).toBe('NOT_FOUND');
     expect(missing.message).toContain('origin/nope');
     expect(git(p.repo, 'branch', '--list', 'fix/*')).toBe('');
@@ -158,7 +161,7 @@ describe('startWorktree', () => {
     const p = await project();
     git(p.repo, 'remote', 'set-url', 'origin', join(p.base, 'gone.git'));
 
-    const error = await rejection(startWorktree(p.service, 'TASK-0001'));
+    const error = await rejection(startWorktree(p.service, 'TASK-0001', {}, ctx));
     expect(error.code).toBe('GIT_FAILED');
     expect(error.message).toMatch(/git fetch --quiet origin failed: .*gone\.git/s);
     expect(existsSync(join(p.base, 'main.worktrees'))).toBe(false);
@@ -171,10 +174,26 @@ describe('startWorktree', () => {
     writeFileSync(join(elsewhere, 'package-lock.json'), '{}');
     const before = git(p.repo, 'worktree', 'list', '--porcelain');
 
-    const result = await startWorktree(p.service, 'TASK-0001', { slug: 'start' });
+    const result = await startWorktree(p.service, 'TASK-0001', { slug: 'start' }, ctx);
 
-    expect(result).toEqual({ path: elsewhere, branch: 'feat/TASK-0001-start', base: 'main', reused: true, setup: { command: 'npm ci', ran: false } });
+    expect(result).toEqual({ path: elsewhere, branch: 'feat/TASK-0001-start', base: 'main', reused: true, status: 'in_progress', setup: { command: 'npm ci', ran: false } });
     expect(git(p.repo, 'worktree', 'list', '--porcelain')).toBe(before);
+    expect(p.service.getItem('TASK-0001').item.status).toBe('in_progress');
+  });
+
+  it('moves ready items to in_progress and leaves in_progress and review items alone, on create and on reuse', async () => {
+    const p = await project();
+    await p.service.updateItem({ id: 'TASK-0001', status: 'ready' }, ctx);
+    await p.service.updateItem({ id: 'BUG-0001', status: 'review' }, ctx);
+
+    expect(await startWorktree(p.service, 'TASK-0001', { setup: false }, ctx)).toMatchObject({ reused: false, status: 'in_progress' });
+    expect(await startWorktree(p.service, 'BUG-0001', { setup: false }, ctx)).toMatchObject({ reused: false, status: 'review' });
+    expect(await startWorktree(p.service, 'BUG-0001', {}, ctx)).toMatchObject({ reused: true, status: 'review' });
+    expect(await startWorktree(p.service, 'TASK-0001', {}, ctx)).toMatchObject({ reused: true, status: 'in_progress' });
+
+    const comments = (id: string) => p.service.getItem(id, { history: true }).history?.filter((event) => event.action === 'comment') ?? [];
+    expect(comments('TASK-0001')).toHaveLength(1);
+    expect(comments('BUG-0001')).toHaveLength(0);
   });
 
   it('adds a worktree on an existing branch without creating a new one', async () => {
@@ -182,7 +201,7 @@ describe('startWorktree', () => {
     git(p.repo, 'branch', 'feat/TASK-0001-start', 'main');
     git(p.repo, 'commit', '-q', '--allow-empty', '-m', 'later on main');
 
-    const result = await startWorktree(p.service, 'TASK-0001', { slug: 'start', setup: false });
+    const result = await startWorktree(p.service, 'TASK-0001', { slug: 'start', setup: false }, ctx);
 
     expect(result).toMatchObject({ path: join(p.base, 'main.worktrees', 'TASK-0001-start'), branch: 'feat/TASK-0001-start', reused: false });
     expect(git(result.path, 'rev-parse', 'HEAD')).toBe(git(p.repo, 'rev-parse', 'main~1'));
@@ -195,7 +214,7 @@ describe('startWorktree', () => {
     mkdirSync(path, { recursive: true });
     writeFileSync(join(path, 'notes.txt'), 'mine');
 
-    const error = await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'start' }));
+    const error = await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'start' }, ctx));
 
     expect(error.code).toBe('CONFLICT');
     expect(error.message).toContain(path);
@@ -208,19 +227,19 @@ describe('startWorktree', () => {
     const p = await project();
     await p.service.createItem({ kind: 'story', title: 'As a user I want worktrees so that I can work in parallel', allow_duplicate: true }, ctx);
 
-    const story = await rejection(startWorktree(p.service, 'US-0001'));
+    const story = await rejection(startWorktree(p.service, 'US-0001', {}, ctx));
     expect(story).toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('is a story') });
 
-    const bugFeat = await rejection(startWorktree(p.service, 'BUG-0001', { type: 'feat' }));
+    const bugFeat = await rejection(startWorktree(p.service, 'BUG-0001', { type: 'feat' }, ctx));
     expect(bugFeat).toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('type fix') });
 
-    expect((await rejection(startWorktree(p.service, 'TASK-0001', { type: 'feature' }))).code).toBe('INVALID_INPUT');
-    expect((await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'Bad_Slug' }))).code).toBe('INVALID_INPUT');
-    expect((await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'a--b' }))).code).toBe('INVALID_INPUT');
-    expect((await rejection(startWorktree(p.service, 'TASK-0404'))).code).toBe('NOT_FOUND');
+    expect((await rejection(startWorktree(p.service, 'TASK-0001', { type: 'feature' }, ctx))).code).toBe('INVALID_INPUT');
+    expect((await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'Bad_Slug' }, ctx))).code).toBe('INVALID_INPUT');
+    expect((await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'a--b' }, ctx))).code).toBe('INVALID_INPUT');
+    expect((await rejection(startWorktree(p.service, 'TASK-0404', {}, ctx))).code).toBe('NOT_FOUND');
     expect(git(p.repo, 'worktree', 'list').split('\n')).toHaveLength(1);
 
-    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false });
+    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false }, ctx);
     expect(bug.branch).toBe('fix/BUG-0001-login-fails-safari');
   });
 
@@ -229,11 +248,11 @@ describe('startWorktree', () => {
     p.service.setConfig('branch_pattern', 'work/{id}/{type}-{slug}');
     p.service.setConfig('worktree_root', '../trees');
 
-    const result = await startWorktree(p.service, 'TASK-0001', { type: 'docs', slug: 'readme', setup: false });
+    const result = await startWorktree(p.service, 'TASK-0001', { type: 'docs', slug: 'readme', setup: false }, ctx);
     expect(result).toMatchObject({ branch: 'work/TASK-0001/docs-readme', path: join(p.base, 'trees', 'TASK-0001-readme') });
 
     p.service.setConfig('branch_pattern', '{id}..{slug}');
-    const error = await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'other' }));
+    const error = await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'other' }, ctx));
     expect(error).toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('TASK-0001..other') });
   });
 
@@ -241,11 +260,11 @@ describe('startWorktree', () => {
     const p = await project();
     pushToOrigin(p, 'pnpm-lock.yaml');
 
-    const skipped = await startWorktree(p.service, 'TASK-0001', { slug: 'one', setup: false });
+    const skipped = await startWorktree(p.service, 'TASK-0001', { slug: 'one', setup: false }, ctx);
     expect(skipped.setup).toEqual({ command: 'pnpm install --frozen-lockfile', ran: false });
 
     p.service.setConfig('worktree_setup', 'none');
-    const none = await startWorktree(p.service, 'TASK-0001', { slug: 'two' });
+    const none = await startWorktree(p.service, 'TASK-0001', { slug: 'two' }, ctx);
     expect(none.setup).toEqual({ command: null, ran: false });
     expect(p.service.configValue('worktree_setup')).toBe('none');
   });
@@ -255,7 +274,7 @@ describe('startWorktree', () => {
     p.service.setConfig('worktree_setup', `node -e "console.log('installing'); console.error('boom'); process.exit(3)"`);
     let output = '';
 
-    const error = await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'start', output: (chunk) => (output += chunk) }));
+    const error = await rejection(startWorktree(p.service, 'TASK-0001', { slug: 'start', output: (chunk) => (output += chunk) }, ctx));
 
     const path = join(p.base, 'main.worktrees', 'TASK-0001-start');
     expect(error.code).toBe('SETUP_FAILED');
@@ -266,7 +285,7 @@ describe('startWorktree', () => {
     expect(output).toContain('boom');
     expect(git(path, 'symbolic-ref', '--short', 'HEAD')).toBe('feat/TASK-0001-start');
 
-    const again = await startWorktree(p.service, 'TASK-0001', { slug: 'start' });
+    const again = await startWorktree(p.service, 'TASK-0001', { slug: 'start' }, ctx);
     expect(again).toMatchObject({ path, reused: true, setup: { ran: false } });
   });
 
@@ -278,19 +297,19 @@ describe('startWorktree', () => {
     p.service.link('TASK-0002', 'depends_on', 'TASK-0001', ctx);
     p.service.link('TASK-0002', 'depends_on', 'BUG-0001', ctx);
 
-    const error = await rejection(startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', setup: false }));
+    const error = await rejection(startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', setup: false }, ctx));
     expect(error.code).toBe('CONFLICT');
     expect(error.message).toContain(`- TASK-0001 (in_progress): branch ${dep.branch}`);
     expect(error.message).toContain('- BUG-0001 (backlog): no branch yet');
     expect(git(p.repo, 'branch', '--list', 'feat/TASK-0002-*')).toBe('');
     expect(existsSync(join(p.base, 'main.worktrees', 'TASK-0002-follow-up'))).toBe(false);
 
-    const stacked = await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', base: dep.branch, setup: false });
+    const stacked = await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', base: dep.branch, setup: false }, ctx);
     expect(stacked).toMatchObject({ base: dep.branch, reused: false });
     expect(git(stacked.path, 'rev-parse', 'HEAD')).toBe(dep.head);
-    expect(await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up' })).toMatchObject({ path: stacked.path, reused: true });
+    expect(await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up' }, ctx)).toMatchObject({ path: stacked.path, reused: true });
 
-    const anyway = await startWorktree(p.service, 'TASK-0002', { slug: 'on-main', base: 'main', setup: false });
+    const anyway = await startWorktree(p.service, 'TASK-0002', { slug: 'on-main', base: 'main', setup: false }, ctx);
     expect(anyway).toMatchObject({ base: 'main', reused: false });
     expect(git(anyway.path, 'rev-parse', 'HEAD')).toBe(git(p.repo, 'rev-parse', 'main'));
   });
@@ -305,7 +324,7 @@ describe('startWorktree', () => {
     await p.service.updateItem({ id: 'TASK-0001', status: 'done' }, ctx);
     await p.service.updateItem({ id: 'BUG-0001', status: 'cancelled' }, ctx);
 
-    const result = await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', setup: false });
+    const result = await startWorktree(p.service, 'TASK-0002', { slug: 'follow-up', setup: false }, ctx);
     expect(result).toMatchObject({ base: 'main', reused: false });
   });
 });
@@ -329,6 +348,7 @@ describe('finishWorktree', () => {
       base: { branch: 'main', head: merged, fast_forwarded: true, reason: null },
       delivered_in: PR,
       code_refs: ['.gitignore', 'feature.txt'],
+      story_done: null,
     });
     expect(existsSync(shipped.path)).toBe(false);
     expect(git(p.repo, 'branch', '--list', 'feat/*')).toBe('');
@@ -339,7 +359,7 @@ describe('finishWorktree', () => {
     expect(git(p.repo, 'worktree', 'list').split('\n')).toHaveLength(1);
     const { item, history } = p.service.getItem('TASK-0001', { history: true });
     expect(item).toMatchObject({ status: 'done', delivered_in: PR, code_refs: ['.gitignore', 'feature.txt'] });
-    expect(history?.find((event) => event.action === 'comment')?.new_value).toContain(PR);
+    expect(history?.findLast((event) => event.action === 'comment')?.new_value).toContain(PR);
   });
 
   it('refuses, removing nothing, when uncommitted changes or commits missing from the merged head would be lost', async () => {
@@ -412,7 +432,7 @@ describe('finishWorktree', () => {
     git(p.repo, 'checkout', '-q', 'main');
     git(p.repo, 'commit', '-q', '--allow-empty', '-m', 'local only');
     const local = git(p.repo, 'rev-parse', 'HEAD');
-    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false });
+    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false }, ctx);
     pushToOrigin(p, 'other.txt');
 
     const kept = await finishWorktree(p.service, 'BUG-0001', { mergedHead: git(bug.path, 'rev-parse', 'HEAD'), pr: PR }, ctx);
@@ -444,15 +464,53 @@ describe('finishWorktree', () => {
     });
     git(p.repo, 'branch', '-D', 'fix/TASK-0001-other');
     expect([git(p.repo, 'worktree', 'list'), git(p.repo, 'for-each-ref')]).toEqual(before);
-    expect(p.service.getItem('TASK-0001').item.status).toBe('backlog');
+    expect(p.service.getItem('TASK-0001').item.status).toBe('in_progress');
+  });
+
+  it('moves the parent story to done once every task and bug under it is done or cancelled', async () => {
+    const p = await project();
+    await p.service.createItem({ kind: 'story', title: 'As a user I want worktrees so that I can work in parallel', allow_duplicate: true }, ctx);
+    await p.service.createItem({ kind: 'epic', title: 'Parallel work', allow_duplicate: true }, ctx);
+    await p.service.createItem({ kind: 'task', title: 'Document the worktrees', parent_id: 'US-0001', status: 'in_progress', allow_duplicate: true }, ctx);
+    await p.service.updateItem({ id: 'TASK-0001', parent_id: 'US-0001' }, ctx);
+    await p.service.updateItem({ id: 'BUG-0001', parent_id: 'US-0001', status: 'cancelled' }, ctx);
+    const shipped = await pushedBranch(p);
+    mergeOnOrigin(p, shipped.branch);
+
+    const open = await finishWorktree(p.service, 'TASK-0001', { mergedHead: shipped.head, pr: PR }, ctx);
+    expect(open.story_done).toBeNull();
+    expect(p.service.getItem('US-0001').item.status).toBe('backlog');
+
+    await p.service.updateItem({ id: 'US-0001', parent_id: 'EPIC-0001' }, ctx);
+    const second = await startWorktree(p.service, 'TASK-0002', { setup: false }, ctx);
+
+    const result = await finishWorktree(p.service, 'TASK-0002', { mergedHead: git(second.path, 'rev-parse', 'HEAD'), pr: PR }, ctx);
+
+    expect(result.story_done).toBe('US-0001');
+    const { item, history } = p.service.getItem('US-0001', { history: true });
+    expect(item.status).toBe('done');
+    expect(history?.find((event) => event.action === 'comment')?.new_value).toContain('TASK-0002');
+    expect(p.service.getItem('EPIC-0001').item.status).toBe('open');
+  });
+
+  it('leaves an epic alone when a bug directly under it is finished', async () => {
+    const p = await project();
+    await p.service.createItem({ kind: 'epic', title: 'Parallel work', allow_duplicate: true }, ctx);
+    await p.service.updateItem({ id: 'BUG-0001', parent_id: 'EPIC-0001' }, ctx);
+    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false }, ctx);
+
+    const result = await finishWorktree(p.service, 'BUG-0001', { mergedHead: git(bug.path, 'rev-parse', 'HEAD'), pr: PR }, ctx);
+
+    expect(result).toMatchObject({ status: 'done', story_done: null });
+    expect(p.service.getItem('EPIC-0001').item.status).toBe('open');
   });
 });
 
 describe('listWorktrees', () => {
   it('lists worktrees on item branches with their ids, skipping the main checkout and other branches', async () => {
     const p = await project();
-    const task = await startWorktree(p.service, 'TASK-0001', { setup: false });
-    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false });
+    const task = await startWorktree(p.service, 'TASK-0001', { setup: false }, ctx);
+    const bug = await startWorktree(p.service, 'BUG-0001', { setup: false }, ctx);
     git(p.repo, 'worktree', 'add', '-q', '-b', 'spike', join(p.base, 'spike'), 'main');
     git(p.repo, 'checkout', '-q', '-b', 'feat/TASK-0002-main');
 
@@ -460,6 +518,50 @@ describe('listWorktrees', () => {
       { id: 'BUG-0001', branch: bug.branch, path: bug.path },
       { id: 'TASK-0001', branch: task.branch, path: task.path },
     ]);
+  });
+});
+
+describe('itemIdFromBranch', () => {
+  it('reads task and bug IDs with the pattern and names the branch and the pattern otherwise', () => {
+    expect(itemIdFromBranch('{type}/{id}-{slug}', 'feat/TASK-0012-reset-email')).toBe('TASK-0012');
+    expect(itemIdFromBranch('work/{id}/{type}-{slug}', 'work/BUG-0003/fix-login')).toBe('BUG-0003');
+    expect(() => itemIdFromBranch('{type}/{id}-{slug}', 'spike')).toThrow(expect.objectContaining({ code: 'INVALID_INPUT', message: expect.stringMatching(/"spike".*"\{type\}\/\{id\}-\{slug\}"/) }));
+    expect(() => itemIdFromBranch('{type}/{id}-{slug}', 'feat/US-0001-story')).toThrow(expect.objectContaining({ code: 'INVALID_INPUT', message: expect.stringContaining('"feat/US-0001-story"') }));
+    expect(() => itemIdFromBranch('{type}/{id}-{slug}', null)).toThrow(expect.objectContaining({ code: 'INVALID_INPUT', message: expect.stringContaining('detached') }));
+  });
+});
+
+describe('openPullRequest', () => {
+  it('sets review with the URL and the files changed since the merge-base with origin, from the worktree or by ID', async () => {
+    const p = await project();
+    const shipped = await pushedBranch(p, { 'feature.txt': 'done\n', 'src.ts': 'export {};\n' });
+    pushToOrigin(p, 'later.txt');
+    git(p.repo, 'fetch', '-q', 'origin');
+
+    const fromWorktree = await openPullRequest(p.service, { url: PR, cwd: shipped.path }, ctx);
+
+    expect(fromWorktree).toEqual({ id: 'TASK-0001', status: 'review', branch: shipped.branch, base: 'origin/main', delivered_in: PR, code_refs: ['feature.txt', 'src.ts'] });
+    const { item, history } = p.service.getItem('TASK-0001', { history: true });
+    expect(item).toMatchObject({ status: 'review', delivered_in: PR, code_refs: ['feature.txt', 'src.ts'] });
+    expect(history?.findLast((event) => event.action === 'comment')?.new_value).toBe(`Pull request opened: ${PR} from ${shipped.branch}.`);
+
+    const other = 'https://github.com/acme/app/pull/2';
+    const byId = await openPullRequest(p.service, { id: 'task-1', url: other, cwd: tempDir() }, ctx);
+    expect(byId).toMatchObject({ id: 'TASK-0001', branch: shipped.branch, delivered_in: other, code_refs: ['feature.txt', 'src.ts'] });
+  });
+
+  it('fails with INVALID_INPUT naming the branch and the pattern on a branch without an item ID', async () => {
+    const p = await project();
+    p.service.setConfig('branch_pattern', 'work/{id}/{type}-{slug}');
+    git(p.repo, 'worktree', 'add', '-q', '-b', 'feat/TASK-0001-start', join(p.base, 'wt'), 'main');
+
+    const error = await rejection(openPullRequest(p.service, { url: PR, cwd: join(p.base, 'wt') }, ctx));
+
+    expect(error.code).toBe('INVALID_INPUT');
+    expect(error.message).toContain('"feat/TASK-0001-start"');
+    expect(error.message).toContain('"work/{id}/{type}-{slug}"');
+    expect(p.service.getItem('TASK-0001').item.status).toBe('backlog');
+    expect((await rejection(openPullRequest(p.service, { id: 'BUG-0001', url: PR, cwd: p.repo }, ctx))).code).toBe('NOT_FOUND');
   });
 });
 
