@@ -831,7 +831,10 @@ function markdown(data, command) {
   lines.push(`- **Dictation**: 20 fixed items (6 requirements, 6 stories under the seeded Payments epic, 8 tasks under the stories; 14 parent and 12 implements links). Live prompt below.`);
   lines.push('- **Replay**: the steps of `templates/skills/overseer/SKILL.md` and `templates/agent-prompt.md` ("Always run `find_similar` before creating an item", then `create_item` with `parent_id` and `links`), in dictation order, as CLI calls: `overseer similar "<title>. <description>" --kind <kind> --json`, then `overseer add <kind> … --parent … --implements … --json` (retried with `--allow-duplicate` if it reports a possible duplicate, skill step 5 c). Then `overseer show <id> --context --json` per new item. One untimed warm-up call first.');
   lines.push('- **Latency**: wall time from spawn to exit of each `node dist/cli.js` process, run from the project root; p50/p95 by nearest rank over all replays.');
-  lines.push(`- **Embedder**: the CLI's default, ${MODEL} (q8 ONNX via transformers.js), from the local model cache (\`${data.embedder.cache_dir}\`); "semantic results" counts \`similar\` answers with \`semantic: true\`.`);
+  const embedderMethod = data.embedder.cached_before_run
+    ? `the CLI's default, ${MODEL} (q8 ONNX via transformers.js), loaded from the local model cache (\`${data.embedder.cache_dir}\`)`
+    : `none: ${MODEL} was not in the model cache (\`${data.embedder.cache_dir}\`), so the CLI answered with keyword (FTS) search only; run \`overseer models pull\` and measure again for semantic results`;
+  lines.push(`- **Embedder**: ${embedderMethod}; "semantic results" counts \`similar\` answers with \`semantic: true\`.`);
   lines.push('- **Tokens**: the files as shipped in `templates/` (the subagent prompt with its `{{…}}` placeholders) and the JSON of the MCP `tools/list` answer. `≈ chars/4` needs no tokenizer; `o200k_base` (OpenAI) and `claude-v5` (Claude Opus 5+) come from `omp toks --json`, the offline tokenizers bundled with omp; `n/a` when omp is not installed. No dependency added.');
   lines.push('- **Live**: per run a new temp git repository (README and one source file), `overseer install --scope project --targets omp` with this checkout\'s build on `PATH` (current skills, subagent and MCP server), `overseer enable`, the same 300 seeded items, then `omp -p --mode json --session-dir <tmp> --auto-approve --max-time 20m "<prompt>"`. Agent tool calls and token usage come from the assistant messages of the JSON event stream and of the subagent transcripts omp writes under `--session-dir`. After the run `overseer disable` and the repository is deleted.');
   lines.push('- **overseer requests**: what overseer itself received. The `overseer` on `PATH` is a shim: `overseer mcp` runs behind a small proxy that logs every JSON-RPC line it receives with a timestamp (MCP `tools/call` requests by tool), and every other `overseer` command is logged with a timestamp (GNU `date`). An agent can send many requests from one tool call (a loop in an eval cell), so requests and agent tool calls are both reported.');
@@ -877,7 +880,9 @@ async function main() {
     commit: commitInfo(),
     machine: { ...machine(), load_start: loadStart, load_end: loadAverage() },
     embedder: {
-      label: semantic ? `${MODEL} (local cache, semantic results ${replay.semantic.semantic_true}/${replay.semantic.similar_calls})` : `keyword only: ${replay.semantic.semantic_true}/${replay.semantic.similar_calls} semantic results`,
+      label: semantic
+        ? `${MODEL} (local cache, semantic results ${replay.semantic.semantic_true}/${replay.semantic.similar_calls})`
+        : `keyword only (${cached ? `${MODEL} cached but not used` : `${MODEL} not in the cache`}): ${replay.semantic.semantic_true}/${replay.semantic.similar_calls} semantic results`,
       model: MODEL,
       cached_before_run: cached,
       cache_dir: cacheDir,
