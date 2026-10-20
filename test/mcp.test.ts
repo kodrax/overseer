@@ -7,6 +7,7 @@ import { type CallToolResult, ListRootsRequestSchema } from '@modelcontextprotoc
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMcpServer, INSTRUCTIONS, type McpServerOptions } from '../src/mcp/server.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
+import { freePort, listening } from './helpers/net.js';
 import { tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
 
 const clients: Client[] = [];
@@ -266,5 +267,23 @@ describe('mcp server', () => {
     expect((await call(client, 'list_items', {})).text).toBe(
       `DISABLED: overseer is off for ${repo}. Do not use overseer in this project; to turn it on, the user runs: overseer enable --project ${repo}`,
     );
+  });
+
+  it('closes the databases and boards it opened when the connection closes', async () => {
+    const repo = tempRepo();
+    const client = await connect({ cwd: repo });
+    await call(client, 'create_item', { kind: 'task', title: 'Close everything' });
+    const board = await call(client, 'open_board', { port: await freePort(), open_browser: false });
+    const port = Number(new URL(String(board.data!.url)).port);
+    expect(await listening(port)).toBe(true);
+    // WAL mode: SQLite removes the -wal and -shm files when the last connection to the database closes (the service's and
+    // the board's). This process keeps running, so nothing else closes them.
+    const db = join(repo, '.overseer', 'overseer.db');
+    expect(existsSync(`${db}-wal`)).toBe(true);
+
+    await client.close();
+    await vi.waitFor(async () => expect(await listening(port)).toBe(false));
+    expect(existsSync(`${db}-wal`)).toBe(false);
+    expect(existsSync(`${db}-shm`)).toBe(false);
   });
 });
