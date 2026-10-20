@@ -215,7 +215,7 @@ overseer export                             # writes docs/overseer/
 | `link` / `unlink <src> <rel> <dst>` | relate items |
 | `report <kind>` | `summary`, `coverage`, `board`, `drift`, `lint`, `traceability` |
 | `export [--out] [--only] [--since]` | write Markdown/JSON reports into the project |
-| `import <file\|-> --source github\|gitlab --repo <repo>` | import issues from a JSON array |
+| `import <file\|-> --source github\|gitlab --repo <repo>` | import issues from a JSON array of ImportItems or a raw GitHub/GitLab MCP response |
 | `pr draft <id> [--type <type>]` | pull request title and body for a task or bug (see below) |
 | `worktree start <id> [--type] [--slug] [--base] [--no-setup]` | create or reuse the git worktree and branch of a task or bug (see [Worktrees](#worktrees)) |
 | `worktree finish <id> --merged-head <sha> [--pr] [--base]` | after the merge: remove the worktree and branches, fast-forward the base, set the item done |
@@ -281,7 +281,7 @@ The page updates live when an agent or the CLI writes to the database. The serve
 | `link_items` | add or remove a relation |
 | `report` | the six reports, as Markdown plus data |
 | `export_report` | write `docs/overseer/` |
-| `import_items` | idempotent GitHub/GitLab issue import |
+| `import_items` | idempotent GitHub/GitLab issue import (`items` or a raw MCP `payload`) |
 | `open_board` | start the web board and return its URL |
 
 ## Data model
@@ -361,11 +361,20 @@ The `overseer-import` skill reads issues through the GitHub or GitLab MCP server
 - **One-way**: nothing is pushed back to GitHub or GitLab.
 - **Setup**: commands for connecting each harness to GitHub or GitLab are in [`templates/skills/overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md).
 
-The CLI accepts the same payload:
+`import_items` takes the issues in one of two fields, never both:
+
+- `items`: ImportItems (`external_id`, `url`, `title`, `state`, optional `body`, `labels`, `type_hint`, `assignees`, `milestone`, `created_at`, `updated_at`, `parent_external_id`).
+- `payload`: a raw MCP response, as an object or as the tool's JSON text. overseer maps it:
+  - GitHub `list_issues` (`{"issues": [...]}`, or an array of REST issues): `external_id` is `<repo>#<number>`; issue type Bug, Feature or Task becomes `bug`, `story` or `task`; pull requests are skipped and named in `warnings`.
+  - GitLab `list_work_items` (`{"items": [...], "pageInfo": {...}}`), `get_work_item` (one work item) or an array of work items: `external_id` is `group/project#<iid>`; type Epic, Task, Incident or Requirement becomes `epic`, `task`, `bug` or `requirement`; type Issue gets no type hint; state `opened`/`OPEN` becomes `open`; the hierarchy parent becomes `parent_external_id`. List results carry no description, so import `get_work_item` for the bodies.
+  - Any other shape fails with `INVALID_INPUT` naming the accepted formats, and nothing is imported.
+
+The CLI accepts both and detects the format: a JSON array of ImportItems (or `{"items": [...]}`) as before, or a saved MCP response.
 
 ```sh
 echo '[{"external_id":"acme/demo#7","url":"https://github.com/acme/demo/issues/7","title":"Login fails on Safari","state":"open","labels":["bug"]}]' \
   | overseer import - --source github --repo acme/demo
+overseer import list_issues.json --source github --repo acme/demo
 ```
 
 ## Configuration

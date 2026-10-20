@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { nowIso, tx } from './db.js';
+import { OverseerError } from './errors.js';
 import { columnValue, getRow, toItem, writeFts } from './items.js';
 import { type Ctx, IMPORT_SOURCES, type ImportSource, type Item, KINDS, type Kind, PARENT_KINDS, parseInput } from './schema.js';
 import type { OverseerService } from './service.js';
@@ -21,11 +22,27 @@ export const importItemSchema = z.object({
   parent_external_id: z.string().max(500).nullish(),
 });
 
-export const importInputSchema = z.object({
+const importItemsSchema = z.array(importItemSchema).min(1).max(100);
+
+const importInputSchema = z.object({
   source: z.enum(IMPORT_SOURCES),
   repo: z.string().trim().min(1).max(500),
-  items: z.array(importItemSchema).min(1).max(100),
+  items: importItemsSchema,
 });
+
+/** `import_items` arguments: exactly one of `items` or `payload` (a raw GitHub/GitLab MCP response). */
+export const importRequestSchema = importInputSchema.extend({
+  items: importItemsSchema.optional().describe('ImportItems; pass this or payload.'),
+  payload: z
+    .unknown()
+    .optional()
+    .describe(
+      'Raw response of the GitHub MCP list_issues tool ({"issues": [...]}) or of the GitLab MCP list_work_items ({"items": [...]}) or get_work_item tool, as returned (object or JSON text); pass this or items.',
+    ),
+});
+
+/** A payload may map to no items (an empty page, or only pull requests). */
+const payloadInputSchema = importInputSchema.extend({ items: z.array(importItemSchema).max(100) });
 
 export type ImportItem = z.infer<typeof importItemSchema>;
 export type ImportInput = z.infer<typeof importInputSchema>;
@@ -66,13 +83,202 @@ function remoteTime(value: string | null | undefined, fallback: string): string 
   return Number.isNaN(time) ? fallback : nowIso(new Date(time));
 }
 
+const PAYLOAD_FORMATS =
+  'ImportItems ([...] or {"items": [...]}), a GitHub MCP list_issues response ({"issues": [...]}) or array of GitHub issues, or a GitLab MCP list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item response or array of work items';
+
+/** A string, or the `key` string of an object (GitHub REST labels `{name}`, GitLab milestones `{title}`, …). */
+const named = (key: string) => z.union([z.string(), z.object({ [key]: z.string() }).transform((value) => value[key]!)]);
+
+/**
+ * Issues of the GitHub MCP server (github/github-mcp-server): list_issues' MinimalIssue (pkg/github/minimal_types.go:
+ * state OPEN/CLOSED, labels and assignees as strings) or REST issues as its older list_issues returned them
+ * (labels `{name}`, assignees `{login}`, milestone `{title}`, type `{name}`, `pull_request` on pull requests).
+ */
+const githubIssueSchema = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  body: z.string().nullish(),
+  state: z.string(),
+  html_url: z.string().nullish(),
+  pull_request: z.unknown().optional(),
+  issue_type: z.string().nullish(),
+  type: named('name').nullish(),
+  labels: z.array(named('name')).nullish(),
+  assignees: z.array(named('login')).nullish(),
+  milestone: named('title').nullish(),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+  parent: z.object({ number: z.number().int(), repository: z.string().nullish() }).nullish(),
+});
+
+/**
+ * Work items of zereight/gitlab-mcp list_work_items / get_work_item (index.ts listWorkItems, getWorkItem): widgets
+ * flattened to `type`, `labels`, `assignees`, `milestone` and the hierarchy widget's `parent {iid, project, webUrl}`.
+ */
+const gitlabWorkItemSchema = z.object({
+  iid: z.union([z.string(), z.number().int()]),
+  title: z.string(),
+  state: z.string(),
+  description: z.string().nullish(),
+  type: named('name').nullish(),
+  webUrl: z.string().nullish(),
+  web_url: z.string().nullish(),
+  labels: z.array(named('title')).nullish(),
+  assignees: z.array(named('username')).nullish(),
+  milestone: named('title').nullish(),
+  createdAt: z.string().nullish(),
+  created_at: z.string().nullish(),
+  updatedAt: z.string().nullish(),
+  updated_at: z.string().nullish(),
+  parent: z.object({ iid: z.union([z.string(), z.number().int()]), project: z.string().nullish(), webUrl: z.string().nullish() }).nullish(),
+});
+
+const GITHUB_TYPES: Readonly<Record<string, Kind>> = { bug: 'bug', feature: 'story', task: 'task' };
+const GITLAB_TYPES: Readonly<Record<string, Kind>> = { epic: 'epic', task: 'task', incident: 'bug', requirement: 'requirement' };
+
+/** GitHub OPEN/open and GitLab opened/OPEN → open, CLOSED/closed → closed; other states fail ImportItem validation. */
+function remoteState(state: string): string {
+  const lower = state.toLowerCase();
+  return lower === 'opened' ? 'open' : lower;
+}
+
+/** `group/project` of a GitLab URL (`…/group/project/-/work_items/7`, `…/groups/group/-/epics/2`), else `fallback`. */
+function gitlabPath(url: string | null | undefined, fallback: string): string {
+  let path: string;
+  try {
+    path = decodeURIComponent(new URL(url ?? '').pathname);
+  } catch {
+    return fallback;
+  }
+  const end = path.indexOf('/-/');
+  if (end <= 0) return fallback;
+  const namespace = path.slice(1, end).replace(/^groups\//, '');
+  // A GitLab served under a relative URL root (https://host/gitlab/group/project) still maps to the given path.
+  return namespace.endsWith(`/${fallback}`) ? fallback : namespace;
+}
+
+interface MappedPayload {
+  /** ImportItem candidates; validated by importItems like `items`. */
+  items: Record<string, unknown>[];
+  /** One entry per skipped pull request. */
+  warnings: string[];
+}
+
+function fromGithub(issues: readonly z.infer<typeof githubIssueSchema>[], repo: string): MappedPayload {
+  const mapped: MappedPayload = { items: [], warnings: [] };
+  for (const issue of issues) {
+    const externalId = `${repo}#${issue.number}`;
+    const url = issue.html_url ?? `https://github.com/${repo}/issues/${issue.number}`;
+    if ((issue.pull_request !== undefined && issue.pull_request !== null) || /\/pull\/\d+$/.test(url)) {
+      mapped.warnings.push(`${externalId}: pull request skipped.`);
+      continue;
+    }
+    const typeHint = GITHUB_TYPES[(issue.issue_type ?? issue.type ?? '').toLowerCase()];
+    mapped.items.push({
+      external_id: externalId,
+      url,
+      title: issue.title,
+      body: issue.body ?? null,
+      state: remoteState(issue.state),
+      labels: issue.labels ?? [],
+      ...(typeHint ? { type_hint: typeHint } : {}),
+      assignees: issue.assignees ?? [],
+      milestone: issue.milestone ?? null,
+      created_at: issue.created_at ?? null,
+      updated_at: issue.updated_at ?? null,
+      parent_external_id: issue.parent ? `${issue.parent.repository ?? repo}#${issue.parent.number}` : null,
+    });
+  }
+  return mapped;
+}
+
+function fromGitlab(workItems: readonly z.infer<typeof gitlabWorkItemSchema>[], repo: string): MappedPayload {
+  const items = workItems.map((workItem) => {
+    const url = workItem.webUrl ?? workItem.web_url ?? '';
+    const path = gitlabPath(url, repo);
+    const typeHint = GITLAB_TYPES[(workItem.type ?? '').toLowerCase()];
+    const parent = workItem.parent;
+    return {
+      external_id: `${path}#${workItem.iid}`,
+      url,
+      title: workItem.title,
+      body: workItem.description ?? null,
+      state: remoteState(workItem.state),
+      labels: workItem.labels ?? [],
+      ...(typeHint ? { type_hint: typeHint } : {}),
+      assignees: workItem.assignees ?? [],
+      milestone: workItem.milestone ?? null,
+      created_at: workItem.createdAt ?? workItem.created_at ?? null,
+      updated_at: workItem.updatedAt ?? workItem.updated_at ?? null,
+      parent_external_id: parent ? `${parent.project ?? gitlabPath(parent.webUrl, path)}#${parent.iid}` : null,
+    };
+  });
+  return { items, warnings: [] };
+}
+
+/** Maps a raw GitHub/GitLab MCP response (object or JSON text) to ImportItems; INVALID_INPUT naming the accepted formats otherwise. */
+function mapImportPayload(payload: unknown, source: ImportSource, repo: string): MappedPayload {
+  let data = payload;
+  if (typeof data === 'string') {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      throw new OverseerError('INVALID_INPUT', `payload is text but not JSON; accepted formats: ${PAYLOAD_FORMATS}.`);
+    }
+  }
+  let entries: unknown[] = [data];
+  let container: ImportSource | undefined;
+  if (Array.isArray(data)) entries = data;
+  else if (typeof data === 'object' && data !== null && 'issues' in data && Array.isArray(data.issues)) [entries, container] = [data.issues, 'github'];
+  else if (typeof data === 'object' && data !== null && 'items' in data && Array.isArray(data.items)) [entries, container] = [data.items, 'gitlab'];
+
+  const github = container === 'gitlab' ? undefined : z.array(githubIssueSchema).safeParse(entries).data;
+  const gitlab = github || container === 'github' ? undefined : z.array(gitlabWorkItemSchema).safeParse(entries).data;
+  const format: ImportSource | undefined = entries.length === 0 ? (container ?? source) : github ? 'github' : gitlab ? 'gitlab' : undefined;
+  if (format === undefined) throw new OverseerError('INVALID_INPUT', `Unrecognized import format; accepted formats: ${PAYLOAD_FORMATS}.`);
+  if (format !== source) {
+    throw new OverseerError('INVALID_INPUT', `The payload is a ${format === 'github' ? 'GitHub' : 'GitLab'} response but source is ${source}.`);
+  }
+  return format === 'github' ? fromGithub(github ?? [], repo) : fromGitlab(gitlab ?? [], repo);
+}
+
+/**
+ * `import_items` arguments for a parsed `overseer import` file: ImportItems (`[...]` or `{"items": [...]}`) go to
+ * `items` exactly as before; anything else (a raw GitHub/GitLab MCP response) goes to `payload`. An unknown format
+ * fails here, before the CLI opens (or creates) the project database.
+ */
+export function importRequestFor(data: unknown, source: string, repo: string): Record<string, unknown> {
+  let items: unknown;
+  if (Array.isArray(data)) items = data;
+  // list_work_items answers {"items": [...], "pageInfo": {...}}: a raw payload, not wrapped ImportItems.
+  else if (typeof data === 'object' && data !== null && 'items' in data && !('pageInfo' in data)) items = data.items;
+  const raw =
+    items === undefined ||
+    (Array.isArray(items) && items.length > 0 && !items.some((entry) => typeof entry === 'object' && entry !== null && 'external_id' in entry));
+  if (!raw) return { source, repo, items };
+  const known = IMPORT_SOURCES.find((candidate) => candidate === source);
+  if (known) mapImportPayload(data, known, repo);
+  return { source, repo, payload: data };
+}
+
+/** Validates `import_items` arguments, mapping `payload` to items; exactly one of `items` and `payload` is allowed. */
+function parseImportRequest(raw: unknown): { input: ImportInput; warnings: string[] } {
+  const { source, repo, items, payload } = parseInput(importRequestSchema, raw);
+  if ((items === undefined) === (payload === undefined)) {
+    throw new OverseerError('INVALID_INPUT', 'Pass exactly one of items (ImportItems) or payload (a raw GitHub/GitLab MCP response).');
+  }
+  if (items !== undefined) return { input: { source, repo, items }, warnings: [] };
+  const mapped = mapImportPayload(payload, source, repo);
+  return { input: parseInput(payloadInputSchema, { source, repo, items: mapped.items }), warnings: mapped.warnings };
+}
+
 /** Idempotent one-way upsert of GitHub/GitLab issues (S10). Imported text is stored as data only. */
 export async function importItems(service: OverseerService, raw: unknown, ctx: Ctx): Promise<ImportResult> {
-  const input: ImportInput = parseInput(importInputSchema, raw);
+  const { input, warnings } = parseImportRequest(raw);
   const source: ImportSource = input.source;
   const importCtx: Ctx = { ...ctx, via: `import:${source}` };
   const refOf = (externalId: string) => `${source}:${externalId}`;
-  const result: ImportResult = { created: [], updated: [], unchanged: [], warnings: [], possible_duplicates: [], last_import_at: '' };
+  const result: ImportResult = { created: [], updated: [], unchanged: [], warnings: [...warnings], possible_duplicates: [], last_import_at: '' };
   const createdIds: string[] = [];
   const now = nowIso();
   const db = service.db;

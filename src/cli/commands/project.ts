@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { databaseFile } from '../../core/db.js';
 import { OverseerError } from '../../core/errors.js';
-import type { ImportResult } from '../../core/import.js';
+import { type ImportResult, importRequestFor } from '../../core/import.js';
 import { assertWritableRoot, dataDir } from '../../core/project.js';
 import { EXPORT_PARTS, IMPORT_SOURCES } from '../../core/schema.js';
 import { CONFIG_KEYS } from '../../core/service.js';
@@ -23,17 +23,13 @@ async function readInput(rt: CliRuntime, file: string): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** Import payload: a JSON array of ImportItem, or an object with `items`. */
-function importItemsOf(text: string): unknown {
-  let data: unknown;
+/** JSON of an import file: ImportItems, or a raw GitHub/GitLab MCP response that the import maps to them. */
+function parseImportJson(text: string): unknown {
   try {
-    data = JSON.parse(text);
+    return JSON.parse(text);
   } catch (error) {
     throw new OverseerError('INVALID_INPUT', `Import input is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (Array.isArray(data)) return data;
-  if (data && typeof data === 'object' && 'items' in data) return data.items;
-  throw new OverseerError('INVALID_INPUT', 'Import input must be a JSON array of items or an object with "items".');
 }
 
 function formatImport(result: ImportResult): string {
@@ -121,15 +117,17 @@ export function registerProjectCommands(program: Command, rt: CliRuntime): void 
 
   program
     .command('import')
-    .description('import GitHub/GitLab issues (JSON array of ImportItem) from a file or stdin (-)')
+    .description(
+      'import GitHub/GitLab issues from a file or stdin (-): a JSON array of ImportItem, or a raw GitHub list_issues / GitLab list_work_items or get_work_item MCP response',
+    )
     .argument('<file>', 'JSON file, or - for stdin')
     .requiredOption('--source <source>', `issue source: ${IMPORT_SOURCES.join(' | ')}`)
     .requiredOption('--repo <repo>', 'owner/repo or group/project')
     .option('--json', 'print JSON')
     .action(async (file: string, options: { source: string; repo: string; json?: boolean }, command: Command) => {
-      const items = importItemsOf(await readInput(rt, file));
+      const request = importRequestFor(parseImportJson(await readInput(rt, file)), options.source, options.repo);
       await rt.withService(command, 'write', async (service) => {
-        rt.emit(options.json, await service.importItems({ source: options.source, repo: options.repo, items }, rt.ctx), formatImport);
+        rt.emit(options.json, await service.importItems(request, rt.ctx), formatImport);
       });
     });
 
