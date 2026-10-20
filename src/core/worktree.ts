@@ -197,9 +197,35 @@ function resolveSlug(title: string, id: string, requested: string | undefined): 
 }
 
 /**
+ * Throws CONFLICT when `id` depends_on tasks or bugs that are neither done nor cancelled, naming each with its status
+ * and its local or origin branch (any branch that fills `branch_pattern` with its ID). Other targets are ignored.
+ */
+function assertNoOpenDependencies(service: OverseerService, id: string, outgoing: { rel: string; id: string; kind: string; status: string }[]): void {
+  const open = outgoing.filter(
+    (link) => link.rel === 'depends_on' && (link.kind === 'task' || link.kind === 'bug') && link.status !== 'done' && link.status !== 'cancelled',
+  );
+  if (open.length === 0) return;
+  const root = service.root;
+  const pattern = service.configValue('branch_pattern');
+  const hasOrigin = git(root, ['remote', 'get-url', 'origin']) !== undefined;
+  const lines = open.map((dep) => {
+    const matcher = branchMatcher(pattern, escapeRegExp(dep.id));
+    const local = matchingRefs(root, 'refs/heads/', matcher);
+    const remote = hasOrigin ? matchingRefs(root, 'refs/remotes/origin/', matcher) : [];
+    const branches = [...new Set([...local, ...remote])];
+    return `- ${dep.id} (${dep.status}): ${branches.length > 0 ? `branch ${branches.join(', ')}` : 'no branch yet'}`;
+  });
+  throw new OverseerError(
+    'CONFLICT',
+    `${id} depends on unfinished work:\n${lines.join('\n')}\nWait until it is done, or stack on it with --base <its branch> (--base <base branch> to start anyway).`,
+  );
+}
+
+/**
  * Creates or reuses the worktree and branch of a task or bug (REQ-0252, REQ-0260). The branch fills `branch_pattern`;
  * the worktree goes to `<worktree_root>/<id>-<slug>` under the project root (the main checkout).
  * - A worktree already on the branch → returned with `reused: true`; no fetch, no setup.
+ * - Without `base`, depends_on tasks or bugs that are not done or cancelled → CONFLICT listing them; nothing is touched.
  * - The branch exists without a worktree → a worktree on that branch.
  * - Otherwise a new branch from `origin/<base>` after fetching origin (when it exists), else from the local `<base>`.
  * - The path exists but is not the branch's worktree → CONFLICT; nothing is touched.
@@ -207,7 +233,7 @@ function resolveSlug(title: string, id: string, requested: string | undefined): 
  * worktree and throws SETUP_FAILED. Item status is not changed.
  */
 export async function startWorktree(service: OverseerService, id: string, options: WorktreeStartOptions = {}): Promise<WorktreeStartResult> {
-  const { item } = service.getItem(id);
+  const { item, links } = service.getItem(id);
   assertWorkItem(item, 'started');
   const type = resolveType(item.kind, item.id, options.type);
   const slug = resolveSlug(item.title, item.id, options.slug);
@@ -231,6 +257,8 @@ export async function startWorktree(service: OverseerService, id: string, option
     }
     return { path: existing, branch, base, reused: true, setup: { command: setupFor(existing), ran: false } };
   }
+
+  if (options.base === undefined) assertNoOpenDependencies(service, item.id, links.outgoing);
 
   const path = join(resolve(root, service.configValue('worktree_root')), `${item.id}-${slug}`);
   if (existsSync(path)) {
