@@ -1,0 +1,95 @@
+{
+  "list_labels": [
+    {
+      "id": 11,
+      "name": "bug",
+      "color": "#d9534f",
+      "text_color": "#FFFFFF",
+      "description": "Something is broken",
+      "description_html": "Something is broken",
+      "open_issues_count": 3,
+      "closed_issues_count": 1,
+      "open_merge_requests_count": 0,
+      "subscribed": false,
+      "priority": 10,
+      "is_project_label": true
+    },
+    {
+      "id": 12,
+      "name": "workflow::doing",
+      "color": "#428bca",
+      "text_color": "#FFFFFF",
+      "description": null,
+      "description_html": "",
+      "open_issues_count": 1,
+      "closed_issues_count": 0,
+      "open_merge_requests_count": 0,
+      "subscribed": false,
+      "priority": null,
+      "is_project_label": false
+    },
+    {
+      "id": 13,
+      "name": "feature",
+      "color": "#5cb85c",
+      "text_color": "#FFFFFF",
+      "description": null,
+      "description_html": "",
+      "open_issues_count": 2,
+      "closed_issues_count": 5,
+      "open_merge_requests_count": 1,
+      "subscribed": false,
+      "priority": null,
+      "is_project_label": true
+    }
+  ],
+  "list_milestones": [
+    {
+      "id": 21,
+      "iid": 2,
+      "project_id": 5,
+      "title": "Sprint 2",
+      "description": "",
+      "state": "active",
+      "due_date": "2026-11-07",
+      "start_date": "2026-10-24",
+      "updated_at": "2026-10-01T10:00:00.000Z",
+      "created_at": "2026-10-01T10:00:00.000Z",
+      "expired": false,
+      "web_url": "https://gitlab.example.com/group/project/-/milestones/2"
+    },
+    {
+      "id": 20,
+      "iid": 1,
+      "project_id": 5,
+      "title": "Sprint 1",
+      "description": "",
+      "state": "closed",
+      "due_date": "2026-10-23",
+      "start_date": "2026-10-10",
+      "updated_at": "2026-10-01T10:00:00.000Z",
+      "created_at": "2026-09-01T10:00:00.000Z",
+      "expired": true,
+      "web_url": "https://gitlab.example.com/group/project/-/milestones/1"
+    }
+  ],
+  "list_work_item_statuses": [
+    {
+      "work_item_type": "Issue",
+      "statuses_available": false,
+      "statuses": [],
+      "supported_conversion_types": [
+        "Incident",
+        "Task"
+      ],
+      "allowed_child_types": [
+        "Task"
+      ],
+      "allowed_parent_types": [
+        "Epic"
+      ]
+    },
+    "{\"work_item_type\": \"Task\", \"statuses_available\": false, \"statuses\": [], \"supported_conversion_types\": [\"Incident\", \"Issue\"], \"allowed_parent_types\": [\"Incident\", \"Issue\"]}"
+  ],
+  "gitlab_api_request": "[\n  {\n    \"id\": 2,\n    \"name\": \"Workflow\",\n    \"hide_backlog_list\": false,\n    \"hide_closed_list\": false,\n    \"project\": {\n      \"id\": 5,\n      \"name\": \"project\",\n      \"path_with_namespace\": \"group/project\"\n    },\n    \"milestone\": null,\n    \"lists\": [\n      {\n        \"id\": 3,\n        \"label\": {\n          \"id\": 12,\n          \"name\": \"workflow::doing\",\n          \"color\": \"#428bca\"\n        },\n        \"position\": 0\n      }\n    ]\n  },\n  {\n    \"id\": 1,\n    \"name\": \"Development\",\n    \"hide_backlog_list\": false,\n    \"hide_closed_list\": false,\n    \"project\": {\n      \"id\": 5,\n      \"name\": \"project\",\n      \"path_with_namespace\": \"group/project\"\n    },\n    \"milestone\": null,\n    \"lists\": []\n  }\n]"
+}

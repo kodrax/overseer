@@ -222,6 +222,7 @@ overseer export                             # writes docs/overseer/
 | `worktree finish <id> --merged-head <sha> [--pr] [--base]` | after the merge: remove the worktree and branches, fast-forward the base, set the item done |
 | `worktree list` | worktrees on task and bug branches, with their item IDs |
 | `sync remotes` | GitHub, GitLab and other repositories named by the project's git remotes (see [Repository remotes](#repository-remotes)) |
+| `sync inspect <file\|-> --source github\|gitlab` | labels, issue types, milestones, sub-issue support and boards of a repository, from a bundle of raw MCP responses (see [Tracking setup](#tracking-setup)) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -275,6 +276,34 @@ The same item, template and branch always give the same draft. This command has 
 - **No remotes**, or a folder outside git, print `[]` (`No git remotes.` without `--json`).
 
 It reads only the local git config and makes no network calls. This command has no MCP tool.
+
+### Tracking setup
+
+`overseer sync inspect <file|-> --source github|gitlab --json` summarises a repository's tracking setup from MCP responses the agent already fetched, for mapping overseer's kinds, statuses and priorities onto it. It prints `{"labels", "issue_types", "milestones", "sub_issues", "boards", "warnings"}`; without `--json`, one `key: value` line per part and a `warning:` line per warning.
+
+The bundle is one JSON object keyed by MCP tool name. Each value is the tool's raw answer: the JSON, or its text as a string. An array of answers holds several calls (pages, several issues or work item types):
+
+```json
+{
+  "list_label": [{"labels": [{"name": "bug", "color": "d73a4a", "description": ""}], "totalCount": 1, "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}],
+  "list_issue_types": "[{\"id\": 1, \"name\": \"Bug\", \"is_enabled\": true}]",
+  "projects_list": {"projects": [{"number": 1, "title": "Roadmap"}], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}
+}
+```
+
+| Part | GitHub ([github-mcp-server](https://github.com/github/github-mcp-server)) | GitLab ([zereight/gitlab-mcp](https://github.com/zereight/gitlab-mcp)) |
+|---|---|---|
+| `labels` | `list_label`, `get_label` | `list_labels`, `get_label` |
+| `issue_types` | `list_issue_types` (disabled types left out) | `list_work_item_statuses`: each answer's work item type and the types it converts to |
+| `milestones` | `ui_get` with `method: milestones` | `list_milestones`, `list_group_milestones`, `get_milestone` |
+| `sub_issues` | `issue_read`: a `get_sub_issues` or `get_parent` answer, or a `get` answer with `has_parent` / `has_children` | `list_work_item_statuses`: `true` when a type has allowed child or parent types, `false` when none has |
+| `boards` | `projects_list` with `method: list_projects`, `projects_get` with `method: get_project` | `gitlab_api_request` `GET projects/<id>/boards` (gitlab-mcp has no board tool) |
+
+- **Names**: label, type, milestone and board names are trimmed, without duplicates, and sorted case-insensitively (then by character code), so the same answers in any order print the same bytes.
+- **Unknown parts**: a part that no tool in the bundle answers is `null`, never `[]`, with a warning naming the tool to add (`milestones: unknown, the bundle has no ui_get (method milestones) response.`). An answer without names, such as a repository without labels, gives `[]`.
+- **Errors**: a key the source does not accept, an answer of the wrong shape, or a bundle that is not a JSON object or is empty give `INVALID_INPUT` listing the accepted tools and the parts each answers.
+
+`overseer sync inspect --help` lists the accepted tools. It reads only the bundle and makes no network calls. This command has no MCP tool.
 
 ### Web board
 
