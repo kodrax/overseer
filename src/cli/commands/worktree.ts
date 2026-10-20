@@ -20,7 +20,7 @@ interface FinishOptions {
 }
 
 function describeStart(result: WorktreeStartResult): string {
-  const lines = [`${result.reused ? 'Reusing' : 'Created'} worktree ${result.path}`, `branch ${result.branch} (base ${result.base})`];
+  const lines = [`${result.reused ? 'Reusing' : 'Created'} worktree ${result.path}`, `branch ${result.branch} (base ${result.base})`, `status: ${result.status}`];
   if (result.setup.ran) lines.push(`setup: ran ${result.setup.command}`);
   else if (!result.reused && result.setup.command !== null) lines.push(`setup: skipped (${result.setup.command})`);
   return lines.join('\n');
@@ -38,6 +38,7 @@ function describeFinish(result: WorktreeFinishResult): string {
         ? `${base.branch} already up to date`
         : `${base.branch} not fast-forwarded: ${base.reason}`,
     `code_refs: ${result.code_refs.join(', ') || '(none)'}`,
+    ...(result.story_done ? [`${result.story_done} is done: all its tasks and bugs are done or cancelled`] : []),
   ].join('\n');
 }
 
@@ -46,7 +47,7 @@ export function registerWorktreeCommands(program: Command, rt: CliRuntime): void
 
   worktree
     .command('start')
-    .description('create or reuse the worktree and branch of a task or bug, then run the project setup in a new worktree')
+    .description('create or reuse the worktree and branch of a task or bug, set a backlog or ready item in_progress, then run the project setup in a new worktree')
     .argument('<id>', 'task or bug id')
     .option('--type <type>', `Conventional Commit type: ${PR_TYPES.join(' | ')} (default: fix for bugs, feat for tasks)`)
     .option('--slug <slug>', 'branch slug, lowercase words joined by hyphens (default: from the item title)')
@@ -54,21 +55,26 @@ export function registerWorktreeCommands(program: Command, rt: CliRuntime): void
     .option('--no-setup', 'skip the setup command (worktree_setup) in a new worktree')
     .option('--json', 'print JSON')
     .action(async (id: string, options: StartOptions, command: Command) => {
-      await rt.withService(command, 'read', async (service) => {
-        const result = await startWorktree(service, id, {
-          ...(options.type !== undefined ? { type: options.type } : {}),
-          ...(options.slug !== undefined ? { slug: options.slug } : {}),
-          ...(options.base !== undefined ? { base: options.base } : {}),
-          setup: options.setup,
-          output: (chunk) => rt.io.stderr.write(chunk),
-        });
+      await rt.withService(command, 'write', async (service) => {
+        const result = await startWorktree(
+          service,
+          id,
+          {
+            ...(options.type !== undefined ? { type: options.type } : {}),
+            ...(options.slug !== undefined ? { slug: options.slug } : {}),
+            ...(options.base !== undefined ? { base: options.base } : {}),
+            setup: options.setup,
+            output: (chunk) => rt.io.stderr.write(chunk),
+          },
+          rt.ctx,
+        );
         rt.emit(options.json, result, describeStart);
       });
     });
 
   worktree
     .command('finish')
-    .description('after the pull request is merged: remove the worktree and branches, fast-forward the base branch and set the item done')
+    .description('after the pull request is merged: remove the worktree and branches, fast-forward the base branch, set the item done and roll its story up to done')
     .argument('<id>', 'task or bug id')
     .requiredOption('--merged-head <sha>', "head commit of the merged pull request; the branches must not have commits it lacks")
     .option('--pr <url>', "pull request URL for delivered_in (default: the item's delivered_in)")

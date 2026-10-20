@@ -653,6 +653,33 @@ describe('cli pr draft', () => {
   });
 });
 
+describe('cli pr opened', () => {
+  const PR_URL = 'https://github.com/acme/app/pull/7';
+
+  it('reads the item from the worktree branch and sets review, delivered_in and code_refs; a branch without an ID fails', async () => {
+    const repo = tempRepo();
+    await cli(repo, ['add', 'task', '--title', 'Adds the reset email sender']);
+    const worktree = join(tempDir(), 'wt');
+    git(repo, 'worktree', 'add', '-q', worktree, '-b', 'feat/TASK-0001-reset-email');
+    writeFileSync(join(worktree, 'mailer.ts'), 'export {};\n');
+    git(worktree, 'add', '.');
+    git(worktree, 'commit', '-q', '-m', 'feat: mailer');
+
+    const opened = await cli(worktree, ['pr', 'opened', '--url', PR_URL, '--json']);
+    expect(opened.code).toBe(0);
+    expect(opened.json()).toEqual({ id: 'TASK-0001', status: 'review', branch: 'feat/TASK-0001-reset-email', base: 'main', delivered_in: PR_URL, code_refs: ['mailer.ts'] });
+    const { item } = (await cli(repo, ['show', 'TASK-0001', '--json'])).json<ItemDetail>();
+    expect(item).toMatchObject({ status: 'review', delivered_in: PR_URL, code_refs: ['mailer.ts'] });
+
+    const human = await cli(tempDir(), ['pr', 'opened', 'TASK-0001', '--url', PR_URL, '--project', repo]);
+    expect(human.out).toBe(`TASK-0001 is review (${PR_URL})\nbranch feat/TASK-0001-reset-email (base main)\ncode_refs: mailer.ts\n`);
+
+    const failed = await cli(repo, ['pr', 'opened', '--url', PR_URL, '--json']);
+    expect(failed.code).toBe(1);
+    expect(failed.json<ErrorEnvelope>().error).toEqual({ code: 'INVALID_INPUT', message: expect.stringMatching(/"main".*"\{type\}\/\{id\}-\{slug\}"/) });
+  });
+});
+
 describe('cli sync remotes', () => {
   beforeEach(isolateGitConfig);
   afterEach(() => {

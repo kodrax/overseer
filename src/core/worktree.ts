@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { errorMessage, OverseerError } from './errors.js';
-import { PR_TYPES, type PrType } from './pr-draft.js';
+import { checkoutDir, PR_TYPES, type PrType } from './pr-draft.js';
 import { git } from './project.js';
 import { type Ctx, ID_PREFIX } from './schema.js';
 import type { OverseerService } from './service.js';
@@ -24,6 +24,8 @@ const FILLER_WORDS: Record<string, true> = { a: true, an: true, the: true, and: 
 const FETCH_TIMEOUT_MS = 5 * 60_000;
 const WORKTREE_TIMEOUT_MS = 2 * 60_000;
 const SHA = /^[0-9a-f]{7,40}$/i;
+/** Regex source of the IDs that get branches: tasks and bugs. */
+const WORK_ITEM_ID = `(?:${ID_PREFIX.task}|${ID_PREFIX.bug})-\\d{4,}`;
 
 export interface WorktreeStartOptions {
   /** Conventional Commit type; default fix for bugs, feat for tasks. */
@@ -43,6 +45,8 @@ export interface WorktreeStartResult {
   branch: string;
   base: string;
   reused: boolean;
+  /** Item status after the start: in_progress, unless it was already further along. */
+  status: string;
   /** `command`: the setup that applies to the worktree (null: none); `ran`: whether this call ran it. */
   setup: { command: string | null; ran: boolean };
 }
@@ -147,6 +151,19 @@ function matchingRefs(root: string, prefix: string, matcher: RegExp): string[] {
     .filter((name) => matcher.test(name));
 }
 
+/**
+ * Task or bug ID in `branch`, read with `pattern` (`branch_pattern`). A detached HEAD (null) or a branch the pattern
+ * does not produce for a task or bug ID → INVALID_INPUT naming the branch and the pattern.
+ */
+export function itemIdFromBranch(pattern: string, branch: string | null): string {
+  const id = branch === null ? undefined : branchMatcher(pattern, WORK_ITEM_ID).exec(branch)?.[1];
+  if (id === undefined) {
+    const where = branch === null ? 'HEAD is detached' : `Branch "${branch}" has no task or bug ID`;
+    throw new OverseerError('INVALID_INPUT', `${where}; branch_pattern is "${pattern}". Pass the item ID explicitly.`);
+  }
+  return id;
+}
+
 /** Remote of the branch's upstream, else `origin` when that remote exists, else null. */
 function remoteFor(root: string, branch: string | null): string | null {
   const upstream = branch === null ? undefined : git(root, ['for-each-ref', '--format=%(upstream:remotename)', `refs/heads/${branch}`]);
@@ -196,6 +213,13 @@ function resolveSlug(title: string, id: string, requested: string | undefined): 
   return slug;
 }
 
+/** Moves a backlog or ready item to in_progress with a comment naming `branch`; later statuses stay. Returns the status. */
+async function markInProgress(service: OverseerService, item: { id: string; status: string }, branch: string, ctx: Ctx): Promise<string> {
+  if (item.status !== 'backlog' && item.status !== 'ready') return item.status;
+  const { item: updated } = await service.updateItem({ id: item.id, status: 'in_progress', comment: `Work started on branch ${branch}.` }, ctx);
+  return updated.status;
+}
+
 /**
  * Throws CONFLICT when `id` depends_on tasks or bugs that are neither done nor cancelled, naming each with its status
  * and its local or origin branch (any branch that fills `branch_pattern` with its ID). Other targets are ignored.
@@ -222,17 +246,18 @@ function assertNoOpenDependencies(service: OverseerService, id: string, outgoing
 }
 
 /**
- * Creates or reuses the worktree and branch of a task or bug (REQ-0252, REQ-0260). The branch fills `branch_pattern`;
- * the worktree goes to `<worktree_root>/<id>-<slug>` under the project root (the main checkout).
+ * Creates or reuses the worktree and branch of a task or bug (REQ-0252, REQ-0257, REQ-0260). The branch fills
+ * `branch_pattern`; the worktree goes to `<worktree_root>/<id>-<slug>` under the project root (the main checkout).
  * - A worktree already on the branch → returned with `reused: true`; no fetch, no setup.
  * - Without `base`, depends_on tasks or bugs that are not done or cancelled → CONFLICT listing them; nothing is touched.
  * - The branch exists without a worktree → a worktree on that branch.
  * - Otherwise a new branch from `origin/<base>` after fetching origin (when it exists), else from the local `<base>`.
  * - The path exists but is not the branch's worktree → CONFLICT; nothing is touched.
- * New worktrees run the setup command (`worktree_setup`, else detected from the lockfile); a failure keeps the
- * worktree and throws SETUP_FAILED. Item status is not changed.
+ * Once the worktree exists (created or reused), a backlog or ready item becomes in_progress with a comment naming the
+ * branch. New worktrees then run the setup command (`worktree_setup`, else detected from the lockfile); a failure keeps
+ * the worktree and throws SETUP_FAILED.
  */
-export async function startWorktree(service: OverseerService, id: string, options: WorktreeStartOptions = {}): Promise<WorktreeStartResult> {
+export async function startWorktree(service: OverseerService, id: string, options: WorktreeStartOptions, ctx: Ctx): Promise<WorktreeStartResult> {
   const { item, links } = service.getItem(id);
   assertWorkItem(item, 'started');
   const type = resolveType(item.kind, item.id, options.type);
@@ -255,7 +280,8 @@ export async function startWorktree(service: OverseerService, id: string, option
     if (!existsSync(existing)) {
       throw new OverseerError('CONFLICT', `${branch} is registered to the missing worktree ${existing}; run "git worktree prune" and retry.`);
     }
-    return { path: existing, branch, base, reused: true, setup: { command: setupFor(existing), ran: false } };
+    const status = await markInProgress(service, item, branch, ctx);
+    return { path: existing, branch, base, reused: true, status, setup: { command: setupFor(existing), ran: false } };
   }
 
   if (options.base === undefined) assertNoOpenDependencies(service, item.id, links.outgoing);
@@ -274,13 +300,14 @@ export async function startWorktree(service: OverseerService, id: string, option
     gitOrThrow(root, ['worktree', 'add', '--no-track', '-b', branch, path, start], WORKTREE_TIMEOUT_MS);
   }
 
+  const status = await markInProgress(service, item, branch, ctx);
   const command = setupFor(path);
-  if (command === null || options.setup === false) return { path, branch, base, reused: false, setup: { command, ran: false } };
+  if (command === null || options.setup === false) return { path, branch, base, reused: false, status, setup: { command, ran: false } };
   const code = await runSetup(command, path, options.output ?? (() => undefined));
   if (code !== 0) {
     throw new OverseerError('SETUP_FAILED', `Setup "${command}" failed (${code === null ? 'not run' : `exit code ${code}`}) in ${path}; the worktree is kept.`);
   }
-  return { path, branch, base, reused: false, setup: { command, ran: true } };
+  return { path, branch, base, reused: false, status, setup: { command, ran: true } };
 }
 
 export interface WorktreeListEntry {
@@ -293,7 +320,7 @@ export interface WorktreeListEntry {
 export function listWorktrees(service: OverseerService): WorktreeListEntry[] {
   const root = service.root;
   assertGitRepo(root);
-  const matcher = branchMatcher(service.configValue('branch_pattern'), `(?:${ID_PREFIX.task}|${ID_PREFIX.bug})-\\d{4,}`);
+  const matcher = branchMatcher(service.configValue('branch_pattern'), WORK_ITEM_ID);
   return listGitWorktrees(root).flatMap((entry) => {
     if (entry.main || entry.branch === null) return [];
     const id = matcher.exec(entry.branch)?.[1];
@@ -331,6 +358,8 @@ export interface WorktreeFinishResult {
   base: WorktreeBaseUpdate;
   delivered_in: string;
   code_refs: string[];
+  /** Parent story this finish moved to done; null when there is none or it stays as it is. */
+  story_done: string | null;
 }
 
 function indent(text: string): string {
@@ -397,7 +426,7 @@ function fastForwardBase(root: string, base: string, remote: string | null): Wor
  * - Otherwise deletes the remote branch when it is still there, removes the worktree (ignored files go with it),
  *   deletes the local branch, prunes worktrees and fast-forwards the local base branch to its remote.
  * - Sets the item done with delivered_in (`pr`, else the item's) and code_refs (the files the branch changed against
- *   the base, else the item's code_refs).
+ *   the base, else the item's code_refs), then rolls its parent story up to done (see `rollUpStory`).
  */
 export async function finishWorktree(service: OverseerService, id: string, options: WorktreeFinishOptions, ctx: Ctx): Promise<WorktreeFinishResult> {
   const { item } = service.getItem(id);
@@ -465,6 +494,7 @@ export async function finishWorktree(service: OverseerService, id: string, optio
   const removed = [worktree && `worktree ${worktree.path}`, localRef && `branch ${branch}`, remoteBranch && `remote branch ${remoteBranch}`].filter(Boolean);
   const comment = `Pull request merged: ${deliveredIn}${removed.length > 0 ? `; removed ${removed.join(', ')}` : ''}.`;
   const { item: updated } = await service.updateItem({ id: item.id, status: 'done', delivered_in: deliveredIn, code_refs: codeRefs, comment }, ctx);
+  const storyDone = updated.parent_id ? await rollUpStory(service, updated.parent_id, item.id, ctx) : null;
   return {
     id: updated.id,
     status: updated.status,
@@ -474,5 +504,82 @@ export async function finishWorktree(service: OverseerService, id: string, optio
     base: baseUpdate,
     delivered_in: deliveredIn,
     code_refs: updated.code_refs,
+    story_done: storyDone,
   };
+}
+
+/**
+ * Moves the story `parentId` to done, with a comment naming `finished`, when every task and bug under it is done or
+ * cancelled and at least one is done (REQ-0257). Epics, stories already done or cancelled, and stories with open work
+ * stay as they are. Returns the story ID when it moved, else null.
+ */
+async function rollUpStory(service: OverseerService, parentId: string, finished: string, ctx: Ctx): Promise<string | null> {
+  const { item: parent, children } = service.getItem(parentId);
+  if (parent.kind !== 'story' || parent.status === 'done' || parent.status === 'cancelled') return null;
+  const work = children.filter((child) => child.kind === 'task' || child.kind === 'bug');
+  if (!work.every((child) => child.status === 'done' || child.status === 'cancelled') || !work.some((child) => child.status === 'done')) return null;
+  const comment = `All tasks and bugs are done or cancelled; ${finished} was the last one finished.`;
+  await service.updateItem({ id: parent.id, status: 'done', comment }, ctx);
+  return parent.id;
+}
+
+export interface PrOpenedOptions {
+  /** Task or bug ID. Default: read from the branch checked out in `cwd` with `branch_pattern`. */
+  id?: string;
+  /** Pull request URL for delivered_in. */
+  url: string;
+  /** Directory the command runs in; its checkout gives the branch when `id` is omitted. */
+  cwd: string;
+}
+
+export interface PrOpenedResult {
+  id: string;
+  status: string;
+  branch: string;
+  /** Ref the changed files are diffed against: `origin/<base_branch>`, else the local base branch. */
+  base: string;
+  delivered_in: string;
+  code_refs: string[];
+}
+
+/**
+ * Records an opened pull request (REQ-0257): the item becomes review with delivered_in = `url`, code_refs = the files
+ * its branch changed since the merge-base with `origin/<base_branch>` (else the local base; the item's code_refs when
+ * the diff is empty) and a comment with the URL. Without `id`, the ID comes from the branch checked out in `cwd`
+ * (`itemIdFromBranch`); with it, the branch is the local, else origin, branch that fills `branch_pattern` with it.
+ */
+export async function openPullRequest(service: OverseerService, options: PrOpenedOptions, ctx: Ctx): Promise<PrOpenedResult> {
+  const url = options.url.trim();
+  if (url === '') throw new OverseerError('INVALID_INPUT', 'Pass the pull request URL with --url.');
+  const root = service.root;
+  assertGitRepo(root);
+  const pattern = service.configValue('branch_pattern');
+  const current = options.id === undefined ? git(checkoutDir(root, options.cwd), ['symbolic-ref', '--quiet', '--short', 'HEAD']) || null : null;
+  const { item } = service.getItem(options.id ?? itemIdFromBranch(pattern, current));
+  if (item.kind !== 'task' && item.kind !== 'bug') {
+    throw new OverseerError('INVALID_INPUT', `${item.id} is a ${item.kind}; pull requests are recorded for tasks and bugs only.`);
+  }
+  let branch: string;
+  let head: string;
+  if (current !== null) {
+    branch = current;
+    head = `refs/heads/${branch}`;
+  } else {
+    const matcher = branchMatcher(pattern, escapeRegExp(item.id));
+    const locals = matchingRefs(root, 'refs/heads/', matcher);
+    const found = locals.length > 0 ? locals : matchingRefs(root, 'refs/remotes/origin/', matcher);
+    if (found.length === 0) throw new OverseerError('NOT_FOUND', `No branch fills branch_pattern "${pattern}" with ${item.id}.`);
+    if (found.length > 1) throw new OverseerError('CONFLICT', `${item.id} matches several branches (${found.join(', ')}); delete the extra ones and retry.`);
+    branch = found[0]!;
+    head = locals.length > 0 ? `refs/heads/${branch}` : `refs/remotes/origin/${branch}`;
+  }
+  const baseBranch = service.configValue('base_branch');
+  const baseRef = [`refs/remotes/origin/${baseBranch}`, `refs/heads/${baseBranch}`].find((ref) => refExists(root, ref));
+  if (baseRef === undefined) throw new OverseerError('NOT_FOUND', `Base branch "${baseBranch}" exists neither as origin/${baseBranch} nor locally.`);
+  const files = changedFiles(root, baseRef, head);
+  const codeRefs = files.length > 0 ? files : item.code_refs;
+  const comment = `Pull request opened: ${url} from ${branch}.`;
+  const { item: updated } = await service.updateItem({ id: item.id, status: 'review', delivered_in: url, code_refs: codeRefs, comment }, ctx);
+  const base = baseRef.replace(/^refs\/(heads|remotes)\//, '');
+  return { id: updated.id, status: updated.status, branch, base, delivered_in: url, code_refs: updated.code_refs };
 }

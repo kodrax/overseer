@@ -65,7 +65,7 @@ tasks default to `feat`. Follow the project's CONTRIBUTING file when it defines 
 
 ```sh
 overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] [--no-setup] --json
-# → {"path": "…", "branch": "…", "base": "…", "reused": false,
+# → {"path": "…", "branch": "…", "base": "…", "reused": false, "status": "in_progress",
 #    "setup": {"command": "npm ci", "ran": true}}
 ```
 
@@ -86,7 +86,8 @@ overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] [--no-setup] -
   user; never delete it.
 - `reused: true` → work already exists. Read `git -C <path> status` and `git -C <path> log <base>..HEAD`
   and continue from there instead of starting over.
-- `update_item`: `status: in_progress`, `comment` with the branch name.
+- `status`: a `backlog` or `ready` item is now `in_progress`, with a comment naming the branch; an item
+  already `in_progress` or `review` keeps its status. No `update_item` call is needed.
 - From now on, edit files and run commands only inside `path`. Never edit the main checkout.
 
 ## 4. Implement and check
@@ -115,8 +116,10 @@ overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] [--no-setup] -
    - GitLab MCP server: `create_merge_request` (`project_id`, `title`, `description`,
      `source_branch`, `target_branch`).
    - Add `--draft` / `draft: true` when the user asks for a draft.
-5. `update_item`: `status: review`, `delivered_in` = the pull request URL, `code_refs` = the changed
-   paths (`git -C <path> diff --name-only <base>...HEAD`), `comment` with the pull request URL.
+5. From inside `path`: `overseer pr opened --url <url> --json` → `{id, status: "review", branch, base,
+   delivered_in, code_refs}`. It reads the ID from the branch, sets the item `review` with
+   `delivered_in` = the URL, `code_refs` = the files the branch changed against the base, and a comment
+   with the URL. From elsewhere, pass the ID: `overseer pr opened <ID> --url <url> --json`.
 6. `report drift` and resolve every finding for this item or its requirements, as in the `overseer`
    skill's "After implementing".
 7. Report the item ID, its status, the branch, the worktree path and the pull request URL.
@@ -138,11 +141,13 @@ worktree being removed.
    pull request's base when it is not `base_branch`):
    ```
    {"id", "status": "done", "branch", "path", "remote_branch",
-    "base": {"branch", "head", "fast_forwarded", "reason"}, "delivered_in", "code_refs"}
+    "base": {"branch", "head", "fast_forwarded", "reason"}, "delivered_in", "code_refs", "story_done"}
    ```
    It deletes the remote branch when it is still there, removes the worktree (ignored files such as
    dependencies and build output go with it) and the local branch, prunes, fast-forwards the local base
    branch and sets the item `done` with `delivered_in` and `code_refs` (the files the branch changed).
+   When the item's story now has every task and bug `done` or `cancelled` (at least one `done`), the
+   story becomes `done` too and `story_done` is its ID; report it. Epics are not changed.
    `base.reason` says why the base was not fast-forwarded (local commits, or changes in its checkout
    that block it); tell the user.
    - `CONFLICT` "would lose" → nothing was removed. Show the user the listed uncommitted changes or
