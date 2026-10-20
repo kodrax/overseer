@@ -88,6 +88,20 @@ describe('degradation', () => {
     expect(await service.checkCoverage('audit log')).toMatchObject({ semantic: false, verdict: 'unknown', requirements: [{ id: 'REQ-0001' }] });
   });
 
+  it('compact creates report verdict unknown with the keyword hits as candidates', async () => {
+    const service = openService(undefined, null);
+    await add(service, requirement('Audit log', 'Record every admin action in an audit log'));
+    expect(await service.createItemCompact(requirement('Audit log export', 'Export the audit log as CSV'), ctx)).toEqual({
+      created: true,
+      id: 'REQ-0002',
+      title: 'Audit log export',
+      status: 'proposed',
+      verdict: 'unknown',
+      candidates: [{ id: 'REQ-0001', title: 'Audit log', similarity: null, match: null }],
+      warnings: [],
+    });
+  });
+
   it('falls back to FTS when the model fails, and never blocks creates', async () => {
     const embedder = new HashEmbedder();
     embedder.fail = true;

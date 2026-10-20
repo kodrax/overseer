@@ -47,7 +47,7 @@ import {
 } from './schema.js';
 import { type ExportOptions, type ExportResult, exportReports } from './export.js';
 import { type ImportResult, importItems } from './import.js';
-import { type SearchResult, SemanticIndex, type SimilarMatch, type SimilarResult } from './search.js';
+import { type MatchClass, type SearchResult, SemanticIndex, type SimilarMatch, type SimilarResult, type SimilarVerdict } from './search.js';
 import { detectSetupCommand, SETUP_NONE } from './worktree.js';
 
 export interface CreatedResult {
@@ -74,6 +74,43 @@ export interface UpdateResult {
 /** Requirement linked from an item by `implements` or `affects`, with its acceptance criteria. */
 export interface RequirementRef extends LinkRef {
   acceptance_criteria: string[];
+}
+
+/** Duplicate-check candidate in the compact create results. */
+export interface CandidateRef {
+  id: string;
+  title: string;
+  similarity: number | null;
+  match: MatchClass | null;
+}
+
+/** Agent-facing create result (MCP `create_item`, `overseer add --json`) without the full item. */
+export interface CompactCreatedResult {
+  created: true;
+  id: string;
+  title: string;
+  status: string;
+  verdict: SimilarVerdict;
+  candidates: CandidateRef[];
+  warnings: LintWarning[];
+}
+
+export interface CompactDuplicateResult {
+  created: false;
+  reason: 'possible_duplicate';
+  verdict: 'duplicate';
+  candidates: CandidateRef[];
+}
+
+export type CompactCreateResult = CompactCreatedResult | CompactDuplicateResult;
+
+/** Agent-facing update result (MCP `update_item`, `overseer update --json`) without the full item. */
+export interface CompactUpdateResult {
+  id: string;
+  title: string;
+  status: string;
+  changed_fields: string[];
+  warnings: LintWarning[];
 }
 
 export interface ItemDetail {
@@ -620,7 +657,21 @@ export class OverseerService {
     return true;
   }
 
+  /** Full create result (web board, `--full`). */
   async createItem(raw: unknown, ctx: Ctx): Promise<CreateResult> {
+    return (await this.create(raw, ctx)).result;
+  }
+
+  /** Compact create result for agents: the `find_similar` verdict of the duplicate check and its candidates, no item. */
+  async createItemCompact(raw: unknown, ctx: Ctx): Promise<CompactCreateResult> {
+    const { result, verdict } = await this.create(raw, ctx);
+    const candidates = (result.created ? result.similar : result.candidates).map(({ id, title, similarity, match }): CandidateRef => ({ id, title, similarity, match }));
+    if (!result.created) return { created: false, reason: 'possible_duplicate', verdict: 'duplicate', candidates };
+    const { item, warnings } = result;
+    return { created: true, id: item.id, title: item.title, status: item.status, verdict, candidates, warnings };
+  }
+
+  private async create(raw: unknown, ctx: Ctx): Promise<{ result: CreateResult; verdict: SimilarVerdict }> {
     const input: CreateInput = parseInput(createInputSchema, raw);
     const { kind } = input;
     assertApplicable(kind, input);
@@ -640,7 +691,7 @@ export class OverseerService {
     const similar = await this.findSimilar(`${input.title}\n${description}`, { kind });
     const candidates = similar.matches.filter((match) => match.match === 'duplicate' || match.match === 'related');
     if (!input.allow_duplicate && similar.matches.some((match) => match.match === 'duplicate')) {
-      return { created: false, reason: 'possible_duplicate', candidates };
+      return { result: { created: false, reason: 'possible_duplicate', candidates }, verdict: 'duplicate' };
     }
 
     const now = nowIso();
@@ -678,10 +729,13 @@ export class OverseerService {
     const id = this.insertItem(values, ctx, links, 'create');
     const item = this.itemOf(this.requireRow(id));
     return {
-      created: true,
-      item,
-      warnings: lintItem(item),
-      similar: similar.semantic ? candidates : similar.matches,
+      result: {
+        created: true,
+        item,
+        warnings: lintItem(item),
+        similar: similar.semantic ? candidates : similar.matches,
+      },
+      verdict: similar.verdict,
     };
   }
 
@@ -764,6 +818,12 @@ export class OverseerService {
       changed_fields: [...changes.map(([field]) => field), ...(statusChanged ? ['status'] : [])],
       warnings: lintItem(item),
     };
+  }
+
+  /** Compact update result for agents: no item. */
+  async updateItemCompact(raw: unknown, ctx: Ctx): Promise<CompactUpdateResult> {
+    const { item, changed_fields, warnings } = await this.updateItem(raw, ctx);
+    return { id: item.id, title: item.title, status: item.status, changed_fields, warnings };
   }
 
   link(src: string, rel: Relation, dst: string, ctx: Ctx, remove = false): LinkResult {

@@ -39,6 +39,12 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 - No overseer MCP tools available? Run the CLI from the project root: `overseer <cmd> --json`
   (or add `--project <abs-path>`). Errors print `{"error":{"code","message"}}` and exit 1.
 - Reads on a project without `.overseer/` return `{ initialized: false }`; the first write creates it.
+- `create_item` (`overseer add --json`) returns `{created: true, id, title, status, verdict, candidates:
+  [{id, title, similarity, match}], warnings}`; `verdict` and `candidates` come from its duplicate check
+  and mean the same as in `find_similar`. A likely duplicate returns `{created: false, reason:
+  "possible_duplicate", verdict: "duplicate", candidates}` and writes nothing. `update_item`
+  (`overseer update --json`) returns `{id, title, status, changed_fields, warnings}`. Pass `full: true`
+  (`--full`) only when you need the whole item back.
 
 ## Rules
 

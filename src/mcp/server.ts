@@ -47,6 +47,7 @@ const projectDir = z
   .optional()
   .describe('Absolute project path. Only needed when the server cannot detect the project (NO_PROJECT).');
 const kind = z.enum(KINDS);
+const full = z.boolean().optional().describe('Return the full item instead of the compact result. Only when you need fields beyond id, title and status.');
 const text = z.string().min(1).max(4000);
 
 const createShape = {
@@ -65,6 +66,7 @@ const createShape = {
   allow_duplicate: createInputSchema.shape.allow_duplicate.describe(
     'Create even when a likely duplicate exists. Only after showing the candidates to the user.',
   ),
+  full,
   project_dir: projectDir,
 };
 
@@ -73,6 +75,7 @@ const updateShape = {
   id: updateInputSchema.shape.id.describe('Item ID, e.g. REQ-0001 or US-0003.'),
   status: z.string().optional().describe(STATUS_HELP),
   comment: updateInputSchema.shape.comment.describe('Adds a comment to the item history.'),
+  full,
   project_dir: projectDir,
 };
 
@@ -82,9 +85,9 @@ const toolsHelp = {
   check_coverage:
     'Answer "is X already covered / tracked / delivered?": finds matching requirements with their coverage (untracked, tracked, in_progress, delivered, verified, not_applicable) and the work items implementing them. Verdict covered | partially | not_found | unknown.',
   create_item:
-    'Record a requirement, epic, user story, task or bug. Returns {created:true, item, warnings, similar} or {created:false, reason:"possible_duplicate", candidates} without writing when a likely duplicate exists. Surface lint warnings to the user.',
+    'Record a requirement, epic, user story, task or bug. Returns {created:true, id, title, status, verdict, candidates:[{id, title, similarity, match}], warnings} (verdict and candidates from the duplicate check, as in find_similar; with verdict unknown the candidates are keyword hits), or {created:false, reason:"possible_duplicate", verdict:"duplicate", candidates} without writing when a likely duplicate exists. full:true returns the whole item instead: {created:true, item, warnings, similar}. Surface lint warnings to the user.',
   update_item:
-    'Update fields or status of an item (nullable fields accept null to clear), optionally adding a comment. Returns the item, changed_fields and lint warnings.',
+    'Update fields or status of an item (nullable fields accept null to clear), optionally adding a comment. Returns {id, title, status, changed_fields, warnings}; full:true returns {item, changed_fields, warnings}. Surface lint warnings to the user.',
   get_item: `Get one item (id) or up to ${MAX_ITEM_IDS} items (ids, in request order, as {items:[…]}) with coverage, outgoing/incoming links, children and optionally its history. context:true adds the parent summary and the linked requirements (implements/affects) with their acceptance criteria, so one call gives the working context. Pass exactly one of id and ids.`,
   list_items: 'List items with filters (kind, status, req_type, coverage, tag, parent_id). Closed items are hidden unless include_closed.',
   search: 'Hybrid keyword + semantic search over all items.',
@@ -233,13 +236,15 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   server.registerTool(
     'create_item',
     { title: 'Create item', description: toolsHelp.create_item, inputSchema: createShape, annotations: writes },
-    ({ project_dir, ...input }) => run(project_dir, true, (service) => service.createItem(input, ctx())),
+    ({ project_dir, full, ...input }) =>
+      run(project_dir, true, (service) => (full ? service.createItem(input, ctx()) : service.createItemCompact(input, ctx()))),
   );
 
   server.registerTool(
     'update_item',
     { title: 'Update item', description: toolsHelp.update_item, inputSchema: updateShape, annotations: writes },
-    ({ project_dir, ...input }) => run(project_dir, true, (service) => service.updateItem(input, ctx())),
+    ({ project_dir, full, ...input }) =>
+      run(project_dir, true, (service) => (full ? service.updateItem(input, ctx()) : service.updateItemCompact(input, ctx()))),
   );
 
   server.registerTool(

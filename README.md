@@ -205,8 +205,8 @@ overseer export                             # writes docs/overseer/
 |---|---|
 | `enable` / `disable` | turn overseer on or off for this project and the folders below it (off by default) |
 | `init [--name] [--asked-by]` | turn the project on and create `.overseer/` (optional: the first write creates it) |
-| `add <kind> --title …` | record a requirement, epic, story, task or bug; refuses likely duplicates unless `--allow-duplicate` |
-| `update <id> …` | change fields or status, `--comment`, `--delivered-in`, `--clear <field>` |
+| `add <kind> --title …` | record a requirement, epic, story, task or bug; refuses likely duplicates unless `--allow-duplicate` (`--json` prints a compact result, `--full` the whole item) |
+| `update <id> …` | change fields or status, `--comment`, `--delivered-in`, `--clear <field>` (`--json` prints a compact result, `--full` the whole item) |
 | `show <id>… [--context] [--history]` | items with links, children, coverage and history; several IDs (up to 50) print `{items:[…]}` with `--json`; `--context` adds the parent and the linked requirements with their acceptance criteria |
 | `list [--kind] [--status] [--coverage] [--tag] [--all]` | list items (closed ones hidden unless `--all`) |
 | `search <query>` | hybrid keyword + semantic search |
@@ -228,6 +228,8 @@ overseer export                             # writes docs/overseer/
 | `install` / `uninstall` / `doctor` | harness wiring and health checks |
 
 Every data command accepts `--json`. Errors go to stderr as `error: <CODE>: <message>` with exit code 1. With `--json`, they go to stdout as `{"error":{"code","message"}}`.
+
+`add --json` and `create_item` return a compact result for agents: `{"created": true, "id", "title", "status", "verdict", "candidates": [{"id", "title", "similarity", "match"}], "warnings"}`. `verdict` and `candidates` come from the duplicate check and use `find_similar`'s values (`duplicate`, `related`, `new`, or `unknown` when only keyword search is available). A likely duplicate gives `{"created": false, "reason": "possible_duplicate", "verdict": "duplicate", "candidates"}` and nothing is written. `update --json` and `update_item` return `{"id", "title", "status", "changed_fields", "warnings"}`. `--full` (`full: true` in MCP) returns the whole item instead: `{"created", "item", "warnings", "similar"}`, `{"created": false, "reason", "candidates"}` and `{"item", "changed_fields", "warnings"}`. The text output and the web board are not affected.
 
 `overseer pr draft TASK-0058 --json` prints `{"title", "body"}` for a pull request, ready for `gh pr create --title … --body …`:
 
@@ -276,7 +278,7 @@ The page updates live when an agent or the CLI writes to the database. The serve
 |---|---|
 | `find_similar` | items similar to a text; verdict `duplicate`, `related` or `new` |
 | `check_coverage` | requirements covering a text, with their coverage and implementing items |
-| `create_item` / `update_item` / `get_item` / `list_items` | item lifecycle |
+| `create_item` / `update_item` / `get_item` / `list_items` | item lifecycle; creates and updates return compact results unless `full: true` |
 | `search` | hybrid search |
 | `link_items` | add or remove a relation |
 | `report` | the six reports, as Markdown plus data |
@@ -349,7 +351,7 @@ Requirement coverage is worked out from the linked work:
   - 71 English/Spanish requirement pairs (`test/fixtures/similarity-pairs.json`)
 
   At these thresholds, 5% of the requirements have a duplicate-class neighbour. 84% of the rewordings and 70% of the fixture duplicates count as duplicates, and every one of them at least as related.
-- `add` and `create_item` return the candidates instead of creating the item when a duplicate is likely.
+- `add` and `create_item` return the candidates instead of creating the item when a duplicate is likely. When they do create it, they still return the `verdict` and the duplicate or related candidates.
 - `search` reports plain cosine similarity, which only orders the results.
 - Without the model or `sqlite-vec`, results are keyword-only and carry `semantic: false`.
 

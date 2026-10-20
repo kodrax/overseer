@@ -42,6 +42,7 @@ interface FieldOptions {
   codeRef?: string[];
   inBacklog?: boolean;
   json?: boolean;
+  full?: boolean;
 }
 
 interface AddOptions extends FieldOptions {
@@ -310,7 +311,8 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
     .option('--link <rel:id>', 'link to another item, e.g. refines:REQ-0002 (repeatable)', collect)
     .option('--implements <id>', 'requirement this item implements (repeatable)', collect)
     .option('--allow-duplicate', 'create even when a possible duplicate exists')
-    .option('--json', 'print JSON')
+    .option('--json', 'print JSON (compact: id, title, status, verdict, candidates, warnings)')
+    .option('--full', 'with --json, print the full item instead of the compact result')
     .action(async (kind: string, options: AddOptions, command: Command) => {
       await rt.withService(command, 'write', async (service) => {
         const input: Record<string, unknown> = { kind, ...fieldInput(options) };
@@ -319,7 +321,9 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
         const links = [...(options.link ?? []).map(parseLink), ...(options.implements ?? []).map((to) => ({ rel: 'implements', to }))];
         if (links.length > 0) input.links = links;
         if (options.allowDuplicate) input.allow_duplicate = true;
-        rt.emit(options.json, await service.createItem(input, rt.ctx), formatCreate);
+        // --json is compact for agents; the text output and --full keep the full result.
+        if (options.json && !options.full) rt.out(JSON.stringify(await service.createItemCompact(input, rt.ctx), null, 2));
+        else rt.emit(options.json, await service.createItem(input, rt.ctx), formatCreate);
       });
     });
 
@@ -328,7 +332,8 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
     .option('--comment <text>', 'add a comment to the history')
     .option('--delivered-in <ref>', 'release, PR or commit that delivered it')
     .option('--clear <field>', `clear a field (repeatable): ${CLEARABLE.join(', ')}`, collect)
-    .option('--json', 'print JSON')
+    .option('--json', 'print JSON (compact: id, title, status, changed_fields, warnings)')
+    .option('--full', 'with --json, print the full item instead of the compact result')
     .action(async (id: string, options: UpdateOptions, command: Command) => {
       await rt.withService(command, 'write', async (service) => {
         const input: Record<string, unknown> = { id, ...fieldInput(options) };
@@ -341,7 +346,8 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
           if (input[field] !== undefined) throw new OverseerError('INVALID_INPUT', `Cannot both set and clear "${field}".`);
           input[field] = (CLEAR_TO_EMPTY as readonly string[]).includes(field) ? [] : null;
         }
-        rt.emit(options.json, await service.updateItem(input, rt.ctx), formatUpdate);
+        if (options.json && !options.full) rt.out(JSON.stringify(await service.updateItemCompact(input, rt.ctx), null, 2));
+        else rt.emit(options.json, await service.updateItem(input, rt.ctx), formatUpdate);
       });
     });
 
