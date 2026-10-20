@@ -103,16 +103,37 @@ function projectCheck(rt: CliRuntime, explicit: string | undefined): { line: Che
 }
 
 /**
- * User scope: one summary line, then full checks only for harnesses overseer is installed for (not installing it
- * for a detected harness is the user's choice, not a problem). Project scope: targets with project artifacts.
+ * One summary line naming every harness overseer is installed for (user scope, or project scope of the current
+ * project, marked "(project)"), then full checks only for those installs (not installing it for a detected harness
+ * is the user's choice, not a problem).
  */
 function targetChecks(rt: CliRuntime, root: string | undefined): CheckLine[] {
   const user = installContext(rt, 'user', undefined, { dryRun: true, force: false });
   const statuses = harnessStatus(user);
   const installed = statuses.filter((status) => status.installed).map((status) => status.target);
-  const available = statuses.filter((status) => status.detected && !status.installed).map((status) => status.target);
+  const projectChecks: CheckLine[] = [];
+  const inProject = new Set<string>();
+  if (root !== undefined) {
+    const project = installContext(rt, 'project', root, { dryRun: true, force: false });
+    const projectLines = checkInstall(project, [...TARGET_IDS]);
+    for (const target of TARGET_IDS) {
+      const prefix = `${target} (project) `;
+      const own = projectLines.filter((line) => line.label.startsWith(prefix));
+      const present = own.some(
+        (line) => !line.label.endsWith(' schema') && (line.status !== 'WARN' || !/^(not installed|missing or unmanaged|no )|not registered|cannot verify/.test(line.detail)),
+      );
+      if (present) {
+        inProject.add(target);
+        projectChecks.push(...own);
+      }
+    }
+  }
+  const named = statuses
+    .filter((status) => status.installed || inProject.has(status.target))
+    .map((status) => (inProject.has(status.target) ? `${status.target} (project)` : status.target));
+  const available = statuses.filter((status) => status.detected && !status.installed && !inProject.has(status.target)).map((status) => status.target);
   const summary: CheckLine =
-    installed.length === 0
+    named.length === 0
       ? {
           status: 'WARN',
           label: 'harnesses',
@@ -121,21 +142,9 @@ function targetChecks(rt: CliRuntime, root: string | undefined): CheckLine[] {
       : {
           status: 'OK',
           label: 'harnesses',
-          detail: `overseer installed for ${installed.join(', ')}${available.length > 0 ? `; also detected: ${available.join(', ')} (add with overseer install --targets <ids>)` : ''}`,
+          detail: `overseer installed for ${named.join(', ')}${available.length > 0 ? `; also detected: ${available.join(', ')} (add with overseer install --targets <ids>)` : ''}`,
         };
-  const lines = [summary, ...checkInstall(user, installed)];
-  if (root === undefined) return lines;
-  const project = installContext(rt, 'project', root, { dryRun: true, force: false });
-  const projectLines = checkInstall(project, [...TARGET_IDS]);
-  for (const target of TARGET_IDS) {
-    const prefix = `${target} (project) `;
-    const own = projectLines.filter((line) => line.label.startsWith(prefix));
-    const present = own.some(
-      (line) => !line.label.endsWith(' schema') && (line.status !== 'WARN' || !/^(not installed|missing or unmanaged|no )|not registered|cannot verify/.test(line.detail)),
-    );
-    if (present) lines.push(...own);
-  }
-  return lines;
+  return [summary, ...checkInstall(user, installed), ...projectChecks];
 }
 
 export function registerDoctorCommand(program: Command, rt: CliRuntime): void {

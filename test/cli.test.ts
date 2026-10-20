@@ -476,6 +476,41 @@ describe('cli install and doctor', () => {
     expect(checks.filter((check) => check.label.startsWith('claude'))).toEqual([]);
   });
 
+  it('doctor counts a project-scope install of the current project (BUG-0006)', async () => {
+    const home = tempDir('ovs-home-');
+    const env = { HOME: home, PATH: binDir('claude', 'omp'), OVERSEER_CONFIG_DIR: tempDir('ovs-config-'), XDG_CACHE_HOME: join(home, 'cache') };
+    const repo = tempRepo();
+    expect((await cli(repo, ['install', '--scope', 'project', '--targets', 'omp', '--skip-model'], { env })).code).toBe(0);
+    const harnesses = async (): Promise<CheckLine | undefined> =>
+      (await cli(repo, ['doctor', '--json'], { env })).json<{ checks: CheckLine[] }>().checks.find((check) => check.label === 'harnesses');
+    expect(await harnesses()).toEqual({
+      status: 'OK',
+      label: 'harnesses',
+      detail: 'overseer installed for omp (project); also detected: claude (add with overseer install --targets <ids>)',
+    });
+
+    expect((await cli(repo, ['install', '--targets', 'omp', '--skip-model'], { env })).code).toBe(0);
+    expect(await harnesses()).toEqual({
+      status: 'OK',
+      label: 'harnesses',
+      detail: 'overseer installed for omp (project); also detected: claude (add with overseer install --targets <ids>)',
+    });
+
+    expect((await cli(repo, ['install', '--targets', 'claude', '--skip-model'], { env })).code).toBe(0);
+    expect((await harnesses())?.detail).toBe('overseer installed for claude, omp (project)');
+  });
+
+  it('doctor warns when overseer is installed for no harness', async () => {
+    const home = tempDir('ovs-home-');
+    const env = { HOME: home, PATH: binDir('claude', 'omp'), OVERSEER_CONFIG_DIR: tempDir('ovs-config-'), XDG_CACHE_HOME: join(home, 'cache') };
+    const { checks } = (await cli(tempRepo(), ['doctor', '--json'], { env })).json<{ checks: CheckLine[] }>();
+    expect(checks.find((check) => check.label === 'harnesses')).toEqual({
+      status: 'WARN',
+      label: 'harnesses',
+      detail: 'overseer is not installed for any harness (detected: claude, omp); run overseer install',
+    });
+  });
+
   it('install --scope project turns the project on for the installing user', async () => {
     const env = { HOME: tempDir('ovs-home-'), PATH: binDir(), OVERSEER_CONFIG_DIR: tempDir('ovs-config-') };
     const repo = tempRepo();
