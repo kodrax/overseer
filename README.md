@@ -207,7 +207,7 @@ overseer export                             # writes docs/overseer/
 | `init [--name] [--asked-by]` | turn the project on and create `.overseer/` (optional: the first write creates it) |
 | `add <kind> --title …` | record a requirement, epic, story, task or bug; refuses likely duplicates unless `--allow-duplicate` |
 | `update <id> …` | change fields or status, `--comment`, `--delivered-in`, `--clear <field>` |
-| `show <id> [--history]` | item with links, children, coverage and history |
+| `show <id>… [--context] [--history]` | items with links, children, coverage and history; several IDs (up to 50) print `{items:[…]}` with `--json`; `--context` adds the parent and the linked requirements with their acceptance criteria |
 | `list [--kind] [--status] [--coverage] [--tag] [--all]` | list items (closed ones hidden unless `--all`) |
 | `search <query>` | hybrid keyword + semantic search |
 | `similar <text>` | duplicate check |

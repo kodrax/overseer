@@ -85,6 +85,46 @@ describe('mcp server', () => {
     expect(missing.text).toBe('NOT_FOUND: No item with id REQ-0099.');
   });
 
+  it('get_item takes id or ids, with optional context', async () => {
+    const client = await connect({ cwd: tempRepo() });
+    await call(client, 'create_item', {
+      kind: 'requirement',
+      title: 'Password reset by email',
+      description: 'When a user requests a password reset, the system shall email a single-use link.',
+      req_type: 'functional',
+      acceptance_criteria: ['Given a user, when reset, then email'],
+    });
+    await call(client, 'create_item', { kind: 'story', title: 'Reset password', links: [{ rel: 'implements', to: 'REQ-0001' }], allow_duplicate: true });
+    await call(client, 'create_item', { kind: 'task', title: 'Reset form', parent_id: 'US-0001', links: [{ rel: 'implements', to: 'REQ-0001' }], allow_duplicate: true });
+
+    const single = await call(client, 'get_item', { id: 'TASK-0001' });
+    expect(Object.keys(single.data!)).toEqual(['item', 'links', 'children']);
+
+    const many = await call(client, 'get_item', { ids: ['TASK-0001', 'REQ-0001'], context: true });
+    expect(many.result.isError).toBeFalsy();
+    expect(JSON.parse(many.text)).toEqual(many.data);
+    expect(many.data).toMatchObject({
+      items: [
+        {
+          item: { id: 'TASK-0001' },
+          parent: { id: 'US-0001', kind: 'story', title: 'Reset password', status: 'backlog' },
+          requirements: [{ rel: 'implements', id: 'REQ-0001', acceptance_criteria: ['Given a user, when reset, then email'] }],
+        },
+        { item: { id: 'REQ-0001' }, parent: null, requirements: [], links: { incoming: [{ id: 'TASK-0001' }, { id: 'US-0001' }] } },
+      ],
+    });
+
+    const missing = await call(client, 'get_item', { ids: ['REQ-0098', 'TASK-0001', 'REQ-0099'] });
+    expect(missing.text).toBe('NOT_FOUND: No items with ids REQ-0098, REQ-0099.');
+    const both = await call(client, 'get_item', { id: 'REQ-0001', ids: ['REQ-0001'] });
+    expect(both.text).toBe('INVALID_INPUT: Pass exactly one of id and ids.');
+    const neither = await call(client, 'get_item', {});
+    expect(neither.text).toBe('INVALID_INPUT: Pass exactly one of id and ids.');
+    const tooMany = await call(client, 'get_item', { ids: Array.from({ length: 51 }, () => 'REQ-0001') });
+    expect(tooMany.result.isError).toBe(true);
+    expect(tooMany.text).toMatch(/^INVALID_INPUT: /);
+  });
+
   it('answers reads on an uninitialized project without creating it', async () => {
     const repo = tempRepo();
     const client = await connect({ cwd: repo });

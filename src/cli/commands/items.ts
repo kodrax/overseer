@@ -10,7 +10,7 @@ import {
   REQ_TYPES,
 } from '../../core/schema.js';
 import type { SimilarMatch } from '../../core/search.js';
-import type { CreateResult, ItemDetail, LinkResult, ListResult, UpdateResult } from '../../core/service.js';
+import { type CreateResult, type ItemDetail, type LinkResult, type ListResult, MAX_ITEM_IDS, type UpdateResult } from '../../core/service.js';
 import { fields, list, similarity, table } from '../format.js';
 import { collect, collectList, oneOf, parseInteger, parseNumber } from '../options.js';
 import type { CliRuntime } from '../runtime.js';
@@ -269,6 +269,16 @@ function formatDetail(detail: ItemDetail): string {
   if (detail.children.length > 0) {
     sections.push(`Children:\n${table(['ID', 'Kind', 'Status', 'Title'], detail.children.map((child) => [child.id, child.kind, child.status, child.title]))}`);
   }
+  if (detail.parent) sections.push(`Parent:\n${table(['ID', 'Kind', 'Status', 'Title'], [[detail.parent.id, detail.parent.kind, detail.parent.status, detail.parent.title]])}`);
+  if (detail.requirements && detail.requirements.length > 0) {
+    const requirements = detail.requirements.map((requirement) =>
+      [
+        `  ${requirement.rel} ${requirement.id}  ${requirement.title} (${requirement.status})`,
+        ...requirement.acceptance_criteria.map((ac) => `    - ${ac}`),
+      ].join('\n'),
+    );
+    sections.push(`Requirements:\n${requirements.join('\n')}`);
+  }
   if (detail.history) sections.push(`History:\n${formatHistory(detail.history, item.id)}`);
   return sections.join('\n\n');
 }
@@ -337,13 +347,19 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
 
   program
     .command('show')
-    .description('show an item with its links, children and (optionally) history')
-    .argument('<id>', 'item id')
+    .description('show items with their links, children and (optionally) context and history')
+    .argument('<ids...>', `item ids (up to ${MAX_ITEM_IDS}); several print {items:[…]} with --json`)
+    .option('--context', 'add the parent and the linked requirements with their acceptance criteria')
     .option('--history', 'include the change history')
     .option('--json', 'print JSON')
-    .action(async (id: string, options: { history?: boolean; json?: boolean }, command: Command) => {
+    .action(async (ids: string[], options: { context?: boolean; history?: boolean; json?: boolean }, command: Command) => {
       await rt.withService(command, 'read', (service) => {
-        rt.emit(options.json, service.getItem(id, { history: options.history === true }), formatDetail);
+        const detailOptions = { history: options.history === true, context: options.context === true };
+        if (ids.length === 1) {
+          rt.emit(options.json, service.getItem(ids[0]!, detailOptions), formatDetail);
+          return;
+        }
+        rt.emit(options.json, service.getItems(ids, detailOptions), (result) => result.items.map(formatDetail).join(`\n\n${'─'.repeat(60)}\n\n`));
       });
     });
 

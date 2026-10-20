@@ -120,6 +120,37 @@ describe('cli add', () => {
     expect(human.out).toContain('← implements');
     expect(human.out).toContain('History:');
   });
+
+  it('show takes several IDs and --context', async () => {
+    const repo = tempRepo();
+    await cli(repo, [...RESET, '--ac', 'Given a user, when reset, then email']);
+    await cli(repo, ['add', 'story', '--title', 'Reset forgotten password', '--implements', 'REQ-0001']);
+    await cli(repo, ['add', 'task', '--title', 'Reset form', '--parent', 'US-0001', '--implements', 'REQ-0001']);
+
+    const single = (await cli(repo, ['show', 'TASK-0001', '--json'])).json<ItemDetail>();
+    expect(Object.keys(single)).toEqual(['item', 'links', 'children']);
+
+    const many = (await cli(repo, ['show', 'TASK-0001', 'req-1', 'US-0001', '--context', '--json'])).json<{ items: ItemDetail[] }>();
+    expect(many.items.map((detail) => detail.item.id)).toEqual(['TASK-0001', 'REQ-0001', 'US-0001']);
+    expect(many.items[0]).toMatchObject({
+      parent: { id: 'US-0001', kind: 'story', title: 'Reset forgotten password', status: 'backlog' },
+      requirements: [{ rel: 'implements', id: 'REQ-0001', acceptance_criteria: ['Given a user, when reset, then email'] }],
+    });
+    expect(many.items[2]!.children).toEqual([{ id: 'TASK-0001', kind: 'task', title: 'Reset form', status: 'backlog' }]);
+
+    const human = await cli(repo, ['show', 'TASK-0001', 'US-0001', '--context']);
+    expect(human.out).toContain('TASK-0001  Reset form');
+    expect(human.out).toContain('US-0001  Reset forgotten password');
+    expect(human.out).toContain('Parent:');
+    expect(human.out).toContain('Requirements:\n  implements REQ-0001  Password reset by email (approved)\n    - Given a user, when reset, then email');
+
+    const missing = await cli(repo, ['show', 'REQ-0098', 'TASK-0001', 'REQ-0099', '--json']);
+    expect(missing.code).toBe(1);
+    expect(missing.json()).toEqual({ error: { code: 'NOT_FOUND', message: 'No items with ids REQ-0098, REQ-0099.' } });
+
+    const tooMany = await cli(repo, ['show', ...Array.from({ length: 51 }, () => 'TASK-0001'), '--json']);
+    expect(tooMany.json<ErrorEnvelope>().error.code).toBe('INVALID_INPUT');
+  });
 });
 
 describe('cli queries', () => {
