@@ -83,32 +83,62 @@ type FeatureExtractor = (
   options: { pooling: 'mean'; normalize: boolean },
 ) => Promise<{ data: ArrayLike<number>; dims: number[] }>;
 
+/** The part of transformers.js the embedder uses. */
+export interface TransformersModule {
+  env: { cacheDir: string | null };
+  pipeline(task: 'feature-extraction', model: string, options: { dtype: 'q8'; local_files_only: boolean }): Promise<unknown>;
+}
+
+export interface TransformersEmbedderOptions {
+  /** Model cache folder; default: modelCacheDir() when the model loads. */
+  cacheDir?: string;
+  /** Imports transformers.js; tests pass a stub. */
+  importTransformers?: () => Promise<TransformersModule>;
+}
+
 const RETRY_AFTER_MS = 5 * 60_000;
 
-/** Local ONNX embedder via transformers.js; the model loads lazily on first use. */
+/**
+ * Local ONNX embedder via transformers.js; the model loads lazily on first use.
+ * Only warmup() (`overseer models pull`, `overseer install`) downloads the model; embed() loads it from the cache
+ * and fails without touching the network while the cache lacks it.
+ */
 export class TransformersEmbedder implements Embedder {
   readonly model: string;
   readonly dims: number;
+  private readonly cacheDirOption: string | undefined;
+  // Lazy on purpose: importing transformers.js loads onnxruntime's native binding, which would slow every CLI command.
+  private readonly importTransformers: () => Promise<TransformersModule>;
   private extractor?: Promise<FeatureExtractor>;
   private failedAt = 0;
 
-  constructor(model: string = DEFAULT_MODEL) {
+  constructor(model: string = DEFAULT_MODEL, options: TransformersEmbedderOptions = {}) {
     this.model = model;
     this.dims = MODEL_REGISTRY[model]?.dims ?? 384;
+    this.cacheDirOption = options.cacheDir;
+    this.importTransformers = options.importTransformers ?? (() => import('@huggingface/transformers'));
   }
 
-  private load(): Promise<FeatureExtractor> {
+  /** Folder the model is loaded from and downloaded into. */
+  get cacheDir(): string {
+    return this.cacheDirOption ?? modelCacheDir();
+  }
+
+  private load(download: boolean): Promise<FeatureExtractor> {
     if (this.extractor) return this.extractor;
+    const cacheDir = this.cacheDir;
+    if (!download && !isModelCached(this.model, cacheDir)) {
+      return Promise.reject(new Error(`embedding model ${this.model} is not downloaded; run overseer models pull`));
+    }
     if (this.failedAt && Date.now() - this.failedAt < RETRY_AFTER_MS) {
       return Promise.reject(new Error('model load failed recently; retrying later'));
     }
     this.extractor = (async () => {
-      // Lazy on purpose: importing transformers.js loads onnxruntime's native binding, which would slow every CLI command.
-      const transformers = await import('@huggingface/transformers');
-      transformers.env.cacheDir = modelCacheDir();
-      const pipe = await transformers.pipeline('feature-extraction', this.model, { dtype: 'q8' });
+      const transformers = await this.importTransformers();
+      transformers.env.cacheDir = cacheDir;
+      const pipe = await transformers.pipeline('feature-extraction', this.model, { dtype: 'q8', local_files_only: !download });
       // The pipeline's declared call signature is a broad union; this is the feature-extraction overload.
-      const extractor = pipe as unknown as FeatureExtractor;
+      const extractor = pipe as FeatureExtractor;
       return extractor;
     })();
     this.extractor.catch(() => {
@@ -118,15 +148,15 @@ export class TransformersEmbedder implements Embedder {
     return this.extractor;
   }
 
-  /** Downloads (if needed) and loads the model; used by `overseer models pull`. */
+  /** Downloads (if needed) and loads the model; used by `overseer models pull` and `overseer install`. */
   async warmup(): Promise<void> {
     this.failedAt = 0;
-    await this.load();
+    await this.load(true);
   }
 
   async embed(texts: string[]): Promise<Float32Array[]> {
     if (texts.length === 0) return [];
-    const extractor = await this.load();
+    const extractor = await this.load(false);
     const output = await extractor(texts, { pooling: 'mean', normalize: true });
     const dims = output.dims.at(-1) ?? this.dims;
     const data = Float32Array.from(output.data);

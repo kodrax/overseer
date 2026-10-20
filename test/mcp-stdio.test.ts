@@ -12,8 +12,8 @@ import { freePort, listening } from './helpers/net.js';
 import { tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
 
 const REPO = join(import.meta.dirname, '..');
-/** Offline: transformers.js binds globalThis.fetch at import, so the model download fails at once, without network. */
-const OFFLINE = `data:text/javascript,globalThis.fetch=()=>Promise.reject(new Error('offline (test)'))`;
+/** Offline: transformers.js binds globalThis.fetch at import, so any download attempt fails at once and is logged to stderr. */
+const OFFLINE = `data:text/javascript,globalThis.fetch=()=>{process.stderr.write('fetch attempted (test)\\n');return Promise.reject(new Error('offline (test)'))}`;
 
 let buildDir: string;
 let cli: string;
@@ -109,12 +109,12 @@ describe('overseer mcp over stdio', () => {
     const mcp = await startMcp(repo);
     const { tools } = await mcp.client.listTools();
     expect(tools).toHaveLength(12);
-    // Opens (and creates) the project; the model cannot load offline, so search falls back to keyword-only and warns.
+    // Opens (and creates) the project; the model cache is empty, so search stays keyword-only, warns and downloads nothing.
     expect(await call(mcp.client, 'create_item', { kind: 'requirement', title: 'Password reset by email', req_type: 'functional' })).toMatchObject({
       created: true,
     });
     const similar = await call(mcp.client, 'find_similar', { text: 'Password reset by email' });
-    expect(similar).toMatchObject({ semantic: false, verdict: 'unknown', warning: expect.stringContaining('Semantic search unavailable') });
+    expect(similar).toMatchObject({ semantic: false, verdict: 'unknown', warning: expect.stringContaining('run overseer models pull') });
     expect(existsSync(join(repo, '.overseer', 'overseer.db'))).toBe(true);
 
     await mcp.client.close();
@@ -125,7 +125,8 @@ describe('overseer mcp over stdio', () => {
     const lines = stdout.slice(0, -1).split('\n');
     expect(lines.length).toBeGreaterThanOrEqual(4); // initialize, tools/list and two tools/call responses
     for (const line of lines) expect(JSONRPCMessageSchema.safeParse(JSON.parse(line)).success, line).toBe(true);
-    expect(mcp.stderr()).toContain('overseer: Semantic search unavailable (');
+    expect(mcp.stderr()).toContain('overseer: Semantic search unavailable (embedding model Xenova/multilingual-e5-small is not downloaded');
+    expect(mcp.stderr()).not.toContain('fetch attempted');
   });
 
   it('stops the board and exits on its own when the client disconnects', async () => {
