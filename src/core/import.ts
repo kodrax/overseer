@@ -88,6 +88,10 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
       seen.add(externalRef);
       const labels = remote.labels ?? [];
       const description = (remote.body ?? '').slice(0, DESCRIPTION_MAX);
+      const cutWarning = (id: string): void => {
+        const length = (remote.body ?? '').length;
+        if (length > DESCRIPTION_MAX) result.warnings.push(`${id}: description cut to ${DESCRIPTION_MAX} of ${length} characters; full text at ${remote.url}`);
+      };
       const existing = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(externalRef);
       if (!existing) {
         const kind = importKind(remote);
@@ -121,6 +125,7 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
           'import',
         );
         result.created.push(id);
+        cutWarning(id);
         createdIds.push(id);
         continue;
       }
@@ -151,6 +156,7 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
         sets.push(`${field} = ?`);
         params.push(columnValue(value));
         service.addEvent(row.id, importCtx, now, 'update', field, current[field], value);
+        if (field === 'description') cutWarning(row.id);
       }
       if (stateChanged) {
         sets.push('external_state = ?');

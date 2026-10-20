@@ -249,4 +249,28 @@ describe('import', () => {
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     expect(service.listItems({ include_closed: true }).total).toBe(0);
   });
+
+  it('warns when a body over 20000 characters is cut, on create and on a re-import that changes it (BUG-0007)', async () => {
+    const service = openService();
+    const url = 'https://github.com/acme/demo/issues/7';
+    const long = `${'x'.repeat(20000)}TAIL-OF-THE-ISSUE`;
+    const created = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue({ body: long })] }, ctx);
+    expect(created.warnings).toEqual([`BUG-0001: description cut to 20000 of 20017 characters; full text at ${url}`]);
+    expect(service.getItem('BUG-0001').item.description).toBe('x'.repeat(20000));
+
+    const same = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue({ body: `${long}MORE` })] }, ctx);
+    expect(same).toMatchObject({ unchanged: ['BUG-0001'], warnings: [] });
+
+    const changed = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue({ body: `y${long}` })] }, ctx);
+    expect(changed.updated).toEqual(['BUG-0001']);
+    expect(changed.warnings).toEqual([`BUG-0001: description cut to 20000 of 20018 characters; full text at ${url}`]);
+    expect(service.getItem('BUG-0001').item.description).toBe(`y${'x'.repeat(19999)}`);
+  });
+
+  it('does not warn for a body of exactly 20000 characters (BUG-0007)', async () => {
+    const service = openService();
+    const result = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue({ body: 'x'.repeat(20000) })] }, ctx);
+    expect(result.warnings).toEqual([]);
+    expect(service.getItem('BUG-0001').item.description).toHaveLength(20000);
+  });
 });
