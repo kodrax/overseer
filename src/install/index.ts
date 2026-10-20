@@ -11,7 +11,7 @@ import type { Detection, McpSpec, TargetLayout } from './targets.js';
 import { readsSharedSkills, TARGETS } from './targets.js';
 import { readTomlServer, removeTomlBlock, renderMcpBlock, upsertTomlBlock } from './toml-block.js';
 import type { CheckLine, InstallAction, InstallContext, InstallReport, TargetId } from './types.js';
-import { SKILL_NAMES, TARGET_IDS } from './types.js';
+import { BACKUP_SUFFIX, SKILL_NAMES, TARGET_IDS } from './types.js';
 
 export type { ActionStatus, CheckLine, InstallAction, InstallContext, InstallReport, Scope, TargetId } from './types.js';
 export { TARGET_IDS } from './types.js';
@@ -61,6 +61,21 @@ function failTarget(run: Run, target: TargetId, error: unknown): void {
 
 // ───────────────────────────── install ─────────────────────────────
 
+/**
+ * Warning for `--force` over `subject`, naming where each replaced file's previous content is: a new
+ * `<file>.overseer-backup`, or nowhere when an older backup already existed (it is never overwritten).
+ */
+function forceWarning(subject: string, replaced: string[]): string {
+  const backups = replaced.map((path) => path + BACKUP_SUFFIX);
+  const made = backups.filter((path) => !existsSync(path));
+  const kept = backups.filter((path) => existsSync(path));
+  let message = `${subject} was not managed by overseer-cli; overwritten (--force)`;
+  if (made.length > 0) message += `, previous content in ${made.join(', ')}`;
+  if (kept.length === 1) message += `; ${kept[0]} already existed and was kept: it holds older content, not the content just overwritten`;
+  if (kept.length > 1) message += `; ${kept.join(', ')} already existed and were kept: they hold older content, not the content just overwritten`;
+  return `${message}.`;
+}
+
 function planSkillsInstall(run: Run, target: TargetId, layout: TargetLayout): Op[] {
   if (run.skillRoots.has(layout.skillsDir)) return [];
   const label = layout.sharedSkills ? 'shared' : target;
@@ -70,21 +85,21 @@ function planSkillsInstall(run: Run, target: TargetId, layout: TargetLayout): Op
     if (!existsSync(join(source, 'SKILL.md'))) throw new OverseerError('NOT_FOUND', `Skill template missing: ${join(source, 'SKILL.md')}`);
     const dir = join(layout.skillsDir, name);
     const skillMd = readIfExists(join(dir, 'SKILL.md'));
-    if (skillMd !== undefined && !isManaged(skillMd)) {
-      if (!run.ctx.force) {
-        ops.push({ kind: 'note', action: { target: label, kind: 'dir', path: dir, status: 'skipped', message: 'NOT_MANAGED' } });
-        run.warn(`NOT_MANAGED: ${dir} exists and is not managed by overseer-cli; skipped (use --force to overwrite).`);
-        continue;
-      }
-      run.warn(`${dir} was not managed by overseer-cli; overwritten (--force).`);
+    const unmanaged = skillMd !== undefined && !isManaged(skillMd);
+    if (unmanaged && !run.ctx.force) {
+      ops.push({ kind: 'note', action: { target: label, kind: 'dir', path: dir, status: 'skipped', message: 'NOT_MANAGED' } });
+      run.warn(`NOT_MANAGED: ${dir} exists and is not managed by overseer-cli; skipped (use --force to overwrite).`);
+      continue;
     }
     const files = listFiles(source)
       .map((rel) => ({ path: join(dir, rel), content: readIfExists(join(source, rel))! }))
       .filter((file) => readIfExists(file.path) !== file.content);
+    // Per-file backups inside the folder, never a copied folder: the harness would load it as a second skill.
+    if (unmanaged) run.warn(forceWarning(dir, files.map((file) => file.path).filter((path) => existsSync(path))));
     ops.push(
       files.length === 0
         ? { kind: 'note', action: { target: label, kind: 'dir', path: dir, status: 'unchanged' } }
-        : { kind: 'skill', target: label, dir, files, existed: existsSync(dir) },
+        : { kind: 'skill', target: label, dir, files, existed: existsSync(dir), backup: unmanaged },
     );
   }
   return ops;
@@ -100,7 +115,7 @@ function planAgentInstall(run: Run, target: TargetId, layout: TargetLayout, temp
       run.warn(`NOT_MANAGED: ${path} exists and is not managed by overseer-cli; skipped (use --force to overwrite).`);
       return [{ kind: 'note', action: { target, kind: 'file', path, status: 'skipped', message: 'NOT_MANAGED' } }];
     }
-    run.warn(`${path} was not managed by overseer-cli; overwritten (--force), previous content in ${path}.overseer-backup.`);
+    run.warn(forceWarning(path, [path]));
   }
   return [{ kind: 'write', target, path, content, existed: existing !== undefined, backup: existing !== undefined && !isManaged(existing) }];
 }
@@ -192,7 +207,18 @@ function planSkillsRemoval(run: Run, label: TargetId | 'shared', skillsDir: stri
       ops.push({ kind: 'note', action: { target: label, kind: 'dir', path: dir, status: 'skipped', message: 'NOT_MANAGED' } });
       continue;
     }
-    ops.push({ kind: 'remove-dir', target: label, path: dir });
+    const files = listFiles(dir);
+    const backups = files.filter((rel) => rel.endsWith(BACKUP_SUFFIX));
+    if (backups.length === 0) {
+      ops.push({ kind: 'remove-dir', target: label, path: dir });
+      continue;
+    }
+    // `install --force` took over this folder: remove overseer's files only; the backups and unmanaged files stay.
+    for (const rel of files) {
+      const path = join(dir, rel);
+      if (!rel.endsWith(BACKUP_SUFFIX) && isManaged(readIfExists(path))) ops.push({ kind: 'remove-file', target: label, path, backup: false });
+    }
+    run.warn(`${dir} keeps the backups install --force made: ${backups.join(', ')}.`);
   }
   return ops;
 }
