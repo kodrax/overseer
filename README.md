@@ -233,6 +233,9 @@ overseer export                             # writes docs/overseer/
 | `sync source-of-truth` | the source of truth: `board` or a connection with its host and repository (see [Source of truth](#source-of-truth)) |
 | `sync source-of-truth set <connection id>\|board` | change the source of truth; connections, remote refs and mappings stay unchanged |
 | `sync inspect <file\|-> --source github\|gitlab` | labels, issue types, milestones, sub-issue support and boards of a repository, from a bundle of raw MCP responses (see [Tracking setup](#tracking-setup)) |
+| `sync mapping <connection>` | a connection's kind, status and priority mapping, every local value listed and unmapped ones marked (see [Kind, status and priority mapping](#kind-status-and-priority-mapping)) |
+| `sync mapping set <connection> --dimension kind\|status\|priority --local <value> --remote <value>` | map one local value to a label, issue type or state, replacing its earlier remote value |
+| `sync mapping import <connection> <file\|->` | replace a connection's whole mapping with a JSON mapping, all or nothing |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -356,6 +359,34 @@ The bundle is one JSON object keyed by MCP tool name. Each value is the tool's r
 - **Errors**: a key the source does not accept, an answer of the wrong shape, or a bundle that is not a JSON object or is empty give `INVALID_INPUT` listing the accepted tools and the parts each answers.
 
 `overseer sync inspect --help` lists the accepted tools. It reads only the bundle and makes no network calls. This command has no MCP tool.
+
+### Kind, status and priority mapping
+
+Each connection maps overseer's kinds, statuses and priorities onto the repository's labels, issue types or states, so import and push can translate them. Each local value has at most one remote value per connection; two local values may share one (`done` and `cancelled` → `closed`). The local values are:
+
+| Dimension | Local values |
+|---|---|
+| `kind` | `requirement`, `epic`, `story`, `task`, `bug` |
+| `status` | every kind's statuses: `proposed`, `approved`, `implemented`, `verified`, `deferred`, `rejected`, `obsolete`, `open`, `in_progress`, `done`, `cancelled`, `backlog`, `ready`, `review` |
+| `priority` | `must`, `should`, `could`, `wont` |
+
+`overseer sync mapping set <connection> --dimension kind --local task --remote Task --json` stores one pair and prints `{"connection_id", "dimension", "local_value", "remote_value", "previous_value"}`; `previous_value` is the remote value it replaced, else `null`. The remote value is trimmed. A dimension or local value not in the table (`--local feature`, `--local Task`) gives `INVALID_INPUT` listing the valid values; a remote value that is blank or longer than 255 characters gives `INVALID_INPUT` too.
+
+`overseer sync mapping <connection> --json` prints `{"connection_id", "mapping": {"kind": {…}, "status": {…}, "priority": {…}}}` with every local value in the table's order; an unmapped one is `null`. Without `--json`, a table with one row per dimension and local value, `(unmapped)` for those without a remote value.
+
+`overseer sync mapping import <connection> <file|-> --json` replaces the connection's whole mapping with a JSON file or stdin (`-`) and prints the new mapping. The format is the `mapping` object above: one object per dimension from local value to remote value, built from the names `sync inspect` lists. A missing dimension, a missing local value or `null` leaves the value unmapped, so `{}` clears the mapping:
+
+```json
+{
+  "kind": {"story": "Feature", "task": "Task", "bug": "Bug"},
+  "status": {"in_progress": "status: in progress", "done": "closed", "cancelled": "closed"},
+  "priority": {"must": "priority: high", "should": "priority: medium"}
+}
+```
+
+The whole file is checked before anything is written: an unknown dimension or local value, a remote value that is not a string of 1 to 255 characters, or input that is not a JSON object gives one `INVALID_INPUT` listing every problem (`kind: unknown kind value "feature"; valid: …`), and the old mapping stays as it was. `sync mapping <connection> --json | jq .mapping` gives a file another connection can import.
+
+An unknown connection gives `NOT_FOUND` for every mapping command, before the rest of the input is checked. `sync connection remove` deletes the connection's mapping with it. These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool; `sync mapping --help` lists the format and the local values.
 
 ### Web board
 

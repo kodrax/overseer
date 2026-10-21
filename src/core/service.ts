@@ -8,6 +8,7 @@ import { OverseerError } from './errors.js';
 import { allocateId, normalizeId, ORDER_BY_ID } from './ids.js';
 import { allRows, columnValue, eventValue, getRow, type ItemRow, toItem, writeFts } from './items.js';
 import { lintItem } from './lint.js';
+import { ConnectionMappings } from './mappings.js';
 import { SCHEMA_VERSION } from './migrations.js';
 import { assertWritableRoot, defaultBaseBranch, isGuardedRoot } from './project.js';
 import {
@@ -267,6 +268,8 @@ export class OverseerService {
   readonly semantic: SemanticIndex;
   /** The project's GitHub/GitLab repository connections. */
   readonly connections: Connections;
+  /** Each connection's kind/status/priority mapping onto the repository's labels, issue types or states. */
+  readonly mappings: ConnectionMappings;
 
   private constructor(root: string, db: Database, vecAvailable: boolean, embedder: Embedder | null) {
     this.root = root;
@@ -274,6 +277,7 @@ export class OverseerService {
     this.vecAvailable = vecAvailable;
     this.semantic = new SemanticIndex(db, vecAvailable, embedder);
     this.connections = new Connections(db);
+    this.mappings = new ConnectionMappings(db, this.connections);
   }
 
   /**
