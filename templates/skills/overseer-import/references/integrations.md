@@ -67,6 +67,31 @@ Tool names: https://github.com/github/github-mcp-server#tools (Issues, Labels, P
 Combining toolsets and tools:
 https://github.com/github/github-mcp-server/blob/main/docs/server-configuration.md.
 
+### Tools `overseer sync inspect` reads
+
+`overseer sync inspect --source github` reads the answers of these tools. The write setup above
+enables every one of them except `ui_get`; the read-only import setup lacks `list_label` and the
+projects tools.
+
+| Tool | Answers | Enabled by |
+|---|---|---|
+| `list_label` | labels | header `X-MCP-Tools` |
+| `get_label` | labels | header `X-MCP-Tools` |
+| `list_issue_types` | issue_types | toolset `issues` (header `X-MCP-Toolsets`) |
+| `issue_read` | sub_issues | toolset `issues` (header `X-MCP-Toolsets`) |
+| `projects_list` | boards | header `X-MCP-Tools` |
+| `projects_get` | boards | header `X-MCP-Tools` |
+| `ui_get` | milestones | none: agents cannot call it, so milestones stay unknown |
+
+- **Milestones stay unknown.** `ui_get` is the server's only tool that lists milestones, and it is
+  limited to MCP Apps: it declares `"visibility": ["app"]`, which keeps it out of the agent's tool
+  list (https://github.com/github/github-mcp-server/blob/main/pkg/github/ui_tools.go). No header
+  or toolset turns it on for agents, so `sync inspect` reports `milestones: null` with a warning.
+- The rest of the inspection still works: labels, issue types, sub-issues and boards come from the
+  tools above. Toolsets per tool: `list_issue_types` and `issue_read` in `pkg/github/issues.go`,
+  `list_label` and `get_label` in `pkg/github/labels.go`, `projects_list` and `projects_get` in
+  `pkg/github/projects.go` (same repository).
+
 ## GitLab: zereight/gitlab-mcp (community server, any GitLab version)
 
 Server: https://github.com/zereight/gitlab-mcp, run locally over stdio with
@@ -80,11 +105,14 @@ Server: https://github.com/zereight/gitlab-mcp, run locally over stdio with
 - Read-only switch for import: `GITLAB_PERMISSION_MODE=readonly` (CLI flag `--permission-mode=readonly`).
   For writes use `modify` (create and update, no delete tools) or leave it unset (`full`).
   `GITLAB_READ_ONLY_MODE` / `--read-only` are deprecated.
-- Toolsets: `GITLAB_TOOLSETS=core,workitems` (CLI flag `--toolsets=core,workitems`). `core` is the
-  default and holds `list_issues` / `get_issue`; `workitems` is opt-in and adds `list_work_items` /
-  `get_work_item`, the tools the import steps call
-  (https://github.com/zereight/gitlab-mcp/blob/main/docs/tools/index.md). Their parameters may
-  differ from the built-in server's; check the server's tool list (unconfirmed).
+- Toolsets: `GITLAB_TOOLSETS=core,workitems,labels,milestones` (CLI flag
+  `--toolsets=core,workitems,labels,milestones`). `core` is the default and holds `list_issues` /
+  `get_issue` and `list_labels`; `workitems` is opt-in and adds `list_work_items` / `get_work_item`,
+  the tools the import steps call, and `list_work_item_statuses`; `labels` adds `get_label` and
+  `milestones` adds `list_milestones`, `list_group_milestones` and `get_milestone`, which
+  `overseer sync inspect` reads (https://github.com/zereight/gitlab-mcp/blob/main/docs/tools/index.md).
+  Read-only mode hides the write tools of every toolset. Their parameters may differ from the
+  built-in server's; check the server's tool list (unconfirmed).
 - Source: https://github.com/zereight/gitlab-mcp#readme, its client guides under
   https://github.com/zereight/gitlab-mcp/tree/main/docs/clients and
   https://zereight.github.io/gitlab-mcp/ (environment variables).
@@ -93,13 +121,40 @@ The snippets are the read-only import setup; for writes change `readonly` to `mo
 
 | Harness | Setup |
 |---|---|
-| Claude Code | `claude mcp add gitlab --transport stdio -s user --env GITLAB_PERSONAL_ACCESS_TOKEN="$GITLAB_PERSONAL_ACCESS_TOKEN" --env GITLAB_API_URL=https://<host>/api/v4 --env GITLAB_PERMISSION_MODE=readonly --env GITLAB_TOOLSETS=core,workitems -- npx -y @zereight/mcp-gitlab`, then `/mcp` to check. Source: `docs/clients/claude-code.md` |
-| Codex | `codex mcp add gitlab --env GITLAB_PERSONAL_ACCESS_TOKEN="$GITLAB_PERSONAL_ACCESS_TOKEN" --env GITLAB_API_URL=https://<host>/api/v4 --env GITLAB_PERMISSION_MODE=readonly --env GITLAB_TOOLSETS=core,workitems -- npx -y @zereight/mcp-gitlab`. Source: `docs/clients/codex.md` |
-| Gemini CLI | `~/.gemini/settings.json`: `"mcpServers": {"gitlab": {"command": "npx", "args": ["-y", "@zereight/mcp-gitlab"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "$GITLAB_PERSONAL_ACCESS_TOKEN", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems"}}}`. Sources: `docs/clients/json-clients.md` and https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md (`env` expands `$VAR`) |
-| Copilot CLI | `~/.copilot/mcp-config.json`: `"mcpServers": {"gitlab": {"command": "npx", "args": ["-y", "@zereight/mcp-gitlab", "--api-url=https://<host>/api/v4", "--permission-mode=readonly", "--toolsets=core,workitems"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "${GITLAB_PERSONAL_ACCESS_TOKEN}"}, "tools": ["*"]}}`. The gitlab-mcp README passes settings as CLI arguments because Copilot CLI has had trouble with `env`; if the token is not picked up, add `--token=<PAT>` to `args` (the env expansion is unconfirmed) |
-| Cursor | `~/.cursor/mcp.json`: `"mcpServers": {"gitlab": {"command": "npx", "args": ["-y", "@zereight/mcp-gitlab"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "${env:GITLAB_PERSONAL_ACCESS_TOKEN}", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems"}}}`. Source: `docs/clients/cursor.md` |
-| OMP | `~/.omp/agent/mcp.json`: `"mcpServers": {"gitlab": {"type": "stdio", "command": "npx", "args": ["-y", "@zereight/mcp-gitlab"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "GITLAB_PERSONAL_ACCESS_TOKEN", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems"}}}` (an `env` value that names a set environment variable is replaced by its value), then `/mcp test gitlab`. Source: OMP docs, `mcp-config.md` |
-| OpenCode | `opencode.json`: `"mcp": {"gitlab": {"type": "local", "command": ["npx", "-y", "@zereight/mcp-gitlab"], "enabled": true, "environment": {"GITLAB_PERSONAL_ACCESS_TOKEN": "{env:GITLAB_PERSONAL_ACCESS_TOKEN}", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems"}}}`. Sources: https://opencode.ai/docs/mcp-servers/ (local servers) and `docs/clients/json-clients.md` |
+| Claude Code | `claude mcp add gitlab --transport stdio -s user --env GITLAB_PERSONAL_ACCESS_TOKEN="$GITLAB_PERSONAL_ACCESS_TOKEN" --env GITLAB_API_URL=https://<host>/api/v4 --env GITLAB_PERMISSION_MODE=readonly --env GITLAB_TOOLSETS=core,workitems,labels,milestones -- npx -y @zereight/mcp-gitlab`, then `/mcp` to check. Source: `docs/clients/claude-code.md` |
+| Codex | `codex mcp add gitlab --env GITLAB_PERSONAL_ACCESS_TOKEN="$GITLAB_PERSONAL_ACCESS_TOKEN" --env GITLAB_API_URL=https://<host>/api/v4 --env GITLAB_PERMISSION_MODE=readonly --env GITLAB_TOOLSETS=core,workitems,labels,milestones -- npx -y @zereight/mcp-gitlab`. Source: `docs/clients/codex.md` |
+| Gemini CLI | `~/.gemini/settings.json`: `"mcpServers": {"gitlab": {"command": "npx", "args": ["-y", "@zereight/mcp-gitlab"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "$GITLAB_PERSONAL_ACCESS_TOKEN", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems,labels,milestones"}}}`. Sources: `docs/clients/json-clients.md` and https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md (`env` expands `$VAR`) |
+| Copilot CLI | `~/.copilot/mcp-config.json`: `"mcpServers": {"gitlab": {"command": "npx", "args": ["-y", "@zereight/mcp-gitlab", "--api-url=https://<host>/api/v4", "--permission-mode=readonly", "--toolsets=core,workitems,labels,milestones"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "${GITLAB_PERSONAL_ACCESS_TOKEN}"}, "tools": ["*"]}}`. The gitlab-mcp README passes settings as CLI arguments because Copilot CLI has had trouble with `env`; if the token is not picked up, add `--token=<PAT>` to `args` (the env expansion is unconfirmed) |
+| Cursor | `~/.cursor/mcp.json`: `"mcpServers": {"gitlab": {"command": "npx", "args": ["-y", "@zereight/mcp-gitlab"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "${env:GITLAB_PERSONAL_ACCESS_TOKEN}", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems,labels,milestones"}}}`. Source: `docs/clients/cursor.md` |
+| OMP | `~/.omp/agent/mcp.json`: `"mcpServers": {"gitlab": {"type": "stdio", "command": "npx", "args": ["-y", "@zereight/mcp-gitlab"], "env": {"GITLAB_PERSONAL_ACCESS_TOKEN": "GITLAB_PERSONAL_ACCESS_TOKEN", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems,labels,milestones"}}}` (an `env` value that names a set environment variable is replaced by its value), then `/mcp test gitlab`. Source: OMP docs, `mcp-config.md` |
+| OpenCode | `opencode.json`: `"mcp": {"gitlab": {"type": "local", "command": ["npx", "-y", "@zereight/mcp-gitlab"], "enabled": true, "environment": {"GITLAB_PERSONAL_ACCESS_TOKEN": "{env:GITLAB_PERSONAL_ACCESS_TOKEN}", "GITLAB_API_URL": "https://<host>/api/v4", "GITLAB_PERMISSION_MODE": "readonly", "GITLAB_TOOLSETS": "core,workitems,labels,milestones"}}}`. Sources: https://opencode.ai/docs/mcp-servers/ (local servers) and `docs/clients/json-clients.md` |
+
+### Tools `overseer sync inspect` reads
+
+`overseer sync inspect --source gitlab` reads the answers of these zereight/gitlab-mcp tools. The
+setup above enables every one of them except `gitlab_api_request`.
+
+| Tool | Answers | Enabled by |
+|---|---|---|
+| `list_labels` | labels | toolset `core` |
+| `get_label` | labels | toolset `labels` |
+| `list_milestones` | milestones | toolset `milestones` |
+| `list_group_milestones` | milestones | toolset `milestones` |
+| `get_milestone` | milestones | toolset `milestones` |
+| `list_work_item_statuses` | issue_types, sub_issues | toolset `workitems` (GitLab Premium/Ultimate) |
+| `gitlab_api_request` | boards | toolset `api`, optional: without it boards stay unknown |
+
+- **Boards are optional.** gitlab-mcp has no board tool; boards come only from
+  `gitlab_api_request` (`GET projects/<id>/boards`), the single tool of the `api` toolset. gitlab-mcp
+  marks it as dangerous: it bypasses group and project restrictions, tool allowlists and per-tool
+  safety checks, exposes the token's full scope, and prompt injection can drive it. Readonly mode
+  still allows its `GET` calls. Only listing `api` in `GITLAB_TOOLSETS` enables it (`all`,
+  `GITLAB_TOOLS` and `discover_tools` do not), for example
+  `GITLAB_TOOLSETS=core,workitems,labels,milestones,api`. Without it, `sync inspect` reports
+  `boards: null` with a warning; the other parts still work. Source: the Raw API section of
+  https://github.com/zereight/gitlab-mcp/blob/main/docs/tools/index.md.
+- `list_work_item_statuses` needs GitLab Premium or Ultimate (same source); without it issue types
+  and sub-issue support stay unknown.
 
 ## GitLab: built-in server (alternative; GitLab 18.6+, work item tools 19.4+)
 

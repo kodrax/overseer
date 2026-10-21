@@ -374,6 +374,7 @@ The bundle is one JSON object keyed by MCP tool name. Each value is the tool's r
 
 - **Names**: label, type, milestone and board names are trimmed, without duplicates, and sorted case-insensitively (then by character code), so the same answers in any order print the same bytes.
 - **Unknown parts**: a part that no tool in the bundle answers is `null`, never `[]`, with a warning naming the tool to add (`milestones: unknown, the bundle has no ui_get (method milestones) response.`). An answer without names, such as a repository without labels, gives `[]`.
+- **Server setup**: the overseer-import skill's `references/integrations.md` enables these tools. Two parts stay unknown even so: GitHub milestones, because `ui_get` is only callable by MCP Apps views, not by agents; and GitLab boards unless you add gitlab-mcp's `api` toolset, which gitlab-mcp marks as dangerous.
 - **Errors**: a key the source does not accept, an answer of the wrong shape, or a bundle that is not a JSON object or is empty give `INVALID_INPUT` listing the accepted tools and the parts each answers.
 
 `overseer sync inspect --help` lists the accepted tools. It reads only the bundle and makes no network calls. This command has no MCP tool.
