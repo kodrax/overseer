@@ -28,6 +28,14 @@ const SCHEME_URL = /^([a-z][a-z0-9+.-]*):\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:?#]+)(?
 const SCP_URL = /^(?:[^@/]+@)?(\[[^\]]+\]|[^/:]+):(?!\/\/)(.*)$/;
 const REMOTE_LINE = /^(\S+)\t(.+) \((?:fetch|push)\)$/;
 
+/** Repository path without `.git` or slashes around it: `/acme/demo.git/` → `acme/demo`. */
+export function normalizeRepositoryPath(path: string): string {
+  return path
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '');
+}
+
 /** Host and repository of a remote URL (ssh, git, http(s) or scp-like); undefined for local paths and URLs without a repository. */
 export function parseRemoteUrl(url: string): ParsedRemoteUrl | undefined {
   const value = url.trim();
@@ -46,10 +54,7 @@ export function parseRemoteUrl(url: string): ParsedRemoteUrl | undefined {
     path = scp[2]!;
   }
   const hostname = host.replace(/^\[|\]$/g, '').toLowerCase();
-  const repository = path
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/\.git$/i, '')
-    .replace(/\/+$/, '');
+  const repository = normalizeRepositoryPath(path);
   return hostname && repository ? { hostname, repository } : undefined;
 }
 
