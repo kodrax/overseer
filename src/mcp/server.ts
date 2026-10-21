@@ -105,7 +105,7 @@ const toolsHelp = {
     'Record a requirement, epic, user story, task or bug. Returns {created:true, id, title, status, verdict, candidates:[{id, title, similarity, match}], warnings} (verdict and candidates from the duplicate check, as in find_similar; with verdict unknown the candidates are keyword hits), or {created:false, reason:"possible_duplicate", verdict:"duplicate", candidates} without writing when a likely duplicate exists. full:true returns the whole item instead: {created:true, item, warnings, similar}. Several items: pass items instead of the fields; all are created in one transaction or none, and INVALID_INPUT lists every problem by items[index] and @key. Each entry is checked against the board and the earlier entries: {created:true, items:[{key, id, title, status, verdict, candidates, warnings}]} (full:true: items:[{key, item, warnings, similar}]), or {created:false, reason:"possible_duplicate", duplicates:[{index, key, candidates}]} without writing when an entry without allow_duplicate is a likely duplicate; batch candidates carry index and key. Surface lint warnings to the user.',
   update_item:
     'Update fields or status of an item (nullable fields accept null to clear), optionally adding a comment. Returns {id, title, status, changed_fields, warnings}; full:true returns {item, changed_fields, warnings}. Surface lint warnings to the user.',
-  get_item: `Get one item (id) or up to ${MAX_ITEM_IDS} items (ids, in request order, as {items:[…]}) with coverage, outgoing/incoming links, children and optionally its history. context:true adds the parent summary and the linked requirements (implements/affects) with their acceptance criteria, so one call gives the working context. Pass exactly one of id and ids.`,
+  get_item: `Get one item (id) or up to ${MAX_ITEM_IDS} items (ids, in request order, as {items:[…]}) with coverage, outgoing/incoming links, children and optionally its history. context:true adds the parent summary and the linked requirements (implements/affects) with their acceptance criteria, so one call gives the working context. Pass exactly one of id and ids. Each one is an item ID or a GitHub/GitLab issue reference (owner/repo#7, github:owner/repo#7, gitlab:group/sub/project#3, an issue or work item URL, or #7 when exactly one repository is connected) and returns the item imported or synced from that issue. A reference to a connected repository with no item answers NOT_FOUND with details {source, repo, external_id, url}: import that issue, then retry.`,
   list_items: 'List items with filters (kind, status, req_type, coverage, tag, parent_id). Closed items are hidden unless include_closed.',
   search: 'Hybrid keyword + semantic search over all items.',
   link_items:
@@ -128,9 +128,16 @@ function ok(result: object, markdown?: string): CallToolResult {
   };
 }
 
+/**
+ * Failed tool result: text `<CODE>: <message>`. Errors with details (a reference to import, batch problems) add them
+ * as a second text block `{"details": …}` and as `structuredContent.error.details`.
+ */
 function fail(error: unknown): CallToolResult {
-  const message = isOverseerError(error) ? `${error.code}: ${error.message}` : `INTERNAL: ${errorMessage(error)}`;
-  return { content: [{ type: 'text', text: message }], isError: true };
+  if (!isOverseerError(error)) return { content: [{ type: 'text', text: `INTERNAL: ${errorMessage(error)}` }], isError: true };
+  const content: CallToolResult['content'] = [{ type: 'text', text: `${error.code}: ${error.message}` }];
+  if (error.details === undefined) return { content, isError: true };
+  content.push({ type: 'text', text: JSON.stringify({ details: error.details }) });
+  return { content, structuredContent: { error: { code: error.code, message: error.message, details: error.details } }, isError: true };
 }
 
 /**
@@ -275,8 +282,8 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       title: 'Get item',
       description: toolsHelp.get_item,
       inputSchema: {
-        id: z.string().min(1).optional().describe('One item ID, e.g. TASK-0012. Returns the item detail.'),
-        ids: z.array(z.string().min(1)).optional().describe(`Several item IDs (1–${MAX_ITEM_IDS}). Returns {items:[…]} in request order.`),
+        id: z.string().min(1).optional().describe('One item ID (TASK-0012) or issue reference (acme/demo#7, an issue URL). Returns the item detail.'),
+        ids: z.array(z.string().min(1)).optional().describe(`Several item IDs or issue references (1–${MAX_ITEM_IDS}). Returns {items:[…]} in request order.`),
         context: z.boolean().default(false).describe('Add the parent summary and the linked requirements with their acceptance criteria.'),
         include_history: z.boolean().default(false),
         project_dir: projectDir,

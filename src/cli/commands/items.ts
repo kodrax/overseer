@@ -395,7 +395,7 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
   program
     .command('show')
     .description('show items with their links, children and (optionally) context and history')
-    .argument('<ids...>', `item ids (up to ${MAX_ITEM_IDS}); several print {items:[…]} with --json`)
+    .argument('<ids...>', `item ids or issue references such as acme/demo#7 or an issue URL (up to ${MAX_ITEM_IDS}); several print {items:[…]} with --json`)
     .option('--context', 'add the parent and the linked requirements with their acceptance criteria')
     .option('--history', 'include the change history')
     .option('--json', 'print JSON')

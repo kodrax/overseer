@@ -52,4 +52,15 @@ describe('skill templates', () => {
     expect(text).not.toContain(MARKER);
     expect(text.startsWith('---')).toBe(false);
   });
+
+  it('overseer-ship step 1 passes an issue reference to get_item and imports only on NOT_FOUND with details', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-ship', 'SKILL.md'), 'utf8');
+    const step = text.slice(text.indexOf('## 1. Resolve the item'), text.indexOf('## 2. '));
+    const reference = step.slice(step.indexOf('- **Issue reference**'), step.indexOf('- **Free text**'));
+    expect(reference).toMatch(/pass it unchanged to `get_item`/);
+    const imports = reference.split('\n  - ').filter((branch) => branch.includes('import_items'));
+    expect(imports).toHaveLength(1);
+    expect(imports[0]).toMatch(/^`NOT_FOUND` with `details \{source, repo, external_id, url\}`/);
+    expect(reference).toMatch(/`NOT_FOUND` without details → the repository is not connected; import nothing/);
+  });
 });

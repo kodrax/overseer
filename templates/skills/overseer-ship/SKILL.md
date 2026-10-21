@@ -22,9 +22,18 @@ the pull request yourself.
     `implements` = the requirement) and ship that task once the user agrees.
   - No acceptance criteria → derive Given/When/Then criteria from the description and the linked
     requirements, show them, and record them with `update_item` after the user agrees.
-- **Issue reference** (`#42`, `owner/repo#42`, an issue URL) → import that one issue with the
-  `overseer-import` steps (fetch it with the MCP tool and pass the raw answer as `import_items` `payload`). The ID in `created`, `updated` or
-  `unchanged` is the board item; continue as for a board ID.
+- **Issue reference** (`#42`, `owner/repo#42`, `github:owner/repo#42`, `gitlab:group/project#42`, an issue or
+  work item URL) → pass it unchanged to `get_item` (`id`, `context: true`): it returns the board item
+  imported or synced from that issue; continue as for a board ID.
+  - `NOT_FOUND` with `details {source, repo, external_id, url}` → the issue of a connected repository is
+    not on the board yet. Import that one issue with the `overseer-import` steps: fetch it from the
+    `source` MCP server (GitHub `issue_read`/`get_issue`, GitLab `get_work_item` with `url`) and pass the
+    raw answer as `import_items({source, repo, payload})`. The ID in `created`, `updated` or `unchanged` is
+    the board item; continue as for a board ID.
+  - `NOT_FOUND` without details → the repository is not connected; import nothing. Show the message and
+    ask for a board ID, or for the repository to be connected first.
+  - `INVALID_INPUT` for `#42` → no repository or several are connected; ask which one and retry with
+    `owner/repo#42` or the issue URL.
 - **Free text** → a bug when it reports broken behaviour, otherwise a task.
   1. `find_similar` with the request text and `kind: task` or `bug`:
      - `duplicate` → show the match and ask; reusing it is the default.

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMcpServer, INSTRUCTIONS, type McpServerOptions } from '../src/mcp/server.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { freePort, listening } from './helpers/net.js';
+import { openService } from './helpers/service.js';
 import { tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
 
 const clients: Client[] = [];
@@ -128,6 +129,40 @@ describe('mcp server', () => {
     const tooMany = await call(client, 'get_item', { ids: Array.from({ length: 51 }, () => 'REQ-0001') });
     expect(tooMany.result.isError).toBe(true);
     expect(tooMany.text).toMatch(/^INVALID_INPUT: /);
+  });
+
+  it('get_item resolves issue references and returns the issue to import as error details', async () => {
+    const repo = tempRepo();
+    const setup = openService(repo);
+    setup.connections.add({ host: 'github', repository: 'acme/demo' });
+    setup.close();
+    const client = await connect({ cwd: repo });
+    const imported = await call(client, 'import_items', {
+      source: 'github',
+      repo: 'acme/demo',
+      items: [{ external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', title: 'Login fails on Safari', state: 'open', type_hint: 'task' }],
+    });
+    expect(imported.data).toMatchObject({ created: ['TASK-0001'] });
+
+    for (const reference of ['acme/demo#7', 'github:acme/demo#7', 'https://github.com/acme/demo/issues/7', '#7']) {
+      const found = await call(client, 'get_item', { id: reference, context: true });
+      expect([reference, found.data]).toMatchObject([reference, { item: { id: 'TASK-0001' } }]);
+    }
+    const many = await call(client, 'get_item', { ids: ['#7', 'TASK-0001'] });
+    expect(many.data).toMatchObject({ items: [{ item: { id: 'TASK-0001' } }, { item: { id: 'TASK-0001' } }] });
+
+    const missing = await call(client, 'get_item', { id: 'acme/demo#8' });
+    const details = { source: 'github', repo: 'acme/demo', external_id: 'acme/demo#8', url: 'https://github.com/acme/demo/issues/8' };
+    expect(missing.result.isError).toBe(true);
+    expect(missing.text).toBe(
+      'NOT_FOUND: No item for acme/demo#8: issue acme/demo#8 of the connected GitHub repository is not on the board. Import it (source github, repo acme/demo, external_id acme/demo#8, url https://github.com/acme/demo/issues/8) and retry.',
+    );
+    expect(missing.result.content[1]).toEqual({ type: 'text', text: JSON.stringify({ details }) });
+    expect(missing.data).toEqual({ error: { code: 'NOT_FOUND', message: missing.text.slice('NOT_FOUND: '.length), details } });
+
+    const unconnected = await call(client, 'get_item', { ids: ['other/repo#8'] });
+    expect(unconnected.result.content).toEqual([{ type: 'text', text: 'NOT_FOUND: No item for other/repo#8.' }]);
+    expect(unconnected.data).toBeUndefined();
   });
 
   it('returns compact create and update results unless full is set', async () => {
