@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { CONNECTION_HOSTS, type Connection } from '../../core/connections.js';
+import { CONNECTION_HOSTS, type Connection, type SourceOfTruth } from '../../core/connections.js';
 import { detectRemotes } from '../../core/remotes.js';
 import { IMPORT_SOURCES } from '../../core/schema.js';
 import { bundleKeys, inspectTracking, type TrackingSetup } from '../../core/tracking.js';
@@ -44,6 +44,15 @@ function formatConnection(connection: Connection): string {
     ['auto_sync', connection.auto_sync ? 'on' : 'off'],
     ['last_sync_cursor', connection.last_sync_cursor ?? '-'],
     ['created_at', connection.created_at],
+  ]);
+}
+
+/** `source_of_truth: board`, or the connection id with its host and repository lines. */
+function formatSourceOfTruth(source: SourceOfTruth): string {
+  return fields([
+    ['source_of_truth', source.source_of_truth],
+    ['host', source.host],
+    ['repository', source.repository],
   ]);
 }
 
@@ -149,7 +158,7 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
     });
   connection
     .command('remove')
-    .description('delete a connection with its remote refs, mappings and pending outbox rows')
+    .description('delete a connection with its remote refs, mappings and pending outbox rows; a removed source of truth goes back to the board')
     .argument('<id>', 'connection id (see sync connections)')
     .option('--json', 'print JSON')
     .action(async (id: string, options: { json?: boolean }, command: Command) => {
@@ -157,9 +166,33 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
         rt.emit(
           options.json,
           service.connections.remove(id),
-          ({ removed, remote_refs, mappings, outbox }) =>
-            `Removed connection ${removed.id} (${removed.host} ${removed.repository}) with ${remote_refs} remote refs, ${mappings} mappings and ${outbox} outbox rows.`,
+          ({ removed, remote_refs, mappings, outbox, source_of_truth_reset }) =>
+            [
+              `Removed connection ${removed.id} (${removed.host} ${removed.repository}) with ${remote_refs} remote refs, ${mappings} mappings and ${outbox} outbox rows.`,
+              ...(source_of_truth_reset ? ['Source of truth reset to board.'] : []),
+            ].join('\n'),
         );
+      });
+    });
+
+  const sourceOfTruth = sync
+    .command('source-of-truth')
+    .description('show where synced fields win a conflict: board or a connection (local database only, no network)')
+    .option('--json', 'print JSON')
+    .action(async (options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'read', (service) => {
+        rt.emit(options.json, service.connections.sourceOfTruth(), formatSourceOfTruth);
+      });
+    });
+  sourceOfTruth
+    .command('set')
+    .description('make the board or a connection the source of truth; connections, remote refs and mappings stay unchanged')
+    .argument('<target>', 'board, or a connection id (see sync connections)')
+    .option('--json', 'print JSON')
+    // `--json` after `set` is parsed by `source-of-truth`, which has the same option; withService sees either.
+    .action(async (target: string, _options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', (service, { json }) => {
+        rt.emit(json, service.connections.setSourceOfTruth(target), formatSourceOfTruth);
       });
     });
 }

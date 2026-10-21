@@ -31,13 +31,24 @@ export interface ConnectionChanges {
   mcp_server?: string;
 }
 
-/** A removed connection and how many of its rows went with it. */
+/** A removed connection, how many of its rows went with it and whether the source of truth went back to the board. */
 export interface ConnectionRemoval {
   removed: Connection;
   remote_refs: number;
   mappings: number;
   outbox: number;
+  /** True when the removed connection was the source of truth, which is now the board. */
+  source_of_truth_reset: boolean;
 }
+
+/** Where synced item fields win a conflict: the board, or one connection (with its host and repository). */
+export interface SourceOfTruth {
+  source_of_truth: 'board' | number;
+  host: ConnectionHost | null;
+  repository: string | null;
+}
+
+const BOARD_SOURCE: SourceOfTruth = { source_of_truth: 'board', host: null, repository: null };
 
 interface ConnectionRow {
   id: number;
@@ -170,14 +181,45 @@ export class Connections {
     });
   }
 
-  /** Deletes the connection with its remote refs, mappings and pending outbox rows, and counts each. */
+  /**
+   * Deletes the connection with its remote refs, mappings and pending outbox rows, and counts each. When it was the
+   * source of truth, the board becomes the source of truth in the same transaction.
+   */
   remove(id: number | string): ConnectionRemoval {
     return tx(this.db, () => {
       const removed = this.require(id);
       const remove = (table: string) => Number(this.db.prepare(`DELETE FROM ${table} WHERE connection_id = ?`).run(removed.id).changes);
-      const result = { removed, remote_refs: remove('item_remote_refs'), mappings: remove('connection_mappings'), outbox: remove('sync_outbox') };
+      const counts = { remote_refs: remove('item_remote_refs'), mappings: remove('connection_mappings'), outbox: remove('sync_outbox') };
+      const reset = this.db.prepare("UPDATE sync_settings SET source_of_truth = 'board' WHERE source_of_truth = ?").run(String(removed.id));
       this.db.prepare('DELETE FROM connections WHERE id = ?').run(removed.id);
-      return result;
+      return { removed, ...counts, source_of_truth_reset: Number(reset.changes) > 0 };
+    });
+  }
+
+  /** The stored source of truth; the board when none is stored. */
+  sourceOfTruth(): SourceOfTruth {
+    const row = this.db.prepare('SELECT source_of_truth FROM sync_settings WHERE id = 1').get() as { source_of_truth: string } | undefined;
+    if (!row || row.source_of_truth === 'board') return BOARD_SOURCE;
+    const connection = this.require(row.source_of_truth);
+    return { source_of_truth: connection.id, host: connection.host, repository: connection.repository };
+  }
+
+  /**
+   * Stores `board` or a connection id (NOT_FOUND when no such connection) as the source of truth. Only the setting
+   * changes: connections, remote refs and mappings stay as they are, so no issue is re-created.
+   */
+  setSourceOfTruth(target: number | string): SourceOfTruth {
+    const board = String(target).trim().toLowerCase() === 'board';
+    if (!board && !/^\s*[1-9]\d*\s*$/.test(String(target))) {
+      throw new OverseerError('INVALID_INPUT', `Invalid source of truth "${target}"; expected board or a connection id.`);
+    }
+    const id = board ? undefined : parseConnectionId(target);
+    return tx(this.db, () => {
+      const value = id === undefined ? 'board' : String(this.require(id).id);
+      this.db
+        .prepare('INSERT INTO sync_settings(id, source_of_truth) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET source_of_truth = excluded.source_of_truth')
+        .run(value);
+      return this.sourceOfTruth();
     });
   }
 }
