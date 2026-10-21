@@ -136,6 +136,46 @@ describe('cli add', () => {
     expect(human.out).toContain('History:');
   });
 
+  it('--batch creates items from stdin or a file, all or nothing', async () => {
+    const repo = tempRepo();
+    await cli(repo, RESET);
+    const batch = [
+      { key: 'story', kind: 'story', title: 'Reset forgotten password', description: 'As a user I want to reset my password so that I can regain access', links: [{ rel: 'implements', to: 'REQ-0001' }] },
+      { kind: 'task', title: 'Reset form', parent_id: '@story', links: [{ rel: 'implements', to: 'req-1' }] },
+    ];
+    const json = await cli(repo, ['add', '--batch', '-', '--json'], { stdin: JSON.stringify(batch) });
+    expect(json.code).toBe(0);
+    expect(json.json()).toEqual({
+      created: true,
+      items: [
+        { key: 'story', id: 'US-0001', title: 'Reset forgotten password', status: 'backlog', verdict: expect.any(String), candidates: expect.any(Array), warnings: [] },
+        { id: 'TASK-0001', title: 'Reset form', status: 'backlog', verdict: expect.any(String), candidates: expect.any(Array), warnings: [] },
+      ],
+    });
+    expect((await cli(repo, ['show', 'TASK-0001', '--json'])).json<ItemDetail>().item).toMatchObject({ parent_id: 'US-0001', recorded_via: 'cli' });
+
+    writeFileSync(join(repo, 'batch.json'), JSON.stringify({ items: [{ key: 'b', kind: 'bug', title: 'Reset link expires early', parent_id: 'US-0001' }] }));
+    const human = await cli(repo, ['add', '--batch', 'batch.json']);
+    expect(human.out).toMatch(/^Created 1 item:\nBUG-0001 \(@b\) {2}Reset link expires early\n/);
+    const full = await cli(repo, ['add', '--batch', 'batch.json', '--json', '--full']);
+    expect(full.json()).toMatchObject({ created: false, reason: 'possible_duplicate', duplicates: [{ index: 0, key: 'b', candidates: [{ id: 'BUG-0001', match: 'duplicate' }] }] });
+    const refused = await cli(repo, ['add', '--batch', 'batch.json']);
+    expect(refused.out).toContain('Not created: possible duplicates; nothing was written.\n\nitems[0] (@b):');
+
+    const invalid = await cli(repo, ['add', '--batch', '-', '--json'], { stdin: JSON.stringify([{ kind: 'task', title: 'Orphan', parent_id: '@x' }, { kind: 'epic', title: 'Root', parent_id: 'US-0001' }]) });
+    expect(invalid.code).toBe(1);
+    expect(invalid.json<ErrorEnvelope>().error).toEqual({
+      code: 'INVALID_INPUT',
+      message: 'Nothing written: 2 problems in the batch: items[0]: parent_id "@x": no entry of this batch has key "@x"; items[1]: parent_id: A epic cannot have a parent.',
+    });
+    expect((await cli(repo, ['add', 'task', '--batch', 'batch.json', '--json'])).json<ErrorEnvelope>().error.message).toContain('--batch takes every item from the file');
+    expect((await cli(repo, ['add', '--title', 'No kind', '--json'])).json<ErrorEnvelope>().error).toEqual({
+      code: 'INVALID_INPUT',
+      message: 'add needs <kind> and --title, or --batch <file|->.',
+    });
+    expect((await cli(repo, ['list', '--all', '--json'])).json<ListResult>().total).toBe(4);
+  });
+
   it('show takes several IDs and --context', async () => {
     const repo = tempRepo();
     await cli(repo, [...RESET, '--ac', 'Given a user, when reset, then email']);

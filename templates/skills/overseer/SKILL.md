@@ -15,7 +15,7 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 |---|---|---|
 | `find_similar` | Semantic duplicate check (`verdict`: duplicate / related / new / unknown) | `overseer similar "<text>" [--kind K]` |
 | `check_coverage` | "Is X covered/tracked/delivered?" over requirements | `overseer coverage "<text>"` |
-| `create_item` | Create requirement / epic / story / task / bug (duplicate guard) | `overseer add <kind> --title … [flags]` |
+| `create_item` | Create requirement / epic / story / task / bug (duplicate guard); `items` creates up to 50 in one call | `overseer add <kind> --title … [flags]` / `overseer add --batch <file\|->` |
 | `update_item` | Change fields, status, comment, `delivered_in` | `overseer update <id> [flags] [--comment …]` |
 | `get_item` | One item (`id`) or up to 50 (`ids` → `{items}`) with coverage, links, children, history; `context: true` adds the parent and linked requirements with their AC | `overseer show <id>… [--context] [--history]` |
 | `list_items` | Filtered list (kind, status, req_type, coverage, tag, parent) | `overseer list [--kind] [--status]… [--all]` |
@@ -46,6 +46,15 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
   "possible_duplicate", verdict: "duplicate", candidates}` and writes nothing. `update_item`
   (`overseer update --json`) returns `{id, title, status, changed_fields, warnings}`. Pass `full: true`
   (`--full`) only when you need the whole item back.
+- `create_item` with `items: [...]` instead of the item fields (`overseer add --batch <file|->`, a JSON
+  array) creates up to 50 items in one transaction. Each entry takes the create fields plus an optional
+  `key`; `parent_id` and `links[].to` take an existing ID or `"@<key>"` of another entry, in any order.
+  An invalid batch writes nothing and the `INVALID_INPUT` message lists every problem as
+  `items[<index>] (@<key>): …`. Each entry is checked against the board and the earlier entries; a likely
+  duplicate without its own `allow_duplicate: true` writes nothing and returns `{created: false, reason:
+  "possible_duplicate", duplicates: [{index, key, candidates}]}` (a candidate from the batch has `index`
+  and `key`). Success returns `{created: true, items: [{key, id, title, status, verdict, candidates,
+  warnings}]}`; `full: true` (`--full`) returns `items: [{key, item, warnings, similar}]`.
 
 ## Rules
 
