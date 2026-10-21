@@ -96,8 +96,11 @@ function remoteTime(value: string | null | undefined, fallback: string): string 
   return Number.isNaN(time) ? fallback : nowIso(new Date(time));
 }
 
-const PAYLOAD_FORMATS =
-  'ImportItems ([...] or {"items": [...]}), a GitHub MCP list_issues response ({"issues": [...]}) or array of GitHub issues, or a GitLab MCP list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item response or array of work items';
+/** The raw GitHub/GitLab MCP responses the payload adapters map. */
+export const RAW_PAYLOAD_FORMATS =
+  'a GitHub MCP list_issues response ({"issues": [...]}) or array of GitHub issues, or a GitLab MCP list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item response or array of work items';
+
+const PAYLOAD_FORMATS = `ImportItems ([...] or {"items": [...]}), ${RAW_PAYLOAD_FORMATS}`;
 
 /** A string, or the `key` string of an object (GitHub REST labels `{name}`, GitLab milestones `{title}`, …). */
 const named = (key: string) => z.union([z.string(), z.object({ [key]: z.string() }).transform((value) => value[key]!)]);
@@ -174,7 +177,7 @@ function gitlabPath(url: string | null | undefined, fallback: string): string {
   return namespace.endsWith(`/${fallback}`) ? fallback : namespace;
 }
 
-interface MappedPayload {
+export interface MappedPayload {
   /** ImportItem candidates; validated by importItems like `items`. */
   items: Record<string, unknown>[];
   /** One entry per skipped pull request. */
@@ -237,14 +240,17 @@ function fromGitlab(workItems: readonly z.infer<typeof gitlabWorkItemSchema>[], 
   return { items, warnings: [] };
 }
 
-/** Maps a raw GitHub/GitLab MCP response (object or JSON text) to ImportItems; INVALID_INPUT naming the accepted formats otherwise. */
-function mapImportPayload(payload: unknown, source: ImportSource, repo: string): MappedPayload {
+/**
+ * Maps a raw GitHub/GitLab MCP response (object or JSON text) to ImportItem candidates; INVALID_INPUT naming `formats`
+ * (the accepted formats) otherwise, or naming both hosts when the response comes from the host other than `source`.
+ */
+export function mapImportPayload(payload: unknown, source: ImportSource, repo: string, formats = PAYLOAD_FORMATS): MappedPayload {
   let data = payload;
   if (typeof data === 'string') {
     try {
       data = JSON.parse(data);
     } catch {
-      throw new OverseerError('INVALID_INPUT', `payload is text but not JSON; accepted formats: ${PAYLOAD_FORMATS}.`);
+      throw new OverseerError('INVALID_INPUT', `payload is text but not JSON; accepted formats: ${formats}.`);
     }
   }
   let entries: unknown[] = [data];
@@ -256,7 +262,7 @@ function mapImportPayload(payload: unknown, source: ImportSource, repo: string):
   const github = container === 'gitlab' ? undefined : z.array(githubIssueSchema).safeParse(entries).data;
   const gitlab = github || container === 'github' ? undefined : z.array(gitlabWorkItemSchema).safeParse(entries).data;
   const format: ImportSource | undefined = entries.length === 0 ? (container ?? source) : github ? 'github' : gitlab ? 'gitlab' : undefined;
-  if (format === undefined) throw new OverseerError('INVALID_INPUT', `Unrecognized import format; accepted formats: ${PAYLOAD_FORMATS}.`);
+  if (format === undefined) throw new OverseerError('INVALID_INPUT', `Unrecognized import format; accepted formats: ${formats}.`);
   if (format !== source) {
     throw new OverseerError('INVALID_INPUT', `The payload is a ${format === 'github' ? 'GitHub' : 'GitLab'} response but source is ${source}.`);
   }
@@ -303,16 +309,53 @@ function parseImportRequest(raw: unknown): { input: ImportInput; warnings: strin
   return { input: parseInput(importInputSchema, { source, repo, items: mapped.items, deleted }), warnings: mapped.warnings };
 }
 
+/** Issue fields a sync compares, in output order: the remote ref's last synced snapshot holds these. */
+export const SYNCED_FIELDS = ['title', 'body', 'labels', 'state', 'assignee', 'milestone'] as const;
+export type SyncedField = (typeof SYNCED_FIELDS)[number];
+
+/** An issue's synced fields: labels sorted without repeats, `body` "" when the issue has none, the first assignee. */
+export interface IssueFields {
+  title: string;
+  body: string;
+  labels: string[];
+  state: 'open' | 'closed';
+  assignee: string | null;
+  milestone: string | null;
+}
+
+/** A remote ref's `synced_fields`: the issue's fields as of its last sync; a field missing here is unknown. */
+export type SyncedFields = Partial<IssueFields>;
+
+/** Labels as a sync compares them: sorted by code unit, without repeats. */
+export function canonicalLabels(labels: readonly string[]): string[] {
+  return [...new Set(labels)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** The synced fields of an imported issue; `body` is left out when the listing has none (GitLab list_work_items). */
+export function issueFieldsOf(remote: ImportItem): Omit<IssueFields, 'body'> & { body?: string } {
+  return {
+    title: remote.title,
+    ...(remote.body === undefined ? {} : { body: remote.body ?? '' }),
+    labels: canonicalLabels(remote.labels ?? []),
+    state: remote.state,
+    assignee: remote.assignees?.[0] ?? null,
+    milestone: remote.milestone ?? null,
+  };
+}
+
 /**
- * Gives each imported item its remote ref in the import's connection (the issue's external_id, URL, state and the
- * import time). An issue already linked to another item there keeps that link, with a warning.
+ * Gives each imported item its remote ref in the import's connection: the issue's external_id, URL, state, the import
+ * time and the snapshot of its synced fields (a field the listing lacks keeps its earlier snapshot value). An issue
+ * already linked to another item there keeps that link, with a warning.
  */
 function writeRemoteRefs(db: Database, connectionId: number, synced: readonly { id: string; remote: ImportItem }[], now: string, warnings: string[]): void {
   const holder = db.prepare('SELECT item_id FROM item_remote_refs WHERE connection_id = ? AND external_ref = ? AND item_id <> ?');
+  const previous = db.prepare('SELECT synced_fields FROM item_remote_refs WHERE item_id = ? AND connection_id = ?');
   const upsert = db.prepare(
-    `INSERT INTO item_remote_refs(item_id, connection_id, external_ref, url, state, synced_at) VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO item_remote_refs(item_id, connection_id, external_ref, url, state, synced_at, synced_fields) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(item_id, connection_id) DO UPDATE SET
-       external_ref = excluded.external_ref, url = excluded.url, state = excluded.state, synced_at = excluded.synced_at`,
+       external_ref = excluded.external_ref, url = excluded.url, state = excluded.state, synced_at = excluded.synced_at,
+       synced_fields = excluded.synced_fields`,
   );
   for (const { id, remote } of synced) {
     const other = holder.get(connectionId, remote.external_id, id);
@@ -320,7 +363,10 @@ function writeRemoteRefs(db: Database, connectionId: number, synced: readonly { 
       warnings.push(`${id}: ${remote.external_id} is already linked to ${String(other.item_id)} in connection ${connectionId}; remote ref not written.`);
       continue;
     }
-    upsert.run(id, connectionId, remote.external_id, remote.url, remote.state, now);
+    const earlier = previous.get(id, connectionId) as { synced_fields: string } | undefined;
+    const merged: SyncedFields = { ...(earlier ? (JSON.parse(earlier.synced_fields) as SyncedFields) : {}), ...issueFieldsOf(remote) };
+    const snapshot = Object.fromEntries(SYNCED_FIELDS.filter((field) => field in merged).map((field) => [field, merged[field]]));
+    upsert.run(id, connectionId, remote.external_id, remote.url, remote.state, now, JSON.stringify(snapshot));
   }
 }
 
