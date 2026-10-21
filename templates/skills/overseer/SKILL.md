@@ -30,6 +30,8 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 - Harness tool names: Claude Code / Codex `mcp__overseer__<tool>`; OMP `mcp__overseer_<tool>`;
   Gemini CLI `mcp_overseer_<tool>`; Copilot CLI `overseer-<tool>`; OpenCode `overseer_<tool>`;
   Cursor lists server `overseer` and the plain tool names in its own UI.
+- Connecting or syncing the board with GitHub/GitLab repositories (`overseer sync …`, CLI only): follow
+  the `overseer-sync` skill (sibling folder of this one).
 - Every tool accepts `project_dir`. On `NO_PROJECT`, retry the same call with `project_dir` set to the
   absolute project root (the repository you are working in).
 - overseer is off by default: it works only in projects the user turned on with `overseer enable` (or

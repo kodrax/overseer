@@ -45,6 +45,6 @@ export const MANAGED_MARKER_TEXT = 'managed-by: overseer-cli';
 export const MD_MARKER = `<!-- ${MANAGED_MARKER_TEXT} -->`;
 export const TOML_MARKER = `# ${MANAGED_MARKER_TEXT}`;
 
-export const SKILL_NAMES = ['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship'] as const;
+export const SKILL_NAMES = ['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship', 'overseer-sync'] as const;
 export const SERVER_NAME = 'overseer';
 export const BACKUP_SUFFIX = '.overseer-backup';

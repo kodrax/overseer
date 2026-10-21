@@ -196,7 +196,7 @@ describe('ownership', () => {
     // Files overseer does not ship are left alone; the backups are files, never a second skill folder.
     expect(readFileSync(join(dir, 'extra.md'), 'utf8')).toBe('not shipped by overseer\n');
     expect(existsSync(join(dir, 'extra.md.overseer-backup'))).toBe(false);
-    expect(readdirSync(skills).sort()).toEqual(['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship']);
+    expect(readdirSync(skills).sort()).toEqual(['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship', 'overseer-sync']);
     const warning = forced.warnings.find((line) => line.startsWith(`${dir} was not managed`));
     expect(warning).toBe(
       `${dir} was not managed by overseer-cli; overwritten (--force), previous content in ${join(dir, 'references/fields.md.overseer-backup')}, ${join(dir, 'SKILL.md.overseer-backup')}.`,

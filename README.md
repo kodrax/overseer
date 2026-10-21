@@ -1,6 +1,6 @@
 # overseer
 
-A requirements registry and Agile board for coding agents. overseer stores each project's functional and non-functional requirements, epics, user stories, tasks and bugs in a local SQLite database with multilingual semantic search. It plugs into the coding harnesses you use (Claude Code, OMP, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor, OpenCode) as a subagent, four skills and an MCP server. You can ask your agent "is password reset already covered?" or "record this requirement", or you can use the CLI and the local web board.
+A requirements registry and Agile board for coding agents. overseer stores each project's functional and non-functional requirements, epics, user stories, tasks and bugs in a local SQLite database with multilingual semantic search. It plugs into the coding harnesses you use (Claude Code, OMP, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor, OpenCode) as a subagent, five skills and an MCP server. You can ask your agent "is password reset already covered?" or "record this requirement", or you can use the CLI and the local web board.
 
 - **Off until you turn it on**: overseer works only in the projects where you run `overseer enable`. Everywhere else its tools and commands refuse and create nothing.
 - **Local**: data stays in `<project>/.overseer/`. Embeddings run on your machine with `Xenova/multilingual-e5-small` (about 118 MB, downloaded once by `overseer install` or `overseer models pull`). overseer never calls an LLM; your harness's model does the reasoning.
@@ -87,7 +87,7 @@ There are three kinds of files. The harness files say how a harness reaches over
 | Cursor | `~/.agents/skills/` | `~/.cursor/agents/overseer.md` | `~/.cursor/mcp.json` |
 | OpenCode | `~/.config/opencode/skills/` | `~/.config/opencode/agents/overseer.md` | `~/.config/opencode/opencode.json` |
 
-- **Skills**: four folders, `overseer`, `overseer-bootstrap`, `overseer-import` and `overseer-ship`.
+- **Skills**: five folders, `overseer`, `overseer-bootstrap`, `overseer-import`, `overseer-ship` and `overseer-sync`.
 - **Shared skills folder**: Codex, Gemini, Copilot and Cursor all read `~/.agents/skills/`, so overseer writes it once and removes it only when none of them still uses it.
 - **Custom config folders**: the installer honours `CLAUDE_CONFIG_DIR`, `PI_CONFIG_DIR` / `PI_CODING_AGENT_DIR` (OMP), `CODEX_HOME`, `COPILOT_HOME` and `XDG_CONFIG_HOME`.
 - **OMP named profiles** (`omp --profile work`) read `~/.omp/profiles/work/agent/` instead. Install there with `PI_CODING_AGENT_DIR=~/.omp/profiles/work/agent overseer install --targets omp`.
@@ -180,6 +180,7 @@ In a project you turned on, talk to your agent as usual. The main agent calls th
 - "Is password reset by email already covered?"
 - "Add a bug: on Safari the login button does nothing. Expected the dashboard, got nothing. It affects REQ-0001."
 - "Plan an epic for checkout with stories and tasks."
+- "Connect this project to our GitHub repository."
 - "Use the overseer agent to bootstrap requirements from this codebase."
 - "Import our GitHub issues into the board."
 - "Ship TASK-0012: branch, implement and open the pull request."
@@ -300,6 +301,16 @@ The same item, template and branch always give the same draft. This command has 
 - **Story**: when the item's parent is a story and every task and bug under it is now `done` or `cancelled`, with at least one `done`, the story becomes `done` with a comment and `story_done` is its ID (else `null`). Epics are never changed.
 
 `overseer worktree list --json` prints `[{"id", "branch", "path"}]` for every worktree on a branch that fills `branch_pattern`, the main checkout excluded. These commands have no MCP tool.
+
+### Connect
+
+The `overseer-sync` skill connects the project to its GitHub or GitLab repositories, through the GitHub or GitLab MCP server configured in your harness. Ask your agent "connect this project to GitHub" and it:
+
+1. Lists the repositories of the project's git remotes (`sync remotes`), asks which host an `unknown` one is, and offers them.
+2. Checks that the session has the host's MCP tools; if not, it shows your harness's setup from [`overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md) and stops.
+3. Connects only the repositories you confirm (`sync connection add`, auto-sync on).
+4. Fetches the repository's labels, issue types, milestones and boards through the MCP server, summarises them with `sync inspect`, proposes a kind, status and priority mapping from those existing names, and stores it with `sync mapping import` once you confirm. Values without a matching name stay unmapped and are listed; no label is created.
+5. Ends with `sync status`.
 
 ### Repository remotes
 

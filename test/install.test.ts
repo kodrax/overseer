@@ -13,6 +13,7 @@ const SKILL_FILES = [
   'overseer-bootstrap/SKILL.md',
   'overseer-import/SKILL.md',
   'overseer-ship/SKILL.md',
+  'overseer-sync/SKILL.md',
 ];
 const skills = (dir: string) => SKILL_FILES.map((file) => `${dir}/${file}`);
 

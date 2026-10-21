@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 const templates = fileURLToPath(new URL('../templates/', import.meta.url));
 const skillsDir = join(templates, 'skills');
 const MARKER = '<!-- managed-by: overseer-cli -->';
-const SKILLS = ['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship'];
+const SKILLS = ['overseer', 'overseer-bootstrap', 'overseer-import', 'overseer-ship', 'overseer-sync'];
 
 function endsWithMarker(text: string): boolean {
   return text.endsWith(MARKER) || text.endsWith(`${MARKER}\n`);
@@ -62,5 +62,36 @@ describe('skill templates', () => {
     expect(imports).toHaveLength(1);
     expect(imports[0]).toMatch(/^`NOT_FOUND` with `details \{source, repo, external_id, url\}`/);
     expect(reference).toMatch(/`NOT_FOUND` without details → the repository is not connected; import nothing/);
+  });
+
+  it('overseer-sync runs the connect flow with existing sync commands only', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const order = [
+      'overseer sync remotes --json',
+      'overseer sync connection add --host github|gitlab --repo <repository> --json',
+      'overseer sync inspect <bundle> --source github|gitlab --json',
+      'overseer sync mapping import <id> <file> --json',
+      'overseer sync status --json',
+    ].map((command) => text.indexOf(command));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(text).toMatch(/Connect only those the user confirms/);
+    expect(text).toMatch(/"unknown"[^]*ask whether it is GitHub, GitLab or neither/);
+    expect(text).toMatch(/unmapped and leave them\s+unmapped/);
+    // No-MCP path: the import skill's guide, reached as a sibling folder in every install layout.
+    expect(text).toContain('`../overseer-import/references/integrations.md`');
+    expect(text).toMatch(/ask the user to authenticate, and stop/);
+    expect(readFileSync(join(skillsDir, 'overseer-sync', '../overseer-import/references/integrations.md'), 'utf8').length).toBeGreaterThan(0);
+    // Source of truth (TASK-0052) and MCP server choice (TASK-0030) are not part of this flow.
+    expect(text).not.toMatch(/source[- ]of[- ]truth/i);
+    expect(text).not.toContain('--mcp-server');
+    expect(text).not.toMatch(/sync connection set/);
+  });
+
+  it('the overseer skill and the subagent prompt point to overseer-sync for connecting and syncing', () => {
+    expect(readFileSync(join(skillsDir, 'overseer', 'SKILL.md'), 'utf8')).toMatch(/Connecting or syncing[^]*`overseer-sync` skill/);
+    const prompt = readFileSync(join(templates, 'agent-prompt.md'), 'utf8');
+    expect(prompt).toMatch(/connecting or syncing[^]*`overseer-sync` skill/);
+    expect(prompt).not.toMatch(/importing or syncing/);
   });
 });
