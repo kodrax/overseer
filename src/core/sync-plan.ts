@@ -184,7 +184,7 @@ function baseOf(ref: PlanRemoteRef): SyncedFields {
 }
 
 /** One entry per issue: the one updated last (then the larger JSON) when the listing repeats an issue, with a warning. */
-function uniqueIssues(issues: readonly ImportItem[], warnings: string[]): Map<string, ImportItem> {
+export function uniqueIssues(issues: readonly ImportItem[], warnings: string[]): Map<string, ImportItem> {
   const groups = new Map<string, ImportItem[]>();
   for (const issue of issues) groups.set(issue.external_id, [...(groups.get(issue.external_id) ?? []), issue]);
   const unique = new Map<string, ImportItem>();
@@ -356,10 +356,10 @@ interface RemoteRefRow {
 }
 
 /**
- * The sync plan of one connection (NOT_FOUND when unknown) against `payload`, a raw GitHub/GitLab MCP listing of its
- * issues (object or JSON text; a listing of the other host gives INVALID_INPUT). Reads the project database only.
+ * The planner input of one connection (NOT_FOUND when unknown) against `payload`, a raw GitHub/GitLab MCP listing of
+ * its issues (object or JSON text; a listing of the other host gives INVALID_INPUT). Reads the project database only.
  */
-export function planSync(service: OverseerService, connectionId: number | string, payload: unknown): SyncPlan {
+export function loadSyncPlanInput(service: OverseerService, connectionId: number | string, payload: unknown): SyncPlanInput {
   const connection = service.connections.require(connectionId);
   const mapped = mapImportPayload(payload, connection.host, connection.repository, RAW_PAYLOAD_FORMATS);
   const issues = parseInput(z.array(importItemSchema), mapped.items);
@@ -389,7 +389,7 @@ export function planSync(service: OverseerService, connectionId: number | string
   for (const row of db.prepare('SELECT id, external_ref FROM items WHERE substr(external_ref, 1, ?) = ?').all(prefix.length, prefix) as { id: string; external_ref: string }[]) {
     imported.set(row.external_ref.slice(prefix.length), row.id);
   }
-  return computeSyncPlan({
+  return {
     connection_id: connection.id,
     mapping: service.mappings.get(connection.id).mapping,
     outbox,
@@ -400,5 +400,10 @@ export function planSync(service: OverseerService, connectionId: number | string
     imported,
     issues,
     warnings: mapped.warnings,
-  });
+  };
+}
+
+/** The sync plan of one connection against a raw listing of its issues ({@link loadSyncPlanInput}); writes nothing. */
+export function planSync(service: OverseerService, connectionId: number | string, payload: unknown): SyncPlan {
+  return computeSyncPlan(loadSyncPlanInput(service, connectionId, payload));
 }

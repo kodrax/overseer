@@ -70,4 +70,21 @@ skill folder next to this one), ask the user to authenticate, and stop: connect 
 `overseer sync status --json` → show each connection with its auto-sync flag, last sync and pending
 outbox entries.
 
+## Sync
+
+Run for one connection when the user asks to sync, or to sync every connection in turn
+(`overseer sync connections --json`). Pull before pushing, so the push plan sees the remote changes.
+
+1. Fetch the listing: every issue of the repository, open and closed, through the connection's
+   `mcp_server` — GitHub `list_issues` (`state: all`), GitLab `list_work_items` (all states). Follow the
+   pagination (`after` / `endCursor`) until the last page and join the pages' issues (or items) into
+   one array, raw answers unchanged; a missing page makes its issues look absent. Save it to a temporary
+   file.
+2. `overseer sync pull <id> <file> --json` → `{created, updated, conflicts, warnings}`. It applies only the
+   pull operations of `overseer sync plan <id> <file>`: issues no item has become items; remote changes
+   to title, body, labels, state, assignee and milestone reach their items, except fields also changed
+   locally since the last sync. Running it again with the same listing changes nothing. Report the
+   created and updated items, each conflict (`item_id`, `field`, `local`, `remote`, `snapshot`; left
+   untouched on both sides) and the warnings.
+
 <!-- managed-by: overseer-cli -->
