@@ -261,3 +261,46 @@ describe('re-import without a body', () => {
     expect(descriptionEvents()).toMatchObject([{ action: 'update', old_value: 'Write the cart to localStorage on every change.', new_value: '' }]);
   });
 });
+
+describe('remote closures and deletions in payloads and the CLI (TASK-0021)', () => {
+  it('maps GitHub state_reason and GraphQL stateReason so not planned and duplicate closures cancel (AC3)', async () => {
+    const service = openService();
+    const issues = [
+      { number: 1, title: 'Dropped', state: 'CLOSED', state_reason: 'not_planned' },
+      { number: 2, title: 'Same as #1', state: 'CLOSED', stateReason: 'DUPLICATE' },
+      { number: 3, title: 'Shipped', state: 'closed', state_reason: 'completed', labels: [{ name: 'docs' }] },
+    ];
+    const result = await service.importItems({ source: 'github', repo: 'acme/demo', payload: { issues } }, ctx);
+    expect(result.created).toEqual(['TASK-0001', 'TASK-0002', 'TASK-0003']);
+    expect(result.created.map((id) => service.getItem(id).item.status)).toEqual(['cancelled', 'cancelled', 'done']);
+  });
+
+  it('passes "deleted" from the CLI object forms and prints the deleted items (AC2)', async () => {
+    const repo = tempRepo();
+    const list = JSON.parse(fixture('github-list-issues.json'));
+    expect((await cli(repo, ['import', '-', '--source', 'github', '--repo', 'acme/demo', '--json'], fixture('github-list-issues.json'))).code).toBe(0);
+    // TASK-0001 is acme/demo#9, BUG-0001 acme/demo#7.
+    const alone = await cli(repo, ['import', '-', '--source', 'github', '--repo', 'acme/demo'], JSON.stringify({ deleted: ['acme/demo#9', 'acme/demo#404'] }));
+    expect(alone.code).toBe(0);
+    expect(alone.out).toBe('created: 0\nupdated: 0\nunchanged: 0\ndeleted: 1  TASK-0001\nwarning: acme/demo#404: deleted remotely but no item has this issue; nothing deleted.\n');
+
+    const page = { ...list, issues: list.issues.filter((entry: { number: number }) => entry.number !== 7 && entry.number !== 9), deleted: ['acme/demo#7'] };
+    const withPage = await cli(repo, ['import', '-', '--source', 'github', '--repo', 'acme/demo', '--json'], JSON.stringify(page));
+    expect(withPage.json<ImportResult>()).toMatchObject({ created: [], updated: [], deleted: ['BUG-0001'], warnings: [] });
+
+    const items = [{ external_id: 'acme/demo#20', url: 'https://github.com/acme/demo/issues/20', title: 'New', state: 'open' }];
+    const withItems = await cli(repo, ['import', '-', '--source', 'github', '--repo', 'acme/demo', '--json'], JSON.stringify({ items, deleted: ['acme/demo#8'] }));
+    expect(withItems.json<ImportResult>()).toMatchObject({ created: ['TASK-0002'], deleted: ['US-0001'] });
+    expect(board(repo).map(([id]) => id)).toEqual(['EPIC-0001', 'TASK-0002']);
+  });
+
+  it('takes deleted in import_items, which is marked destructive (AC2)', async () => {
+    const repo = tempRepo();
+    const issue = { external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', title: 'Login fails', state: 'open' };
+    expect((await mcpImport(repo, { source: 'github', repo: 'acme/demo', items: [issue] })).data.created).toEqual(['TASK-0001']);
+    const deleted = await mcpImport(repo, { source: 'github', repo: 'acme/demo', items: [], deleted: ['acme/demo#7'] });
+    expect(deleted).toMatchObject({ isError: false, data: { created: [], updated: [], unchanged: [], deleted: ['TASK-0001'], warnings: [] } });
+    const { tools } = await clients[0]!.listTools();
+    expect(tools.find((tool) => tool.name === 'import_items')!.annotations).toEqual({ readOnlyHint: false, destructiveHint: true, openWorldHint: false });
+  });
+});

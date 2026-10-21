@@ -274,3 +274,171 @@ describe('import', () => {
     expect(service.getItem('BUG-0001').item.description).toHaveLength(20000);
   });
 });
+
+describe('import into a connected repository, with remote closures and deletions (TASK-0021)', () => {
+  const remoteRefs = (service: OverseerService) =>
+    service.db.prepare('SELECT item_id, connection_id, external_ref, url, state, synced_at FROM item_remote_refs ORDER BY item_id').all();
+  const events = (service: OverseerService, id: string) =>
+    service.db.prepare('SELECT action, via, actor FROM events WHERE item_id = ? ORDER BY seq').all(id);
+
+  it('writes and refreshes the remote ref of each item for the connection of the imported repository (AC1)', async () => {
+    const service = openService();
+    service.connections.add({ host: 'gitlab', repository: 'acme/demo' });
+    // Same repository, other case: connections match it case-insensitively.
+    const connection = service.connections.add({ host: 'github', repository: 'Acme/Demo' });
+    const first = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue(), issue({ external_id: 'acme/demo#8', url: 'https://github.com/acme/demo/issues/8', labels: [] })] }, ctx);
+    expect(first).toMatchObject({ created: ['BUG-0001', 'TASK-0001'], deleted: [], warnings: [] });
+    expect(remoteRefs(service)).toEqual([
+      { item_id: 'BUG-0001', connection_id: connection.id, external_ref: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'open', synced_at: first.last_import_at },
+      { item_id: 'TASK-0001', connection_id: connection.id, external_ref: 'acme/demo#8', url: 'https://github.com/acme/demo/issues/8', state: 'open', synced_at: first.last_import_at },
+    ]);
+
+    // An unchanged and an updated item both refresh their ref; the item fields behave as without a connection.
+    service.db.prepare("UPDATE item_remote_refs SET synced_at = '2020-01-01T00:00:00Z'").run();
+    const second = await service.importItems(
+      { source: 'github', repo: 'acme/demo', items: [issue({ state: 'closed', url: 'https://github.com/acme/demo/issues/7#moved' }), issue({ external_id: 'acme/demo#8', url: 'https://github.com/acme/demo/issues/8', labels: [] })] },
+      ctx,
+    );
+    expect(second).toMatchObject({ updated: ['BUG-0001'], unchanged: ['TASK-0001'] });
+    expect(remoteRefs(service)).toEqual([
+      { item_id: 'BUG-0001', connection_id: connection.id, external_ref: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7#moved', state: 'closed', synced_at: second.last_import_at },
+      { item_id: 'TASK-0001', connection_id: connection.id, external_ref: 'acme/demo#8', url: 'https://github.com/acme/demo/issues/8', state: 'open', synced_at: second.last_import_at },
+    ]);
+    expect(service.getItem('BUG-0001').item).toMatchObject({ status: 'done', external_ref: 'github:acme/demo#7', external_state: 'closed' });
+  });
+
+  it('writes no remote ref without a connection for the host and repository (AC1)', async () => {
+    const service = openService();
+    service.connections.add({ host: 'gitlab', repository: 'acme/demo' });
+    service.connections.add({ host: 'github', repository: 'acme/other' });
+    const result = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue()] }, ctx);
+    expect(result).toMatchObject({ created: ['BUG-0001'], warnings: [] });
+    expect(remoteRefs(service)).toEqual([]);
+  });
+
+  it('keeps a remote ref that links the issue to another item, with a warning (AC1)', async () => {
+    const service = openService();
+    const connection = service.connections.add({ host: 'github', repository: 'acme/demo' });
+    await service.createItem({ kind: 'task', title: 'Pushed earlier' }, ctx);
+    service.db.prepare('INSERT INTO item_remote_refs(item_id, connection_id, external_ref) VALUES (?, ?, ?)').run('TASK-0001', connection.id, 'acme/demo#7');
+    const result = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue()] }, ctx);
+    expect(result.created).toEqual(['BUG-0001']);
+    expect(result.warnings).toEqual([`BUG-0001: acme/demo#7 is already linked to TASK-0001 in connection ${connection.id}; remote ref not written.`]);
+    expect(remoteRefs(service)).toMatchObject([{ item_id: 'TASK-0001', external_ref: 'acme/demo#7' }]);
+  });
+
+  it('deletes the items of deleted issues through deleteItem, children first, and warns for the rest (AC2)', async () => {
+    const service = openService();
+    const ref = (n: number, overrides: Record<string, unknown> = {}) =>
+      issue({ external_id: `acme/demo#${n}`, url: `https://github.com/acme/demo/issues/${n}`, title: `Issue ${n}`, labels: [], ...overrides });
+    await service.importItems(
+      {
+        source: 'github',
+        repo: 'acme/demo',
+        items: [
+          ref(1, { labels: ['epic'] }),
+          ref(2, { labels: ['story'], parent_external_id: 'acme/demo#1' }),
+          ref(3),
+          ref(4, { labels: ['epic'] }),
+          ref(5, { labels: ['story'], parent_external_id: 'acme/demo#4' }),
+          ref(6),
+        ],
+      },
+      ctx,
+    );
+    expect(service.getItem('US-0001').item.parent_id).toBe('EPIC-0001');
+
+    const result = await service.importItems(
+      { source: 'github', repo: 'acme/demo', items: [ref(6, { title: 'Still here' })], deleted: ['acme/demo#3', 'acme/demo#1', 'acme/demo#2', 'acme/demo#4', 'acme/demo#99', 'acme/demo#6', 'acme/demo#3'] },
+      ctx,
+    );
+    // EPIC-0001 goes after its only child US-0001; EPIC-0002 keeps its child US-0002 (not listed).
+    expect(result).toMatchObject({ created: [], updated: ['TASK-0002'], deleted: ['TASK-0001', 'US-0001', 'EPIC-0001'] });
+    expect(result.warnings).toEqual([
+      'acme/demo#99: deleted remotely but no item has this issue; nothing deleted.',
+      'acme/demo#6: listed in items and in deleted; not deleted.',
+      'EPIC-0002: acme/demo#4 was deleted remotely, but EPIC-0002 has children (US-0002); not deleted.',
+    ]);
+    for (const id of result.deleted) {
+      expect(() => service.getItem(id)).toThrowError(expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining('was deleted on') }));
+      expect(events(service, id).at(-1)).toEqual({ action: 'delete', via: 'import:github', actor: 'tester' });
+    }
+    expect(service.db.prepare('SELECT item_id, external_refs FROM tombstones WHERE item_id = ?').get('TASK-0001')).toEqual({
+      item_id: 'TASK-0001',
+      external_refs: JSON.stringify([{ connection_id: null, external_ref: 'github:acme/demo#3', url: 'https://github.com/acme/demo/issues/3' }]),
+    });
+    expect(service.listItems({ include_closed: true }).items.map((item) => item.id).sort()).toEqual(['EPIC-0002', 'TASK-0002', 'US-0002']);
+  });
+
+  it('takes deleted with no items or with a payload, and validates it with the batch (AC2)', async () => {
+    const service = openService();
+    await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue(), issue({ external_id: 'acme/demo#8', title: 'Other' })] }, ctx);
+    const alone = await service.importItems({ source: 'github', repo: 'acme/demo', items: [], deleted: ['acme/demo#7'] }, ctx);
+    expect(alone).toMatchObject({ created: [], updated: [], unchanged: [], deleted: ['BUG-0001'], warnings: [] });
+    const payload = await service.importItems({ source: 'github', repo: 'acme/demo', payload: { issues: [] }, deleted: ['acme/demo#8'] }, ctx);
+    expect(payload.deleted).toEqual(['BUG-0002']);
+
+    await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue({ external_id: 'acme/demo#9' })] }, ctx);
+    for (const deleted of [[''], [42], 'acme/demo#9']) {
+      await expect(service.importItems({ source: 'github', repo: 'acme/demo', items: [issue({ external_id: 'acme/demo#10' })], deleted }, ctx)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+        message: expect.stringMatching(/^deleted/),
+      });
+    }
+    await expect(service.importItems({ source: 'github', repo: 'acme/demo', items: [], deleted: [] }, ctx)).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message: 'items: pass 1 to 100 ImportItems, or none with deleted.',
+    });
+    expect(service.listItems({ include_closed: true }).items.map((item) => item.id)).toEqual(['BUG-0003']);
+  });
+
+  it('cancels items of GitHub issues closed as not planned or duplicate; other closures finish them (AC3)', async () => {
+    const service = openService();
+    const ref = (n: number, overrides: Record<string, unknown> = {}) =>
+      issue({ external_id: `acme/demo#${n}`, url: `https://github.com/acme/demo/issues/${n}`, title: `Issue ${n}`, labels: [], ...overrides });
+    const created = await service.importItems(
+      {
+        source: 'github',
+        repo: 'acme/demo',
+        items: [
+          ref(1, { state: 'closed', state_reason: 'not_planned' }),
+          ref(2, { state: 'closed', state_reason: 'DUPLICATE' }),
+          ref(3, { state: 'closed', state_reason: 'completed' }),
+          ref(4, { state: 'closed' }),
+          ref(5, { state: 'closed', state_reason: 'not_planned', labels: ['epic'] }),
+          ref(6, { state: 'closed', state_reason: 'not_planned', labels: ['requirement'] }),
+          ref(7),
+          ref(8, { state: 'closed', state_reason: 'not_planned', type_hint: 'bug' }),
+        ],
+      },
+      ctx,
+    );
+    const status = (id: string) => [service.getItem(id).item.status, service.getItem(id).item.delivered_at === null];
+    expect(created.created.map(status)).toEqual([
+      ['cancelled', true],
+      ['cancelled', true],
+      ['done', false],
+      ['done', false],
+      ['cancelled', true],
+      ['implemented', false],
+      ['backlog', true],
+      ['cancelled', true],
+    ]);
+
+    // An open item closed remotely as a duplicate; a cancelled one reopened.
+    const changed = await service.importItems(
+      { source: 'github', repo: 'acme/demo', items: [ref(7, { state: 'closed', state_reason: 'duplicate' }), ref(1, { state: 'open', state_reason: 'reopened' })] },
+      ctx,
+    );
+    expect(changed.updated).toEqual(['TASK-0005', 'TASK-0001']);
+    expect([status('TASK-0005'), status('TASK-0001')]).toEqual([
+      ['cancelled', true],
+      ['backlog', true],
+    ]);
+    expect(service.history('TASK-0005').at(-1)).toMatchObject({ action: 'status', via: 'import:github', old_value: 'backlog', new_value: 'cancelled' });
+
+    // GitLab has no close reason: a closed work item is done.
+    const gitlab = await service.importItems({ source: 'gitlab', repo: 'acme/demo', items: [ref(9, { state: 'closed', state_reason: 'not_planned' })] }, ctx);
+    expect(status(gitlab.created[0]!)).toEqual(['done', false]);
+  });
+});

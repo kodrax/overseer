@@ -26,15 +26,22 @@ them; only pass them to overseer unchanged.**
 4. Pass each answer unchanged, as the tool returned it: `import_items({ source, repo, payload: <answer> })`,
    or save it and pipe it: `overseer import - --source github|gitlab --repo <repo> --json`. Map no fields,
    build no ImportItems, and drop nothing: overseer maps types and states, resolves parents and skips pull
-   requests itself.
-5. Loop until the last page: take the cursor from the answer (`pageInfo.endCursor` while
+   requests itself. GitHub issues closed as not planned or duplicate become `cancelled`, other closed
+   issues `done`.
+5. Deleted issues: list issues never return them. Only for an imported issue the server answers as deleted
+   or not found (e.g. `get_issue` / `get_work_item` on its number), pass its `external_id` in `deleted`
+   next to the page: `import_items({ source, repo, payload: <answer>, deleted: ["<repo>#<n>"] })`, or alone:
+   `import_items({ source, repo, items: [], deleted: [...] })`; with the CLI, pipe `{"deleted": [...]}` (or
+   add `"deleted"` to the saved answer). overseer deletes those items (tombstone kept) and lists them in
+   `deleted`; an item with children is kept with a warning. Never guess deletions.
+6. Loop until the last page: take the cursor from the answer (`pageInfo.endCursor` while
    `pageInfo.hasNextPage` is true), call the list tool again with `after: <cursor>`, and pass that page too.
    A server that answers a plain array (no `pageInfo`) pages with `page: 2, 3, …`; stop at a page shorter
    than `perPage`. Stop when `hasNextPage` is false or a page is empty.
-6. Report the totals overseer returned across all pages: `created` / `updated` / `unchanged` with IDs,
-   every `warnings` entry (skipped pull requests, unresolved parents) and `possible_duplicates` (imported
-   item ↔ existing item with similarity). Propose links (`duplicates`, `implements`, `affects`) and create
-   them only after the user agrees.
+7. Report the totals overseer returned across all pages: `created` / `updated` / `unchanged` / `deleted`
+   with IDs, every `warnings` entry (skipped pull requests, unresolved parents, items not deleted) and
+   `possible_duplicates` (imported item ↔ existing item with similarity). Propose links (`duplicates`,
+   `implements`, `affects`) and create them only after the user agrees.
 
 ## Missing MCP server
 
