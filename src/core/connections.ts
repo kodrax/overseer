@@ -50,6 +50,17 @@ export interface SourceOfTruth {
 
 const BOARD_SOURCE: SourceOfTruth = { source_of_truth: 'board', host: null, repository: null };
 
+/** A connection in `sync status`, with how many sync_outbox rows wait to be pushed to it. */
+export interface ConnectionState extends Connection {
+  pending_outbox: number;
+}
+
+/** `sync status`: every connection, and `board` or the source-of-truth connection with its host and repository. */
+export interface SyncStatus {
+  connections: ConnectionState[];
+  source_of_truth: 'board' | { id: number; host: ConnectionHost; repository: string };
+}
+
 interface ConnectionRow {
   id: number;
   host: ConnectionHost;
@@ -202,6 +213,21 @@ export class Connections {
     if (!row || row.source_of_truth === 'board') return BOARD_SOURCE;
     const connection = this.require(row.source_of_truth);
     return { source_of_truth: connection.id, host: connection.host, repository: connection.repository };
+  }
+
+  /** Every connection with its pending outbox count, and the source of truth; reads only the local database. */
+  status(): SyncStatus {
+    const pending = new Map(
+      (this.db.prepare('SELECT connection_id, count(*) AS n FROM sync_outbox GROUP BY connection_id').all() as { connection_id: number; n: number }[]).map(
+        (row) => [Number(row.connection_id), Number(row.n)],
+      ),
+    );
+    const source = this.sourceOfTruth();
+    return {
+      connections: this.list().map((connection) => ({ ...connection, pending_outbox: pending.get(connection.id) ?? 0 })),
+      source_of_truth:
+        source.source_of_truth === 'board' ? 'board' : { id: source.source_of_truth, host: source.host!, repository: source.repository! },
+    };
   }
 
   /**
