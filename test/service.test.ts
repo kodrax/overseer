@@ -573,7 +573,7 @@ describe('delete', () => {
     expect(service.history(task.id).map((event) => event.action)).toEqual(['create', 'link', 'unlink', 'delete']);
     service.exportReports({ only: ['history', 'json'] });
     const history = readFileSync(join(service.root, 'docs/overseer/history.md'), 'utf8');
-    expect(history).toMatch(new RegExp(`\\| ${deleted_at} \\| ${task.id} \\| delete \\|`));
+    expect(history).toContain(`| ${deleted_at} | ${task.id} | delete |`);
     const exported = JSON.parse(readFileSync(join(service.root, 'docs/overseer/overseer.json'), 'utf8')) as { events: { item_id: string; action: string }[] };
     expect(exported.events.filter((event) => event.item_id === task.id).map((event) => event.action)).toEqual(['create', 'link', 'unlink', 'delete']);
 
