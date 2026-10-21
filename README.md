@@ -324,6 +324,15 @@ A connection is one GitHub or GitLab repository the project syncs with. `oversee
 
 These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
 
+`overseer doctor` adds one `connection <id>` line per connection, after the harness checks. It looks for the connection's MCP server in each harness overseer is installed for, in user scope and in the current project's scope: in the config file overseer registers its own server in (Codex's `config.toml`, the JSON or JSONC file of the other harnesses), and for Claude Code in user scope through `claude mcp get <name>`, or `claude mcp list` when the connection names no server.
+
+- **By name**: a connection with an MCP server counts a server with that name.
+- **By host**: a connection without one counts a server whose URL or command contains the host's usual server: `api.githubcopilot.com/mcp` or `github-mcp-server` for GitHub, `@zereight/mcp-gitlab` or `/api/v4/mcp` for GitLab.
+- **OK** names the server, with its URL or command, and the harnesses that have it, then the harnesses that don't: `OK    connection 1: github acme/demo: MCP server "github" (https://api.githubcopilot.com/mcp/) in omp (user); not in claude (user)`.
+- **WARN** when no harness has it, naming the connection, the harnesses checked and the setup guide (`overseer-import/references/integrations.md` in the installed skills of a checked harness, else in this package's `templates/skills`): `WARN  connection 2: gitlab group/app: no GitLab MCP server (@zereight/mcp-gitlab or /api/v4/mcp) in claude (user), omp (user); set one up as /home/me/.claude/skills/overseer-import/references/integrations.md shows`. A harness config that cannot be read, or `claude` missing from `PATH`, is listed as `cannot check <harness>: <reason>`.
+
+A project without connections gets no `connection` lines, and doctor reads no harness MCP config and runs no harness command for them. doctor itself makes no network call; Claude Code's CLI may check its servers' health when it lists them.
+
 ### Source of truth
 
 The source of truth is where synced item fields come from when the board and a connected repository disagree: the board, or one connection. `overseer sync source-of-truth --json` prints `{"source_of_truth": "board", "host": null, "repository": null}` until another one is chosen, or `{"source_of_truth": <connection id>, "host", "repository"}`; without `--json`, one `key: value` line per field that is set.

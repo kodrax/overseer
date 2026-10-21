@@ -67,9 +67,11 @@ export function removeTomlBlock(text: string, file: string): { text: string; cha
   return { text: out, changed: true };
 }
 
-/** `mcp_servers.overseer` from a config.toml, or undefined. Throws CONFIG_PARSE on malformed text. */
-export function readTomlServer(text: string, file: string): { command?: unknown; args?: unknown } | undefined {
-  const servers = parseToml(text, file).mcp_servers as Record<string, unknown> | undefined;
-  const entry = servers?.overseer;
-  return entry && typeof entry === 'object' ? (entry as { command?: unknown; args?: unknown }) : undefined;
+/** Every `mcp_servers.<name>` table from a config.toml, by name. Throws CONFIG_PARSE on malformed text. */
+export function readTomlServers(text: string, file: string): Record<string, Record<string, unknown>> {
+  const servers = parseToml(text, file).mcp_servers;
+  if (!servers || typeof servers !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(servers as Record<string, unknown>).filter((entry): entry is [string, Record<string, unknown>] => !!entry[1] && typeof entry[1] === 'object'),
+  );
 }
