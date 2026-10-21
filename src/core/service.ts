@@ -173,6 +173,24 @@ export interface LinkResult {
   dst: string;
 }
 
+/** Issue a deleted item was linked to: a connection's remote ref, or the legacy `external_ref` (connection_id null). */
+export interface TombstoneRef {
+  connection_id: number | null;
+  external_ref: string;
+  url: string | null;
+}
+
+/** Result of a delete (MCP `delete_item`, `overseer delete`): the tombstone kept in place of the item. */
+export interface DeleteResult {
+  deleted: true;
+  id: string;
+  kind: Kind;
+  title: string;
+  external_refs: TombstoneRef[];
+  deleted_at: string;
+  actor: string;
+}
+
 export type CoverageVerdict = 'covered' | 'partially' | 'not_found' | 'unknown';
 
 export interface CoverageCheck {
@@ -380,8 +398,22 @@ export class OverseerService {
   requireRow(id: string): ItemRow {
     const normalized = normalizeId(id);
     const row = getRow(this.db, normalized);
-    if (!row) throw new OverseerError('NOT_FOUND', `No item with id ${normalized}.`);
+    if (!row) throw this.notFound([normalized]);
     return row;
+  }
+
+  /** NOT_FOUND naming each unknown ID; a deleted one says when it was deleted. */
+  private notFound(ids: readonly string[]): OverseerError {
+    const lookup = this.db.prepare('SELECT deleted_at FROM tombstones WHERE item_id = ?');
+    const deletedAt = ids.map((id) => lookup.get(id)?.deleted_at);
+    if (ids.length === 1) {
+      return new OverseerError(
+        'NOT_FOUND',
+        deletedAt[0] === undefined ? `No item with id ${ids[0]}.` : `Item ${ids[0]} was deleted on ${String(deletedAt[0])}.`,
+      );
+    }
+    const named = ids.map((id, index) => (deletedAt[index] === undefined ? id : `${id} (deleted on ${String(deletedAt[index])})`));
+    return new OverseerError('NOT_FOUND', `No items with ids ${named.join(', ')}.`);
   }
 
   private coverageOf(row: Pick<ItemRow, 'id' | 'status' | 'in_backlog'>, implementers?: Map<string, ItemRef[]>): CoverageState {
@@ -408,8 +440,7 @@ export class OverseerService {
     const normalized = ids.map(normalizeId);
     const rows = normalized.map((id) => getRow(this.db, id));
     const unknown = [...new Set(normalized.filter((_, index) => !rows[index]))];
-    if (unknown.length === 1) throw new OverseerError('NOT_FOUND', `No item with id ${unknown[0]}.`);
-    if (unknown.length > 1) throw new OverseerError('NOT_FOUND', `No items with ids ${unknown.join(', ')}.`);
+    if (unknown.length > 0) throw this.notFound(unknown);
     return { items: rows.map((row) => this.detailOf(row!, options)) };
   }
 
@@ -843,6 +874,51 @@ export class OverseerService {
     this.assertLink(from, rel, to);
     tx(this.db, () => this.insertLink(from.id, rel, to.id, ctx, nowIso()));
     return { linked: true, src: from.id, rel, dst: to.id };
+  }
+
+  /**
+   * Deletes an item without children in one transaction: its links (both directions, each with an unlink event), its
+   * embeddings, vectors and search-index row, and its remote refs (cascade). A tombstone keeps the ID, kind, title,
+   * remote refs, time and actor, and a delete event joins the history. IDs come from monotonic counters: never reused.
+   */
+  deleteItem(id: string, ctx: Ctx): DeleteResult {
+    return tx(this.db, () => {
+      const row = this.requireRow(id);
+      const children = this.db
+        .prepare(`SELECT id, kind, title, status FROM items WHERE parent_id = ? ORDER BY ${ORDER_BY_ID}`)
+        .all(row.id) as unknown as ItemRef[];
+      if (children.length > 0) {
+        throw new OverseerError(
+          'CONFLICT',
+          `${row.id} has children: ${children.map((child) => child.id).join(', ')}. Delete them or give them another parent first; nothing was deleted.`,
+          { children: children.map(toRef) },
+        );
+      }
+      const remote = this.db
+        .prepare('SELECT connection_id, external_ref, url FROM item_remote_refs WHERE item_id = ? ORDER BY connection_id')
+        .all(row.id) as unknown as TombstoneRef[];
+      const externalRefs: TombstoneRef[] = [
+        ...(row.external_ref ? [{ connection_id: null, external_ref: row.external_ref, url: row.external_url }] : []),
+        ...remote.map(({ connection_id, external_ref, url }) => ({ connection_id, external_ref, url })),
+      ];
+      const now = nowIso();
+      const links = this.db.prepare('SELECT src, rel, dst FROM links WHERE src = ? OR dst = ? ORDER BY src, rel, dst').all(row.id, row.id) as {
+        src: string;
+        rel: Relation;
+        dst: string;
+      }[];
+      this.db.prepare('DELETE FROM links WHERE src = ? OR dst = ?').run(row.id, row.id);
+      for (const link of links) this.addEvent(link.src, ctx, now, 'unlink', link.rel, link.dst, null);
+      this.semantic.removeItem(row.rid);
+      this.db.prepare('DELETE FROM items_fts WHERE rowid = ?').run(row.rid);
+      this.db.prepare('DELETE FROM items WHERE rid = ?').run(row.rid);
+      const actor = this.actor(ctx);
+      this.db
+        .prepare('INSERT INTO tombstones(item_id, kind, title, external_refs, deleted_at, actor) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(row.id, row.kind, row.title, JSON.stringify(externalRefs), now, actor);
+      this.addEvent(row.id, ctx, now, 'delete', null, row.title, null);
+      return { deleted: true, id: row.id, kind: row.kind, title: row.title, external_refs: externalRefs, deleted_at: now, actor };
+    });
   }
 
   // ---- export / import -------------------------------------------------------------------------

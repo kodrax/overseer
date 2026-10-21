@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { computeCoverage } from '../src/core/coverage.js';
+import { VEC_TABLES } from '../src/core/migrations.js';
 import { OverseerService, type CreatedResult } from '../src/core/service.js';
 import type { CreateInput } from '../src/core/schema.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
@@ -457,5 +460,124 @@ describe('item details', () => {
     expect(() => service.getItems([])).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
     expect(() => service.getItems(Array.from({ length: 51 }, () => story.id))).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
     expect(service.getItems(Array.from({ length: 50 }, () => story.id)).items).toHaveLength(50);
+  });
+});
+
+describe('delete', () => {
+  const count = (service: OverseerService, sql: string, ...params: (string | number | bigint)[]) =>
+    Number(service.db.prepare(`SELECT count(*) AS n FROM ${sql}`).get(...params)!.n);
+
+  async function fixture() {
+    const service = openService();
+    const r = await create(service, req('Login'));
+    const story = await create(service, { kind: 'story', title: 'Sign in', links: [{ rel: 'implements', to: r.id }] });
+    const task = await create(service, { kind: 'task', title: 'Session cookie', links: [{ rel: 'depends_on', to: story.id }] });
+    await service.semantic.embedPending();
+    return { service, r, story, task };
+  }
+
+  it('removes the item, its links both ways, embeddings, vectors and search row, and keeps a tombstone and a delete event', async () => {
+    const { service, r, story, task } = await fixture();
+    const rid = service.requireRow(story.id).rid;
+    service.db.exec(`UPDATE items SET external_ref = 'github:acme/app#7', external_url = 'https://github.com/acme/app/issues/7' WHERE id = '${story.id}'`);
+    service.db.exec(`INSERT INTO connections(id, host, repository, created_at) VALUES (1, 'gitlab', 'acme/app', '2026-10-01T10:00:00-03:00')`);
+    service.db.exec(`INSERT INTO item_remote_refs(item_id, connection_id, external_ref, url) VALUES ('${story.id}', 1, 'acme/app#3', 'https://gitlab.com/acme/app/-/issues/3')`);
+    expect(count(service, 'item_embeddings WHERE rid = ?', rid)).toBe(1);
+    expect(count(service, 'items_fts WHERE rowid = ?', rid)).toBe(1);
+    if (service.vecAvailable) for (const table of VEC_TABLES) expect(count(service, `${table} WHERE rid = ?`, BigInt(rid))).toBe(1);
+
+    const result = service.deleteItem('us-1', { via: 'test', actor: 'remover' });
+    expect(result).toEqual({
+      deleted: true,
+      id: story.id,
+      kind: 'story',
+      title: 'Sign in',
+      external_refs: [
+        { connection_id: null, external_ref: 'github:acme/app#7', url: 'https://github.com/acme/app/issues/7' },
+        { connection_id: 1, external_ref: 'acme/app#3', url: 'https://gitlab.com/acme/app/-/issues/3' },
+      ],
+      deleted_at: expect.any(String),
+      actor: 'remover',
+    });
+    expect(count(service, 'items WHERE id = ?', story.id)).toBe(0);
+    expect(count(service, 'links WHERE src = ? OR dst = ?', story.id, story.id)).toBe(0);
+    expect(count(service, 'item_embeddings WHERE rid = ?', rid)).toBe(0);
+    expect(count(service, 'items_fts WHERE rowid = ?', rid)).toBe(0);
+    expect(count(service, 'item_remote_refs WHERE item_id = ?', story.id)).toBe(0);
+    if (service.vecAvailable) {
+      for (const table of VEC_TABLES) {
+        expect(count(service, `${table} WHERE rid = ?`, BigInt(rid))).toBe(0);
+        // The stored running sum equals the sum of the vectors left.
+        const stored = JSON.parse(String(service.getMeta(`vec_sum:${table}`))) as { n: number; sum: string };
+        const bytes = Buffer.from(stored.sum, 'base64');
+        const sum = new Float64Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        const rows = service.db.prepare(`SELECT embedding FROM ${table}`).all() as { embedding: Uint8Array }[];
+        expect(stored.n).toBe(rows.length);
+        const expected = new Float64Array(sum.length);
+        for (const row of rows) new Float32Array(row.embedding.buffer.slice(row.embedding.byteOffset, row.embedding.byteOffset + row.embedding.byteLength)).forEach((value, i) => (expected[i]! += value));
+        sum.forEach((value, i) => expect(value).toBeCloseTo(expected[i]!, 5));
+      }
+    }
+    expect(service.db.prepare('SELECT * FROM tombstones').all()).toEqual([
+      {
+        item_id: story.id,
+        kind: 'story',
+        title: 'Sign in',
+        external_refs: JSON.stringify(result.external_refs),
+        deleted_at: result.deleted_at,
+        actor: 'remover',
+      },
+    ]);
+    const history = service.history(story.id).map(({ item_id, action, field, old_value, new_value, actor }) => [item_id, action, field, old_value, new_value, actor]);
+    expect(history).toEqual([
+      [story.id, 'create', null, null, 'Sign in', 'tester'],
+      [story.id, 'link', 'implements', null, r.id, 'tester'],
+      [task.id, 'link', 'depends_on', null, story.id, 'tester'],
+      [task.id, 'unlink', 'depends_on', story.id, null, 'remover'],
+      [story.id, 'unlink', 'implements', r.id, null, 'remover'],
+      [story.id, 'delete', null, 'Sign in', null, 'remover'],
+    ]);
+    expect(service.getItem(r.id).links.incoming).toEqual([]);
+    expect(service.getItem(task.id).links.outgoing).toEqual([]);
+    expect((await service.search('Sign in')).results.map((hit) => hit.id)).not.toContain(story.id);
+  });
+
+  it('refuses an item with children with CONFLICT listing them and deletes nothing', async () => {
+    const service = openService();
+    const epic = await create(service, { kind: 'epic', title: 'Accounts' });
+    await create(service, { kind: 'story', title: 'Sign in', parent_id: epic.id });
+    await create(service, { kind: 'bug', title: 'Login crash', parent_id: epic.id });
+    const events = count(service, 'events');
+    expect(() => service.deleteItem(epic.id, ctx)).toThrow(
+      expect.objectContaining({
+        code: 'CONFLICT',
+        message: 'EPIC-0001 has children: BUG-0001, US-0001. Delete them or give them another parent first; nothing was deleted.',
+      }),
+    );
+    expect(service.getItem(epic.id).children.map((child) => child.id)).toEqual(['BUG-0001', 'US-0001']);
+    expect(count(service, 'tombstones')).toBe(0);
+    expect(count(service, 'events')).toBe(events);
+  });
+
+  it('answers NOT_FOUND with the deletion time, keeps the events in history and exports, and never reuses the ID', async () => {
+    const { service, story, task } = await fixture();
+    const { deleted_at } = service.deleteItem(task.id, ctx);
+    expect(() => service.getItem(task.id)).toThrow(expect.objectContaining({ code: 'NOT_FOUND', message: `Item ${task.id} was deleted on ${deleted_at}.` }));
+    expect(() => service.getItems([story.id, task.id])).toThrow(expect.objectContaining({ message: `Item ${task.id} was deleted on ${deleted_at}.` }));
+    expect(() => service.getItems([task.id, 'TASK-0099'])).toThrow(
+      expect.objectContaining({ code: 'NOT_FOUND', message: `No items with ids ${task.id} (deleted on ${deleted_at}), TASK-0099.` }),
+    );
+    await expect(service.updateItem({ id: task.id, title: 'Back' }, ctx)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(() => service.deleteItem(task.id, ctx)).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
+
+    expect(service.history(task.id).map((event) => event.action)).toEqual(['create', 'link', 'unlink', 'delete']);
+    service.exportReports({ only: ['history', 'json'] });
+    const history = readFileSync(join(service.root, 'docs/overseer/history.md'), 'utf8');
+    expect(history).toContain(`| ${deleted_at} | ${task.id} | delete |`);
+    const exported = JSON.parse(readFileSync(join(service.root, 'docs/overseer/overseer.json'), 'utf8')) as { events: { item_id: string; action: string }[] };
+    expect(exported.events.filter((event) => event.item_id === task.id).map((event) => event.action)).toEqual(['create', 'link', 'unlink', 'delete']);
+
+    expect((await create(service, { kind: 'task', title: 'Next task' })).id).toBe('TASK-0002');
+    expect(task.id).toBe('TASK-0001');
   });
 });

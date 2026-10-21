@@ -93,6 +93,8 @@ const toolsHelp = {
   search: 'Hybrid keyword + semantic search over all items.',
   link_items:
     'Add (or remove with remove:true) a relation between two items. implements: story|task→requirement (puts the requirement in the backlog); affects: bug→requirement|story; refines, conflicts_with, supersedes: requirement→requirement; duplicates: same kind; depends_on, relates_to: any.',
+  delete_item:
+    'Permanently delete an item, its links (both directions), embeddings and search entry. Returns {deleted:true, id, kind, title, external_refs, deleted_at, actor}: a tombstone keeps these, and the history keeps the item\'s events plus a delete event. An item with children answers CONFLICT listing them and deletes nothing. The ID is never reused; get_item on it answers NOT_FOUND saying when it was deleted. Prefer closing items with a status (cancelled, rejected, obsolete); delete only when the user asks.',
   report: 'Markdown report plus data: summary | coverage | board | drift | lint | traceability.',
   export_report:
     'Write Markdown/JSON exports (README.md, requirements.md, backlog.md, history.md, overseer.json) into the project (default docs/overseer/) so they can be committed. Only when the user asks.',
@@ -317,6 +319,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       annotations: writes,
     },
     (args) => run(args.project_dir, true, (service) => service.link(args.src, args.rel, args.dst, ctx(), args.remove)),
+  );
+
+  server.registerTool(
+    'delete_item',
+    {
+      title: 'Delete item',
+      description: toolsHelp.delete_item,
+      inputSchema: { id: z.string().min(1).describe('Item ID, e.g. TASK-0012.'), project_dir: projectDir },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    (args) => run(args.project_dir, true, (service) => service.deleteItem(args.id, ctx())),
   );
 
   server.registerTool(

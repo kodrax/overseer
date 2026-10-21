@@ -33,8 +33,10 @@
 | `created_at`, `updated_at`, `status_changed_at` | all | Auto, ISO-8601 with offset |
 | `coverage` | requirement | Derived at read time (below) |
 
-Using a kind-specific field on another kind → `INVALID_INPUT`. Items are never deleted: use
-`cancelled`, `rejected` or `obsolete`.
+Using a kind-specific field on another kind → `INVALID_INPUT`. Close items with `cancelled`, `rejected`
+or `obsolete`. `delete_item` (`overseer delete <id>`) removes an item without children and its links; a
+tombstone keeps its ID, kind, title, external refs, `deleted_at` and actor, its events stay in the history,
+the ID is never reused, and reading it answers `NOT_FOUND` with the deletion time.
 
 ## Statuses (first = default; any → any within the kind)
 

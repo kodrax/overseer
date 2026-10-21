@@ -10,7 +10,7 @@ import {
   REQ_TYPES,
 } from '../../core/schema.js';
 import type { SimilarMatch } from '../../core/search.js';
-import { type CreateResult, type ItemDetail, type LinkResult, type ListResult, MAX_ITEM_IDS, type UpdateResult } from '../../core/service.js';
+import { type CreateResult, type DeleteResult, type ItemDetail, type LinkResult, type ListResult, MAX_ITEM_IDS, type UpdateResult } from '../../core/service.js';
 import { fields, list, similarity, table } from '../format.js';
 import { collect, collectList, oneOf, parseInteger, parseNumber } from '../options.js';
 import type { CliRuntime } from '../runtime.js';
@@ -418,4 +418,15 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
         });
       });
   }
+
+  program
+    .command('delete')
+    .description('delete an item without children, with its links, keeping a tombstone and its history')
+    .argument('<id>', 'item id')
+    .option('--json', 'print JSON')
+    .action(async (id: string, options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', (service) => {
+        rt.emit(options.json, service.deleteItem(id, rt.ctx), (result: DeleteResult) => `Deleted ${result.id}  ${result.title}`);
+      });
+    });
 }
