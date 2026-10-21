@@ -226,6 +226,7 @@ overseer export                             # writes docs/overseer/
 | `worktree finish <id> --merged-head <sha> [--pr] [--base]` | after the merge: remove the worktree and branches, fast-forward the base, set the item done and roll its story up to done |
 | `worktree list` | worktrees on task and bug branches, with their item IDs |
 | `sync remotes` | GitHub, GitLab and other repositories named by the project's git remotes (see [Repository remotes](#repository-remotes)) |
+| `sync status` | sync state: each connection with its MCP server, auto-sync flag, last sync cursor and pending outbox entries, and the source of truth (see [Sync status](#sync-status)) |
 | `sync connections` | the project's repository connections, with their MCP server and auto-sync flag (see [Repository connections](#repository-connections)) |
 | `sync connection add --host github\|gitlab --repo <repo> [--mcp-server <name>]` | connect a GitHub or GitLab repository to the project, with auto-sync on |
 | `sync connection set <id> [--auto-sync on\|off] [--mcp-server <name>]` | change a connection's auto-sync flag or MCP server |
@@ -340,6 +341,12 @@ The source of truth is where synced item fields come from when the board and a c
 `overseer sync source-of-truth set <connection id>|board --json` stores the choice and prints it the same way. An unknown connection id gives `NOT_FOUND`; anything else that is not `board` or a positive integer gives `INVALID_INPUT`. Changing it stores only the setting: connections, issue references, mappings and the outbox stay as they are, so no issue is re-created.
 
 These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
+
+### Sync status
+
+`overseer sync status --json` prints `{"connections": [...], "source_of_truth": "board"}`: every connection as in `sync connections` (`id`, `host`, `repository`, `mcp_server`, `auto_sync`, `last_sync_cursor`, `created_at`) plus `pending_outbox`, the number of its rows waiting in the outbox. `last_sync_cursor` is `null` until the first sync. A connection as source of truth shows as `{"id", "host", "repository"}`. With no connection it prints `{"connections": [], "source_of_truth": "board"}`. Without `--json`, a table (`No connections.` when there is none; `never` for a connection not synced yet) and a `Source of truth:` line with the connection's host and repository.
+
+It reads only the project database: no GitHub or GitLab call. It has no MCP tool.
 
 ### Tracking setup
 

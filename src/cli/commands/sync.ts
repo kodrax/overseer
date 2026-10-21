@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { CONNECTION_HOSTS, type Connection, type SourceOfTruth } from '../../core/connections.js';
+import { CONNECTION_HOSTS, type Connection, type SourceOfTruth, type SyncStatus } from '../../core/connections.js';
 import { type ConnectionMapping, MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES } from '../../core/mappings.js';
 import { detectRemotes } from '../../core/remotes.js';
 import { IMPORT_SOURCES } from '../../core/schema.js';
@@ -55,6 +55,29 @@ function formatSourceOfTruth(source: SourceOfTruth): string {
     ['host', source.host],
     ['repository', source.repository],
   ]);
+}
+
+/** Connections table (or `No connections.`) and the source of truth with its host and repository. */
+function formatStatus({ connections, source_of_truth }: SyncStatus): string {
+  return [
+    connections.length === 0
+      ? 'No connections.'
+      : table(
+          ['Id', 'Host', 'Repository', 'MCP server', 'Auto-sync', 'Last sync', 'Pending outbox'],
+          connections.map((connection) => [
+            connection.id,
+            connection.host,
+            connection.repository,
+            connection.mcp_server,
+            connection.auto_sync ? 'on' : 'off',
+            connection.last_sync_cursor ?? 'never',
+            connection.pending_outbox,
+          ]),
+        ),
+    source_of_truth === 'board'
+      ? 'Source of truth: board'
+      : `Source of truth: connection ${source_of_truth.id} (${source_of_truth.host} ${source_of_truth.repository})`,
+  ].join('\n');
 }
 
 const MAPPING_HELP = `
@@ -114,6 +137,16 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
       assertProjectEnabled(root, rt.env);
       const source = oneOf(IMPORT_SOURCES, options.source, 'source');
       rt.emit(options.json, inspectTracking(parseJsonInput(await readInput(rt, file, 'Bundle'), 'Bundle'), source), formatSetup);
+    });
+
+  sync
+    .command('status')
+    .description('each connection with its pending outbox entries, and the source of truth (local database only, no network)')
+    .option('--json', 'print JSON')
+    .action(async (options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'read', (service) => {
+        rt.emit(options.json, service.connections.status(), formatStatus);
+      });
     });
 
   sync

@@ -299,6 +299,48 @@ describe('connections service', () => {
   });
 });
 
+describe('sync status', () => {
+  it('with no connection says so and names the board as source of truth', async () => {
+    const root = tempDir();
+    await cli(root, ['init']);
+    const json = await cli(root, ['sync', 'status', '--json']);
+    expect([json.code, json.json()]).toEqual([0, { connections: [], source_of_truth: 'board' }]);
+    expect((await cli(root, ['sync', 'status'])).out).toBe('No connections.\nSource of truth: board\n');
+  });
+
+  it('shows each connection with its pending outbox count and the source of truth with host and repository', async () => {
+    const root = tempDir();
+    await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo', '--mcp-server', 'github']);
+    await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/sub/project']);
+    await cli(root, ['sync', 'connection', 'set', '2', '--auto-sync', 'off']);
+    const service = openService(root);
+    const insertOutbox = service.db.prepare("INSERT INTO sync_outbox(connection_id, item_id, operation, created_at) VALUES (?, 'TASK-0001', 'update', '2026-10-20T00:00:00Z')");
+    for (const connection of [1, 1, 2]) insertOutbox.run(connection);
+    service.db.prepare("UPDATE connections SET last_sync_cursor = '2026-10-20T12:00:00Z' WHERE id = 2").run();
+    service.close();
+
+    const json = await cli(root, ['sync', 'status', '--json']);
+    const state = (id: number, rest: Partial<Connection>, pending: number) => expect.objectContaining({ id, ...rest, pending_outbox: pending });
+    expect(json.json()).toEqual({
+      connections: [
+        state(1, { host: 'github', repository: 'acme/demo', mcp_server: 'github', auto_sync: true, last_sync_cursor: null }, 2),
+        state(2, { host: 'gitlab', repository: 'group/sub/project', mcp_server: null, auto_sync: false, last_sync_cursor: '2026-10-20T12:00:00Z' }, 1),
+      ],
+      source_of_truth: 'board',
+    });
+
+    await cli(root, ['sync', 'source-of-truth', 'set', '2']);
+    expect((await cli(root, ['sync', 'status', '--json'])).json()).toMatchObject({
+      source_of_truth: { id: 2, host: 'gitlab', repository: 'group/sub/project' },
+    });
+    const text = (await cli(root, ['sync', 'status'])).out;
+    expect(text).toMatch(/Pending outbox/);
+    expect(text).toMatch(/1 +github +acme\/demo +github +on +never +2/);
+    expect(text).toMatch(/2 +gitlab +group\/sub\/project +- +off +2026-10-20T12:00:00Z +1/);
+    expect(text).toMatch(/\nSource of truth: connection 2 \(gitlab group\/sub\/project\)\n$/);
+  });
+});
+
 describe('no GitHub or GitLab calls', () => {
   it('connection commands and item changes without a connection only touch the local database', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
@@ -308,7 +350,11 @@ describe('no GitHub or GitLab calls', () => {
     expect((await cli(root, ['sync', 'connections', '--json'])).json()).toEqual([]);
     await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo', '--mcp-server', 'github']);
     await cli(root, ['sync', 'connection', 'set', '1', '--auto-sync', 'off']);
+    await cli(root, ['sync', 'source-of-truth', 'set', '1']);
+    expect((await cli(root, ['sync', 'status', '--json'])).code).toBe(0);
+    expect((await cli(root, ['sync', 'status'])).code).toBe(0);
     await cli(root, ['sync', 'connection', 'remove', '1']);
+    expect((await cli(root, ['sync', 'status', '--json'])).code).toBe(0);
     expect(fetch).not.toHaveBeenCalled();
   });
 });
