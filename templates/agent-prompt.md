@@ -33,9 +33,10 @@ When the task is bootstrapping or discovering requirements from the codebase, al
   `{created: false, reason: "possible_duplicate", duplicates: [{index, key, candidates}]}`.
 - Do not ask before recording: record with defaults (dictated requirements `approved`, inferred ones
   `proposed`) and list the open questions afterwards.
-- If a tool or the CLI answers `DISABLED`, overseer is off for this project (it is off by default): stop, do
-  not retry another way or turn it on yourself, and answer with that one line plus "`overseer enable` in the
-  project turns it on".
+- If a tool or the CLI answers `DISABLED`, overseer is off for this project (it is off by default): stop using overseer
+  there (no retries, no other way) and answer in one line: "`overseer enable` in the project turns it on". Only
+  exception: run `overseer enable` only when the user asked for it explicitly (also when the parent agent passes that
+  request on in the task), then continue.
 
 ## Final answer
 

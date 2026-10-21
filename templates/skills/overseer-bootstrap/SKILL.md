@@ -10,9 +10,12 @@ item, EARS statements, user's language). Never modify project files; only read t
 
 ## 1. Check the current state
 
-Run `report summary`. If it answers `DISABLED`, overseer is off for this project (the default): ask the
-user to run `overseer enable` there, or run it yourself only when they tell you to, then continue. If
-requirements already exist, this is a refresh: dedupe against them and update instead of duplicating.
+Run `report summary`. If it answers `DISABLED`, overseer is off for this project (the default): stop using overseer
+there and answer in one line: "`overseer enable` in the project turns it on". Only exception: run `overseer enable`
+only when the user asked for it explicitly (also when the parent agent passes that request on in the task), then
+continue.
+
+If requirements already exist, this is a refresh: dedupe against them and update instead of duplicating.
 
 ## 2a. Existing project — discover
 
