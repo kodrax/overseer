@@ -1,13 +1,27 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Command } from 'commander';
+import type { Connection, ConnectionHost } from '../../core/connections.js';
 import { loadVec } from '../../core/db.js';
 import { DEFAULT_MODEL, isModelCached, modelCacheDir, TransformersEmbedder } from '../../core/embeddings.js';
 import { errorMessage } from '../../core/errors.js';
+import { templatesDir } from '../../core/paths.js';
 import { isGuardedRoot } from '../../core/project.js';
 import { KINDS } from '../../core/schema.js';
 import { OverseerService } from '../../core/service.js';
 import { type ProjectState, projectState } from '../../core/user-config.js';
-import { type CheckLine, checkInstall, harnessStatus, TARGET_IDS } from '../../install/index.js';
+import {
+  type CheckLine,
+  checkInstall,
+  harnessMcpServers,
+  harnessStatus,
+  type InstallContext,
+  type McpServerEntry,
+  TARGET_IDS,
+  type TargetId,
+} from '../../install/index.js';
+import { TARGETS } from '../../install/targets.js';
 import type { CliRuntime, GlobalOptions } from '../runtime.js';
 import { installContext } from './install.js';
 
@@ -59,8 +73,8 @@ async function modelChecks(rt: CliRuntime, deep: boolean): Promise<CheckLine[]> 
   return lines;
 }
 
-/** Project check plus the resolved root when it is a usable (non-guarded) project directory. */
-function projectCheck(rt: CliRuntime, explicit: string | undefined): { line: CheckLine; root?: string } {
+/** Project check, the resolved root when it is a usable (non-guarded) project directory, and its connections. */
+function projectCheck(rt: CliRuntime, explicit: string | undefined): { line: CheckLine; root?: string; connections?: Connection[] } {
   let root: string;
   try {
     root = rt.projectRoot(explicit);
@@ -99,25 +113,32 @@ function projectCheck(rt: CliRuntime, explicit: string | undefined): { line: Che
         detail: `${root} (schema ${info.schema_version}; ${total} items${breakdown.length > 0 ? `: ${breakdown.join(', ')}` : ''}; semantic ${info.vec_available ? 'on' : 'off'})`,
       },
       root,
+      connections: service.connections.list(),
     };
   } finally {
     service.close();
   }
 }
 
+/** A harness overseer is installed in, with the install context of that scope. */
+interface HarnessInstall {
+  ctx: InstallContext;
+  target: TargetId;
+}
+
 /**
  * One summary line naming every harness overseer is installed for (user scope, or project scope of the current
  * project, marked "(project)"), then full checks only for those installs (not installing it for a detected harness
- * is the user's choice, not a problem).
+ * is the user's choice, not a problem). `installs` lists those installs, user scope first.
  */
-function targetChecks(rt: CliRuntime, root: string | undefined): CheckLine[] {
+function targetChecks(rt: CliRuntime, root: string | undefined): { lines: CheckLine[]; installs: HarnessInstall[] } {
   const user = installContext(rt, 'user', undefined, { dryRun: true, force: false });
   const statuses = harnessStatus(user);
   const installed = statuses.filter((status) => status.installed).map((status) => status.target);
   const projectChecks: CheckLine[] = [];
   const inProject = new Set<string>();
-  if (root !== undefined) {
-    const project = installContext(rt, 'project', root, { dryRun: true, force: false });
+  const project = root === undefined ? undefined : installContext(rt, 'project', root, { dryRun: true, force: false });
+  if (project !== undefined) {
     const projectLines = checkInstall(project, [...TARGET_IDS]);
     for (const target of TARGET_IDS) {
       const prefix = `${target} (project) `;
@@ -147,7 +168,80 @@ function targetChecks(rt: CliRuntime, root: string | undefined): CheckLine[] {
           label: 'harnesses',
           detail: `overseer installed for ${named.join(', ')}${available.length > 0 ? `; also detected: ${available.join(', ')} (add with overseer install --targets <ids>)` : ''}`,
         };
-  return [summary, ...checkInstall(user, installed), ...projectChecks];
+  const installs: HarnessInstall[] = [
+    ...installed.map((target) => ({ ctx: user, target })),
+    ...(project === undefined ? [] : TARGET_IDS.filter((target) => inProject.has(target)).map((target) => ({ ctx: project, target }))),
+  ];
+  return { lines: [summary, ...checkInstall(user, installed), ...projectChecks], installs };
+}
+
+/** What identifies each host's usual MCP server in a URL or command, for connections that name no server. */
+const HOST_SERVERS: Record<ConnectionHost, { label: string; patterns: string[] }> = {
+  github: { label: 'GitHub', patterns: ['api.githubcopilot.com/mcp', 'github-mcp-server'] },
+  gitlab: { label: 'GitLab', patterns: ['@zereight/mcp-gitlab', '/api/v4/mcp'] },
+};
+
+/**
+ * One line per repository connection: OK naming the MCP server that reaches the repository and the harnesses whose
+ * config has it (by the connection's `mcp_server` name, else by the host's usual URL or command), WARN naming the
+ * harnesses checked and the setup guide when none has it. Only local configs are read (Claude Code's user scope
+ * through `claude mcp get <name>` or `claude mcp list`); nothing is read when there is no connection.
+ */
+function connectionChecks(connections: Connection[], installs: HarnessInstall[]): CheckLine[] {
+  if (connections.length === 0) return [];
+  const guideFile = join('overseer-import', 'references', 'integrations.md');
+  const guide =
+    installs.map(({ ctx, target }) => join(TARGETS[target].layout(ctx).skillsDir, guideFile)).find((path) => existsSync(path)) ??
+    join(templatesDir(), 'skills', guideFile);
+  // One read per harness and server name, shared by connections to the same host or server.
+  const reads = new Map<string, McpServerEntry[] | Error>();
+  const servers = (index: number, name: string | undefined): McpServerEntry[] => {
+    const key = `${index}:${name ?? ''}`;
+    let result = reads.get(key);
+    if (result === undefined) {
+      try {
+        result = harnessMcpServers(installs[index]!.ctx, installs[index]!.target, name);
+      } catch (error) {
+        result = new Error(errorMessage(error));
+      }
+      reads.set(key, result);
+    }
+    if (result instanceof Error) throw result;
+    return result;
+  };
+  return connections.map((connection): CheckLine => {
+    const label = `connection ${connection.id}`;
+    const subject = `${connection.host} ${connection.repository}`;
+    const name = connection.mcp_server ?? undefined;
+    const { label: hostLabel, patterns } = HOST_SERVERS[connection.host];
+    const found = new Map<string, string[]>();
+    const missing: string[] = [];
+    const failed: string[] = [];
+    installs.forEach(({ ctx, target }, index) => {
+      const harness = `${target} (${ctx.scope})`;
+      try {
+        const match = servers(index, name).find((server) => name !== undefined || patterns.some((pattern) => server.target.includes(pattern)));
+        if (!match) {
+          missing.push(harness);
+          return;
+        }
+        const server = match.target === '' ? `"${match.name}"` : `"${match.name}" (${match.target})`;
+        found.set(server, [...(found.get(server) ?? []), harness]);
+      } catch (error) {
+        failed.push(`${harness}: ${errorMessage(error)}`);
+      }
+    });
+    const cannot = failed.length > 0 ? `cannot check ${failed.join('; ')}` : '';
+    if (found.size > 0) {
+      const where = [...found].map(([server, harnesses]) => `${server} in ${harnesses.join(', ')}`).join('; ');
+      const rest = [missing.length > 0 ? `not in ${missing.join(', ')}` : '', cannot].filter((part) => part !== '');
+      return { status: 'OK', label, detail: `${subject}: MCP server ${where}${rest.map((part) => `; ${part}`).join('')}` };
+    }
+    const wanted = name !== undefined ? `MCP server "${name}"` : `${hostLabel} MCP server (${patterns.join(' or ')})`;
+    const checked = installs.map(({ ctx, target }) => `${target} (${ctx.scope})`);
+    const searched = checked.length === 0 ? `overseer is installed for no harness, so none was checked for ${wanted}` : `no ${wanted} in ${checked.join(', ')}`;
+    return { status: 'WARN', label, detail: `${subject}: ${searched}${cannot === '' ? '' : ` (${cannot})`}; set one up as ${guide} shows` };
+  });
 }
 
 export function registerDoctorCommand(program: Command, rt: CliRuntime): void {
@@ -158,8 +252,16 @@ export function registerDoctorCommand(program: Command, rt: CliRuntime): void {
     .option('--json', 'print JSON')
     .action(async (options: { deep?: boolean; json?: boolean }, command: Command) => {
       const { project: explicit } = command.optsWithGlobals<GlobalOptions>();
-      const { line, root } = projectCheck(rt, explicit);
-      const checks: CheckLine[] = [nodeCheck(), sqliteCheck(), ...(await modelChecks(rt, options.deep === true)), line, ...targetChecks(rt, root)];
+      const { line, root, connections = [] } = projectCheck(rt, explicit);
+      const targets = targetChecks(rt, root);
+      const checks: CheckLine[] = [
+        nodeCheck(),
+        sqliteCheck(),
+        ...(await modelChecks(rt, options.deep === true)),
+        line,
+        ...targets.lines,
+        ...connectionChecks(connections, targets.installs),
+      ];
       rt.emit(options.json, { checks }, () => checks.map((check) => `${check.status.padEnd(4)}  ${check.label}: ${check.detail}`).join('\n'));
       if (checks.some((check) => check.status === 'FAIL')) rt.exitCode = 1;
     });

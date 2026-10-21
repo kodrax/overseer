@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { parse as parseYaml } from 'yaml';
-import { checkInstall, formatInstallReport, install, TARGET_IDS, uninstall } from '../src/install/index.js';
+import { checkInstall, formatInstallReport, harnessMcpServers, install, TARGET_IDS, uninstall } from '../src/install/index.js';
 import { CLI_PATH, listDirs, mtimes, NODE_PATH, readText, sandbox, snapshotTree, writeFile } from './fixtures/install/harness.js';
 
 const ALL = [...TARGET_IDS];
@@ -399,5 +399,64 @@ describe('checkInstall', () => {
     mkdirSync(box.bin, { recursive: true });
     writeFileSync(join(box.bin, 'overseer'), '#!/bin/sh\n', { mode: 0o755 });
     expect(checkInstall(box.ctx('project'), ['cursor'])[2]!.status).toBe('OK');
+  });
+});
+
+describe('harnessMcpServers', () => {
+  const github = { type: 'http', url: 'https://api.githubcopilot.com/mcp/' };
+
+  test('reads every server of the JSON and TOML configs overseer registers in, with its URL or command', () => {
+    const box = sandbox();
+    const ctx = box.ctx('user');
+    writeFile(join(box.home, '.omp/agent/mcp.json'), JSON.stringify({ mcpServers: { github, overseer: { command: 'node', args: ['cli.js', 'mcp'] } } }));
+    writeFile(join(box.home, '.gemini/settings.json'), '{\n  // mine\n  "mcpServers": {"gh": {"httpUrl": "https://api.githubcopilot.com/mcp/x/issues/readonly"}}\n}\n');
+    writeFile(join(box.home, '.codex/config.toml'), '[mcp_servers.gitlab]\ncommand = "npx"\nargs = ["-y", "@zereight/mcp-gitlab"]\n');
+    writeFile(join(box.home, '.config/opencode/opencode.json'), JSON.stringify({ mcp: { gh: { type: 'remote', url: 'https://api.githubcopilot.com/mcp/' } } }));
+    expect(harnessMcpServers(ctx, 'omp')).toEqual([
+      { name: 'github', target: 'https://api.githubcopilot.com/mcp/' },
+      { name: 'overseer', target: 'node cli.js mcp' },
+    ]);
+    expect(harnessMcpServers(ctx, 'omp', 'github')).toEqual([{ name: 'github', target: 'https://api.githubcopilot.com/mcp/' }]);
+    expect(harnessMcpServers(ctx, 'gemini')).toEqual([{ name: 'gh', target: 'https://api.githubcopilot.com/mcp/x/issues/readonly' }]);
+    expect(harnessMcpServers(ctx, 'codex')).toEqual([{ name: 'gitlab', target: 'npx -y @zereight/mcp-gitlab' }]);
+    expect(harnessMcpServers(ctx, 'opencode')).toEqual([{ name: 'gh', target: 'https://api.githubcopilot.com/mcp/' }]);
+    expect(harnessMcpServers(ctx, 'cursor')).toEqual([]);
+    expect(() => harnessMcpServers(ctx, 'claude')).toThrow('claude is not on PATH');
+    writeFile(join(box.home, '.cursor/mcp.json'), '{"mcpServers": ');
+    expect(() => harnessMcpServers(ctx, 'cursor')).toThrow(/CONFIG_PARSE|mcp\.json/);
+  });
+
+  test('OpenCode v2 servers sit under mcp.servers; Claude Code project scope reads .mcp.json', () => {
+    const box = sandbox({ shims: ['opencode'], env: { OVS_OPENCODE_VERSION: '2.0.3' } });
+    const ctx = box.ctx('project');
+    writeFile(join(box.project, 'opencode.json'), JSON.stringify({ mcp: { servers: { gl: { type: 'local', command: ['npx', '-y', '@zereight/mcp-gitlab'] } } } }));
+    writeFile(join(box.project, '.mcp.json'), JSON.stringify({ mcpServers: { github } }));
+    expect(harnessMcpServers(ctx, 'opencode')).toEqual([{ name: 'gl', target: 'npx -y @zereight/mcp-gitlab' }]);
+    expect(harnessMcpServers(ctx, 'opencode', 'servers')).toEqual([]);
+    expect(harnessMcpServers(ctx, 'claude')).toEqual([{ name: 'github', target: 'https://api.githubcopilot.com/mcp/' }]);
+  });
+
+  test('Claude Code user scope: claude mcp get <name>, else claude mcp list', () => {
+    const box = sandbox();
+    writeFileSync(
+      join(box.bin, 'claude'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$OVS_CLAUDE_LOG"
+case "$1 $2 $3" in
+  "mcp get github") printf 'github:\\n  Scope: User config (available in all your projects)\\n  Status: \\342\\234\\223 Connected\\n  Type: http\\n  URL: https://api.githubcopilot.com/mcp/\\n'; exit 0;;
+  "mcp list ") printf 'Checking MCP server health...\\n\\ngithub: https://api.githubcopilot.com/mcp/ (HTTP) - \\342\\234\\223 Connected\\ngitlab: npx -y @zereight/mcp-gitlab - \\342\\234\\227 Failed to connect\\n'; exit 0;;
+esac
+exit 1
+`,
+      { mode: 0o755 },
+    );
+    const ctx = box.ctx('user');
+    expect(harnessMcpServers(ctx, 'claude', 'github')).toEqual([{ name: 'github', target: 'https://api.githubcopilot.com/mcp/' }]);
+    expect(harnessMcpServers(ctx, 'claude', 'work')).toEqual([]);
+    expect(harnessMcpServers(ctx, 'claude')).toEqual([
+      { name: 'github', target: 'https://api.githubcopilot.com/mcp/' },
+      { name: 'gitlab', target: 'npx -y @zereight/mcp-gitlab' },
+    ]);
+    expect(box.claudeCalls()).toEqual(['mcp get github', 'mcp get work', 'mcp list']);
   });
 });

@@ -613,6 +613,114 @@ describe('cli install and doctor', () => {
     });
   });
 
+  describe('connection MCP servers', () => {
+    // `claude` stand-in: logs argv; `mcp get gitlab` and `mcp list` show one GitLab server, any other name is missing.
+    const CLAUDE = `#!/bin/sh
+printf '%s\\n' "$*" >> "$OVS_CLAUDE_LOG"
+case "$1 $2 $3" in
+  "mcp get gitlab") printf 'gitlab:\\n  Scope: User config (available in all your projects)\\n  Status: \\342\\234\\223 Connected\\n  Type: stdio\\n  Command: npx\\n  Args: -y @zereight/mcp-gitlab\\n'; exit 0;;
+  "mcp list ") printf 'Checking MCP server health...\\n\\ngitlab: npx -y @zereight/mcp-gitlab - \\342\\234\\223 Connected\\n'; exit 0;;
+  "mcp get "*) printf 'No MCP server named "%s".\\n' "$3" >&2; exit 1;;
+esac
+exit 0
+`;
+
+    /** overseer installed for claude and omp (user scope) and claude (project scope), with fake harness MCP configs. */
+    async function setup(): Promise<{ repo: string; home: string; env: Record<string, string>; claudeCalls: () => string[] }> {
+      const home = tempDir('ovs-home-');
+      const bin = binDir();
+      writeFileSync(join(bin, 'claude'), CLAUDE, { mode: 0o755 });
+      const log = join(home, 'claude.log');
+      const env = { HOME: home, PATH: bin, XDG_CACHE_HOME: join(home, 'cache'), OVS_CLAUDE_LOG: log };
+      const repo = tempRepo();
+      expect((await cli(repo, ['init'], { env })).code).toBe(0);
+      expect((await cli(repo, ['install', '--targets', 'claude,omp', '--skip-model'], { env })).code).toBe(0);
+      expect((await cli(repo, ['install', '--scope', 'project', '--targets', 'claude', '--skip-model'], { env })).code).toBe(0);
+      const omp = join(home, '.omp/agent/mcp.json');
+      const config = JSON.parse(readFileSync(omp, 'utf8')) as { mcpServers: Record<string, unknown> };
+      config.mcpServers.github = { type: 'http', url: 'https://api.githubcopilot.com/mcp/' };
+      writeFileSync(omp, JSON.stringify(config, null, 2));
+      const project = join(repo, '.mcp.json');
+      const servers = JSON.parse(readFileSync(project, 'utf8')) as { mcpServers: Record<string, unknown> };
+      servers.mcpServers.gl = { type: 'stdio', command: 'npx', args: ['-y', '@zereight/mcp-gitlab'] };
+      writeFileSync(project, JSON.stringify(servers, null, 2));
+      writeFileSync(log, '');
+      return { repo, home, env, claudeCalls: () => readFileSync(log, 'utf8').split('\n').filter(Boolean) };
+    }
+
+    it('reports per connection the harnesses whose config has its MCP server, by name or by the host default', async () => {
+      const { repo, home, env, claudeCalls } = await setup();
+      for (const args of [
+        ['--host', 'github', '--repo', 'acme/demo'],
+        ['--host', 'gitlab', '--repo', 'group/app'],
+        ['--host', 'github', '--repo', 'acme/other', '--mcp-server', 'work-github'],
+        ['--host', 'gitlab', '--repo', 'group/named', '--mcp-server', 'gitlab'],
+        ['--host', 'github', '--repo', 'acme/named', '--mcp-server', 'github'],
+      ]) {
+        expect((await cli(repo, ['sync', 'connection', 'add', ...args], { env })).code).toBe(0);
+      }
+      const { checks } = (await cli(repo, ['doctor', '--json'], { env })).json<{ checks: CheckLine[] }>();
+      const guide = join(home, '.claude/skills/overseer-import/references/integrations.md');
+      expect(checks.filter((check) => check.label.startsWith('connection '))).toEqual([
+        {
+          status: 'OK',
+          label: 'connection 1',
+          detail: 'github acme/demo: MCP server "github" (https://api.githubcopilot.com/mcp/) in omp (user); not in claude (user), claude (project)',
+        },
+        {
+          status: 'OK',
+          label: 'connection 2',
+          detail: 'gitlab group/app: MCP server "gitlab" (npx -y @zereight/mcp-gitlab) in claude (user); "gl" (npx -y @zereight/mcp-gitlab) in claude (project); not in omp (user)',
+        },
+        {
+          status: 'WARN',
+          label: 'connection 3',
+          detail: `github acme/other: no MCP server "work-github" in claude (user), omp (user), claude (project); set one up as ${guide} shows`,
+        },
+        {
+          status: 'OK',
+          label: 'connection 4',
+          detail: 'gitlab group/named: MCP server "gitlab" (npx -y @zereight/mcp-gitlab) in claude (user); not in omp (user), claude (project)',
+        },
+        {
+          status: 'OK',
+          label: 'connection 5',
+          detail: 'github acme/named: MCP server "github" (https://api.githubcopilot.com/mcp/) in omp (user); not in claude (user), claude (project)',
+        },
+      ]);
+      expect(existsSync(guide)).toBe(true);
+      // Claude Code is read through its CLI, once per server name or listing.
+      expect(claudeCalls().sort()).toEqual(['mcp get github', 'mcp get gitlab', 'mcp get overseer', 'mcp get work-github', 'mcp list']);
+    });
+
+    it('warns with the host default and the harnesses checked when no harness has the server', async () => {
+      const { repo, env } = await setup();
+      expect((await cli(repo, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/app'], { env })).code).toBe(0);
+      writeFileSync(join(repo, '.mcp.json'), JSON.stringify({ mcpServers: { other: { command: 'other-mcp' } } }));
+      const { checks } = (await cli(repo, ['doctor', '--json'], { env: { ...env, PATH: binDir() } })).json<{ checks: CheckLine[] }>();
+      expect(checks.find((check) => check.label === 'connection 1')).toEqual({
+        status: 'WARN',
+        label: 'connection 1',
+        detail: expect.stringMatching(
+          /^gitlab group\/app: no GitLab MCP server \(@zereight\/mcp-gitlab or \/api\/v4\/mcp\) in claude \(user\), omp \(user\), claude \(project\) \(cannot check claude \(user\): claude is not on PATH\); set one up as \/.+\/references\/integrations\.md shows$/,
+        ),
+      });
+    });
+
+    it('leaves the output unchanged and runs no harness CLI for MCP servers when the project has no connection', async () => {
+      const { repo, env, claudeCalls } = await setup();
+      const before = await cli(repo, ['doctor'], { env });
+      expect(before.out).not.toContain('connection');
+      expect(claudeCalls()).toEqual(['mcp get overseer']);
+      expect((await cli(repo, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo'], { env })).code).toBe(0);
+      expect((await cli(repo, ['doctor'], { env })).out).toContain('OK    connection 1: github acme/demo: MCP server "github"');
+      expect((await cli(repo, ['sync', 'connection', 'remove', '1'], { env })).code).toBe(0);
+      const after = await cli(repo, ['doctor'], { env });
+      expect(after.out).toBe(before.out);
+      expect(claudeCalls().filter((call) => call !== 'mcp get overseer')).toEqual(['mcp list']);
+    });
+  });
+
   it('install --scope project turns the project on for the installing user', async () => {
     const env = { HOME: tempDir('ovs-home-'), PATH: binDir(), OVERSEER_CONFIG_DIR: tempDir('ovs-config-') };
     const repo = tempRepo();

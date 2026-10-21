@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { isOverseerError, OverseerError } from '../core/errors.js';
-import { CLAUDE_REMOVE_ARGS, claudeAddArgs, claudeMcpGet, claudeRegistrationMatches } from './claude-cli.js';
+import { CLAUDE_REMOVE_ARGS, claudeAddArgs, claudeMcpGet, claudeMcpList, claudeRegistrationMatches } from './claude-cli.js';
 import { findExecutable } from './exec.js';
 import type { Op } from './fs-ops.js';
 import { isManaged, listFiles, readIfExists, Run } from './fs-ops.js';
@@ -9,7 +9,7 @@ import { getJsonValue, removeJsonValues, setJsonValue } from './json-config.js';
 import { opencodeSchema } from './opencode-version.js';
 import type { Detection, McpSpec, TargetLayout } from './targets.js';
 import { readsSharedSkills, TARGETS } from './targets.js';
-import { readTomlServer, removeTomlBlock, renderMcpBlock, upsertTomlBlock } from './toml-block.js';
+import { readTomlServers, removeTomlBlock, renderMcpBlock, upsertTomlBlock } from './toml-block.js';
 import type { CheckLine, InstallAction, InstallContext, InstallReport, TargetId } from './types.js';
 import { BACKUP_SUFFIX, SKILL_NAMES, TARGET_IDS } from './types.js';
 
@@ -342,7 +342,7 @@ function checkMcp(ctx: InstallContext, target: TargetId, mcp: McpSpec, installed
       }
       case 'toml': {
         const text = readIfExists(mcp.path);
-        const entry = text === undefined ? undefined : readTomlServer(text, mcp.path);
+        const entry = text === undefined ? undefined : readTomlServers(text, mcp.path).overseer;
         if (!entry) return absent(`no [mcp_servers.overseer] in ${mcp.path}`);
         const problem = checkCommandPaths(entry.command, entry.args, ctx);
         return { status: problem ? (ctx.scope === 'user' ? 'FAIL' : 'WARN') : 'OK', label, detail: problem ? `${mcp.path}: ${problem}` : mcp.path };
@@ -379,6 +379,69 @@ export function checkInstall(ctx: InstallContext, targets: TargetId[] = detectTa
     if (target === 'opencode') lines.push({ status: 'OK', label: `${prefix} schema`, detail: `opencode config ${opencodeSchema(ctx)}` });
   }
   return lines;
+}
+
+/** One MCP server in a harness config: its name, and its URL or its command and arguments joined by spaces. */
+export interface McpServerEntry {
+  name: string;
+  target: string;
+}
+
+function serverTarget(entry: Record<string, unknown>): string {
+  const url = [entry.url, entry.httpUrl, entry.serverUrl].find((value) => typeof value === 'string');
+  if (typeof url === 'string') return url;
+  // OpenCode keeps the command and its arguments in one array.
+  const command: unknown[] = Array.isArray(entry.command) ? entry.command : [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])];
+  return command.filter((part) => typeof part === 'string').join(' ');
+}
+
+/**
+ * MCP servers in `target`'s config for `ctx.scope`, read where overseer's own entry lives: the JSON/JSONC server
+ * containers, Codex's `[mcp_servers.*]` tables, and for Claude Code's user scope `claude mcp get <name>` (with `name`)
+ * or `claude mcp list`. With `name`, only the server of that name. Throws CONFIG_PARSE on a malformed config and
+ * NOT_FOUND when claude is not on PATH.
+ */
+export function harnessMcpServers(ctx: InstallContext, target: TargetId, name?: string): McpServerEntry[] {
+  assertContext(ctx);
+  const mcp = TARGETS[target].layout(ctx).mcp;
+  const servers: McpServerEntry[] = [];
+  switch (mcp.type) {
+    case 'claude-cli': {
+      const bin = findExecutable(ctx, 'claude');
+      if (!bin) throw new OverseerError('NOT_FOUND', 'claude is not on PATH');
+      if (name !== undefined) {
+        const info = claudeMcpGet(ctx, bin, name);
+        return info.exists ? [{ name, target: info.url ?? [info.command, info.args].filter(Boolean).join(' ') }] : [];
+      }
+      const listed = claudeMcpList(ctx, bin);
+      if (!listed) throw new Error('claude mcp list failed');
+      servers.push(...listed);
+      break;
+    }
+    case 'json': {
+      const text = readIfExists(mcp.path);
+      // OpenCode has two containers (`mcp` in v1, `mcp.servers` in v2): the v2 container is not a v1 server.
+      const containers = [...new Map(mcp.removePaths.map((path) => [path.slice(0, -1).join('.'), path.slice(0, -1)])).values()];
+      const keys = new Set(containers.map((path) => path.join('.')));
+      for (const container of containers) {
+        const value = getJsonValue(text, container, mcp.path);
+        if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+          if (entry && typeof entry === 'object' && !keys.has([...container, key].join('.'))) {
+            servers.push({ name: key, target: serverTarget(entry as Record<string, unknown>) });
+          }
+        }
+      }
+      break;
+    }
+    case 'toml': {
+      const text = readIfExists(mcp.path);
+      const tables = text === undefined ? {} : readTomlServers(text, mcp.path);
+      servers.push(...Object.entries(tables).map(([key, entry]) => ({ name: key, target: serverTarget(entry) })));
+      break;
+    }
+  }
+  return name === undefined ? servers : servers.filter((server) => server.name === name);
 }
 
 // ────────────────────────────── output ─────────────────────────────
