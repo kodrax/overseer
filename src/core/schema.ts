@@ -171,6 +171,8 @@ export interface LintWarning {
 export interface Ctx {
   via: string;
   actor?: string;
+  /** Connection whose remote changes this write applies (an import of its issues): the sync outbox skips it. */
+  origin_connection?: number;
 }
 
 const title = z.string().trim().min(1, 'title must not be empty').max(500);

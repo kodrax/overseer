@@ -10,6 +10,7 @@ import { allRows, columnValue, eventValue, getRow, type ItemRow, toItem, writeFt
 import { lintItem } from './lint.js';
 import { ConnectionMappings } from './mappings.js';
 import { SCHEMA_VERSION } from './migrations.js';
+import { SyncOutbox } from './outbox.js';
 import { assertWritableRoot, defaultBaseBranch, isGuardedRoot } from './project.js';
 import {
   buildReport,
@@ -270,6 +271,8 @@ export class OverseerService {
   readonly connections: Connections;
   /** Each connection's kind/status/priority mapping onto the repository's labels, issue types or states. */
   readonly mappings: ConnectionMappings;
+  /** Pending local item changes per connection with auto-sync on; every history event of an item is recorded there. */
+  readonly outbox: SyncOutbox;
 
   private constructor(root: string, db: Database, vecAvailable: boolean, embedder: Embedder | null) {
     this.root = root;
@@ -278,6 +281,7 @@ export class OverseerService {
     this.semantic = new SemanticIndex(db, vecAvailable, embedder);
     this.connections = new Connections(db);
     this.mappings = new ConnectionMappings(db, this.connections);
+    this.outbox = new SyncOutbox(db, this.connections);
   }
 
   /**
@@ -640,6 +644,10 @@ export class OverseerService {
 
   // ---- writes ----------------------------------------------------------------------------------
 
+  /**
+   * Appends a history event and records the change in the sync outbox, in the caller's transaction. Every item write
+   * goes through here, so this is where outbox entries come from (`ctx.origin_connection` is left out).
+   */
   addEvent(
     itemId: string,
     ctx: Ctx,
@@ -652,6 +660,7 @@ export class OverseerService {
     this.db
       .prepare('INSERT INTO events(item_id, at, actor, via, action, field, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(itemId, at, this.actor(ctx), ctx.via, action, field, eventValue(oldValue), eventValue(newValue));
+    this.outbox.record(itemId, action, field, ctx.origin_connection);
   }
 
   private assertParent(kind: Kind, parentId: string, selfId?: string): ItemRow {

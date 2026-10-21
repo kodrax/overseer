@@ -164,7 +164,7 @@ describe('sync connections, connection set and connection remove', () => {
       insertRef.run(itemId, connection, `ref-${connection}`);
       insertMapping.run(connection, 'kind', 'bug', 'bug');
       insertMapping.run(connection, 'priority', 'must', 'P1');
-      insertOutbox.run(connection, itemId);
+      // The create already queued one outbox row per connection; two more make three.
       insertOutbox.run(connection, itemId);
       insertOutbox.run(connection, itemId);
     }
