@@ -69,11 +69,15 @@ export class CliRuntime {
     this.out(json ? JSON.stringify(value, null, 2) : human(value));
   }
 
-  /** Reports an error (`error: <CODE>: <message>` on stderr, or the JSON envelope on stdout) and sets exit code 1. */
+  /**
+   * Reports an error (`error: <CODE>: <message>` on stderr, or the JSON envelope `{error: {code, message, details?}}`
+   * on stdout) and sets exit code 1.
+   */
   fail(error: unknown, json: boolean): void {
     const code = isOverseerError(error) ? error.code : 'INTERNAL';
     const message = errorMessage(error);
-    if (json) this.out(JSON.stringify({ error: { code, message } }));
+    const details = isOverseerError(error) ? error.details : undefined;
+    if (json) this.out(JSON.stringify({ error: { code, message, ...(details === undefined ? {} : { details }) } }));
     else this.err(`error: ${code}: ${message}`);
     this.exitCode = 1;
   }

@@ -11,6 +11,7 @@ import { lintItem } from './lint.js';
 import { ConnectionMappings } from './mappings.js';
 import { SCHEMA_VERSION } from './migrations.js';
 import { assertWritableRoot, defaultBaseBranch, isGuardedRoot } from './project.js';
+import { parseIssueReference, resolveIssueReference } from './references.js';
 import {
   buildReport,
   countsByKind,
@@ -433,16 +434,29 @@ export class OverseerService {
     return item;
   }
 
-  getItem(id: string, options: ItemDetailOptions = {}): ItemDetail {
-    return this.detailOf(this.requireRow(id), options);
+  /**
+   * An item ID, normalized; a GitHub/GitLab issue reference (`#7`, `acme/demo#7`, `github:acme/demo#7`, an issue URL)
+   * resolves to the ID of the item imported or synced from that issue (see resolveIssueReference).
+   */
+  private idOf(idOrReference: string): string {
+    const reference = parseIssueReference(idOrReference);
+    return reference ? resolveIssueReference(this.db, this.connections.list(), reference) : normalizeId(idOrReference);
   }
 
-  /** Details of several items in request order; NOT_FOUND names every unknown ID. */
+  /** One item by ID or issue reference. */
+  getItem(id: string, options: ItemDetailOptions = {}): ItemDetail {
+    return this.detailOf(this.requireRow(this.idOf(id)), options);
+  }
+
+  /**
+   * Details of several items (IDs or issue references) in request order; the first reference that matches no item
+   * fails as in getItem, and NOT_FOUND then names every unknown ID.
+   */
   getItems(ids: readonly string[], options: ItemDetailOptions = {}): { items: ItemDetail[] } {
     if (ids.length === 0 || ids.length > MAX_ITEM_IDS) {
       throw new OverseerError('INVALID_INPUT', `ids must hold 1 to ${MAX_ITEM_IDS} item IDs; got ${ids.length}.`);
     }
-    const normalized = ids.map(normalizeId);
+    const normalized = ids.map((id) => this.idOf(id));
     const rows = normalized.map((id) => getRow(this.db, id));
     const unknown = [...new Set(normalized.filter((_, index) => !rows[index]))];
     if (unknown.length > 0) throw this.notFound(unknown);

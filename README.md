@@ -210,7 +210,7 @@ overseer export                             # writes docs/overseer/
 | `add <kind> --title …` | record a requirement, epic, story, task or bug; refuses likely duplicates unless `--allow-duplicate` (`--json` prints a compact result, `--full` the whole item) |
 | `add --batch <file\|->` | record up to 50 items from a JSON array in one transaction, all or nothing (see [Batch create](#batch-create)) |
 | `update <id> …` | change fields or status, `--comment`, `--delivered-in`, `--clear <field>` (`--json` prints a compact result, `--full` the whole item) |
-| `show <id>… [--context] [--history]` | items with links, children, coverage and history; several IDs (up to 50) print `{items:[…]}` with `--json`; `--context` adds the parent and the linked requirements with their acceptance criteria |
+| `show <id>… [--context] [--history]` | items with links, children, coverage and history; several IDs (up to 50) print `{items:[…]}` with `--json`; `--context` adds the parent and the linked requirements with their acceptance criteria; an ID may be an issue reference such as `acme/demo#7` or an issue URL (see [Issue references](#issue-references)) |
 | `list [--kind] [--status] [--type] [--coverage] [--tag] [--parent] [--all] [--limit] [--offset]` | list items (closed ones hidden unless `--all`); `--type` filters requirements by `functional` or `non_functional`, `--parent <id>` lists an item's children; pages of `--limit` items (default 50) starting at `--offset` |
 | `search <query>` | hybrid keyword + semantic search |
 | `similar <text>` | duplicate check |
@@ -243,7 +243,7 @@ overseer export                             # writes docs/overseer/
 | `config get [key] [--stored]` / `config set <key> <value>` | project settings (`--stored`: only the ones set in this project) |
 | `install` / `uninstall` / `doctor` | harness wiring and health checks |
 
-Every command except `mcp`, `board` and `models pull` accepts `--json`. Errors go to stderr as `error: <CODE>: <message>` with exit code 1. With `--json`, they go to stdout as `{"error":{"code","message"}}`.
+Every command except `mcp`, `board` and `models pull` accepts `--json`. Errors go to stderr as `error: <CODE>: <message>` with exit code 1. With `--json`, they go to stdout as `{"error":{"code","message"}}`, plus `"details"` when the error carries them (a missing issue to import, the problems of a batch). MCP tools answer `<CODE>: <message>` with `isError: true`; details come as a second text block `{"details": …}` and as `structuredContent.error.details`.
 
 `add --json` and `create_item` return a compact result for agents: `{"created": true, "id", "title", "status", "verdict", "candidates": [{"id", "title", "similarity", "match"}], "warnings"}`. `verdict` and `candidates` come from the duplicate check and use `find_similar`'s values (`duplicate`, `related`, `new`, or `unknown` when only keyword search is available). A likely duplicate gives `{"created": false, "reason": "possible_duplicate", "verdict": "duplicate", "candidates"}` and nothing is written. `update --json` and `update_item` return `{"id", "title", "status", "changed_fields", "warnings"}`. `--full` (`full: true` in MCP) returns the whole item instead: `{"created", "item", "warnings", "similar"}`, `{"created": false, "reason", "candidates"}` and `{"item", "changed_fields", "warnings"}`. The text output and the web board are not affected.
 
@@ -511,6 +511,28 @@ The CLI accepts both and detects the format: a JSON array of ImportItems (or `{"
 echo '[{"external_id":"acme/demo#7","url":"https://github.com/acme/demo/issues/7","title":"Login fails on Safari","state":"open","labels":["bug"]}]' \
   | overseer import - --source github --repo acme/demo
 overseer import list_issues.json --source github --repo acme/demo
+```
+
+### Issue references
+
+`overseer show` and `get_item` (`id` and each of `ids`) take an issue reference wherever they take an item ID, and return the item imported or synced from that issue. IDs (`TASK-0012`) are looked up as before.
+
+| Reference | Repository |
+|---|---|
+| `acme/demo#7` | `acme/demo` on GitHub or GitLab; deeper paths (`group/sub/project#3`) are GitLab only |
+| `github:acme/demo#7`, `gitlab:group/sub/project#3` | that host |
+| `https://github.com/acme/demo/issues/7` | GitHub |
+| `https://gitlab.com/group/sub/project/-/issues/3`, `…/-/work_items/3` | GitLab, on any hostname |
+| `#7` | the connected repository, when exactly one is connected (see [Repository connections](#repository-connections)); else `INVALID_INPUT` asking for `owner/repo#7` or the URL |
+
+A reference matches an imported item's `external_ref` (`github:acme/demo#7`) or a connected repository's issue reference on an item; repository paths compare case-insensitively. When nothing matches:
+
+- **Connected repository**: `NOT_FOUND` with `details` naming the issue to import, in `import_items` terms: `{"source": "github", "repo": "acme/demo", "external_id": "acme/demo#7", "url": "https://github.com/acme/demo/issues/7"}` (`url` is the given URL, else the github.com or gitlab.com one). The `overseer-ship` skill imports that one issue and continues.
+- **Any other repository**: a plain `NOT_FOUND: No item for acme/demo#7.`
+
+```sh
+overseer show acme/demo#7 --context --json
+overseer show https://gitlab.com/group/sub/project/-/work_items/3 '#7' TASK-0012 --json
 ```
 
 ## Configuration

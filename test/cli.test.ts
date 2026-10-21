@@ -167,6 +167,7 @@ describe('cli add', () => {
     expect(invalid.json<ErrorEnvelope>().error).toEqual({
       code: 'INVALID_INPUT',
       message: 'Nothing written: 2 problems in the batch: items[0]: parent_id "@x": no entry of this batch has key "@x"; items[1]: parent_id: A epic cannot have a parent.',
+      details: { problems: ['items[0]: parent_id "@x": no entry of this batch has key "@x"', 'items[1]: parent_id: A epic cannot have a parent.'] },
     });
     expect((await cli(repo, ['add', 'task', '--batch', 'batch.json', '--json'])).json<ErrorEnvelope>().error.message).toContain('--batch takes every item from the file');
     expect((await cli(repo, ['add', '--title', 'No kind', '--json'])).json<ErrorEnvelope>().error).toEqual({
@@ -327,7 +328,11 @@ describe('cli delete', () => {
     const refused = await cli(repo, ['delete', 'EPIC-0001', '--json']);
     expect(refused.code).toBe(1);
     expect(refused.json()).toEqual({
-      error: { code: 'CONFLICT', message: 'EPIC-0001 has children: US-0001. Delete them or give them another parent first; nothing was deleted.' },
+      error: {
+        code: 'CONFLICT',
+        message: 'EPIC-0001 has children: US-0001. Delete them or give them another parent first; nothing was deleted.',
+        details: { children: [{ id: 'US-0001', kind: 'story', title: 'Sign in', status: 'backlog' }] },
+      },
     });
     const text = await cli(repo, ['delete', 'US-0001']);
     expect(text).toMatchObject({ code: 0, out: 'Deleted US-0001  Sign in\n' });

@@ -71,7 +71,7 @@ describe('sync connection add', () => {
     for (const repo of ['acme/demo', 'Acme/Demo.git']) {
       const again = await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', repo, '--json']);
       expect(again.code).toBe(1);
-      expect(errorCode(again)).toEqual({ code: 'CONFLICT', message: 'github acme/demo is already connection 1.' });
+      expect(errorCode(again)).toEqual({ code: 'CONFLICT', message: 'github acme/demo is already connection 1.', details: { id: 1 } });
     }
     // The same path on the other host is another repository.
     expect((await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'acme/demo', '--json'])).json<Connection>().id).toBe(2);

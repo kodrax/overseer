@@ -613,7 +613,9 @@ describe('overseer worktree list and finish', () => {
 
     out = '';
     expect(await run('worktree', 'finish', 'TASK-0001', '--merged-head', shipped.head, '--pr', PR, '--json')).toBe(1);
-    expect(JSON.parse(out)).toEqual({ error: { code: 'CONFLICT', message: expect.stringContaining('?? notes.txt') } });
+    expect(JSON.parse(out)).toEqual({
+      error: { code: 'CONFLICT', message: expect.stringContaining('?? notes.txt'), details: { lost: [expect.stringContaining('?? notes.txt')] } },
+    });
     expect(existsSync(shipped.path)).toBe(true);
 
     rmSync(join(shipped.path, 'notes.txt'));
