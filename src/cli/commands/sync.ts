@@ -3,6 +3,7 @@ import { CONNECTION_HOSTS, type Connection, type SourceOfTruth, type SyncStatus 
 import { type ConnectionMapping, MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES } from '../../core/mappings.js';
 import { detectRemotes } from '../../core/remotes.js';
 import { IMPORT_SOURCES } from '../../core/schema.js';
+import { planSync, type SyncPlan } from '../../core/sync-plan.js';
 import { bundleKeys, inspectTracking, type TrackingSetup } from '../../core/tracking.js';
 import { assertProjectEnabled } from '../../core/user-config.js';
 import { fields, table } from '../format.js';
@@ -95,6 +96,39 @@ function formatMapping({ mapping }: ConnectionMapping): string {
     ['Dimension', 'Local', 'Remote'],
     MAPPING_DIMENSIONS.flatMap((dimension) => Object.entries(mapping[dimension]).map(([local, remote]) => [dimension, local, remote ?? '(unmapped)'])),
   );
+}
+
+const PLAN_HELP = `
+The listing is the raw answer of the connection's MCP server: a GitHub list_issues response ({"issues": [...]}) or an
+array of GitHub issues, or a GitLab list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item
+response or array of work items. Join the pages into one array to plan against every issue. Nothing is written.
+`;
+
+/** A conflict value in the text plan: JSON, cut to 60 characters. */
+function planValue(value: unknown): string {
+  const text = JSON.stringify(value);
+  return text.length > 60 ? `${text.slice(0, 59)}…` : text;
+}
+
+/** Counts line, then a table per non-empty part and a `warning:` line per warning. */
+function formatPlan(connectionId: number, { push, pull, conflicts, warnings }: SyncPlan): string {
+  const parts = [`Sync plan for connection ${connectionId}: ${push.length} push, ${pull.length} pull, ${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'}.`];
+  if (push.length > 0) {
+    parts.push(`\nPush:\n${table(['Op', 'Item', 'Issue', 'Seq', 'Fields'], push.map((op) => [op.op, op.item_id, op.external_ref, op.seq, op.fields.join(', ')]))}`);
+  }
+  if (pull.length > 0) {
+    parts.push(`\nPull:\n${table(['Op', 'Issue', 'Item', 'Fields'], pull.map((op) => [op.op, op.external_ref, op.item_id, op.fields.join(', ')]))}`);
+  }
+  if (conflicts.length > 0) {
+    parts.push(
+      `\nConflicts:\n${table(
+        ['Item', 'Issue', 'Field', 'Local', 'Remote', 'Snapshot'],
+        conflicts.map((conflict) => [conflict.item_id, conflict.external_ref, conflict.field, planValue(conflict.local), planValue(conflict.remote), planValue(conflict.snapshot)]),
+      )}`,
+    );
+  }
+  if (warnings.length > 0) parts.push(`\n${warnings.map((warning) => `warning: ${warning}`).join('\n')}`);
+  return parts.join('\n');
 }
 
 /** `overseer sync …`: GitHub and GitLab repository connections. Each subcommand registers on the `sync` group. */
@@ -320,6 +354,24 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
     .action(async (seqs: string[], _options: unknown, command: Command) => {
       await rt.withService(command, 'write', (service, { json }) => {
         rt.emit(json, service.outbox.ack(seqs), ({ acked }) => `Removed ${acked.length} outbox ${acked.length === 1 ? 'entry' : 'entries'}: ${acked.join(', ')}.`);
+      });
+    });
+
+  sync
+    .command('plan')
+    .description(
+      "the push, pull and conflict operations that sync a connection, from its outbox, remote refs and mapping and a raw MCP listing of its issues in a file or stdin (-); writes nothing, no network",
+    )
+    .argument('<connection>', 'connection id (see sync connections)')
+    .argument('<file>', 'JSON listing file, or - for stdin')
+    .option('--json', 'print JSON')
+    .addHelpText('after', PLAN_HELP)
+    .action(async (connectionId: string, file: string, options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'read', async (service) => {
+        // An unknown connection gives NOT_FOUND before the file is read.
+        const connection = service.connections.require(connectionId);
+        const plan = planSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Listing'), 'Listing'));
+        rt.emit(options.json, plan, (value) => formatPlan(connection.id, value));
       });
     });
 }

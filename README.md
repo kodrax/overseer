@@ -240,6 +240,7 @@ overseer export                             # writes docs/overseer/
 | `sync mapping import <connection> <file\|->` | replace a connection's whole mapping with a JSON mapping, all or nothing |
 | `sync outbox [<connection>]` | local item changes waiting to be pushed, per connection with auto-sync on (see [Outbox](#outbox)) |
 | `sync outbox ack <seq...>` | remove outbox entries once their push is confirmed, all or nothing |
+| `sync plan <connection> <file\|->` | the push, pull and conflict operations that would sync a connection, from a raw MCP listing of its issues; writes nothing (see [Sync plan](#sync-plan)) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -433,6 +434,44 @@ Every item change made on this side (CLI, MCP tools, the web board, batch create
 
 These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
 
+### Sync plan
+
+`overseer sync plan <connection> <file|-> --json` works out what a sync of one connection would do, from its pending outbox entries, its remote refs with their last synced snapshot, its mapping and a listing of its issues fetched through the connection's MCP server. It prints `{"push": [...], "pull": [...], "conflicts": [...], "warnings": [...]}`; without `--json`, a counts line, one table per non-empty part and a `warning:` line per warning. Later sync steps (pushing the operations, resolving conflicts) take this format as input.
+
+- **Listing**: the raw MCP answer, as for `import`: a GitHub `list_issues` response (`{"issues": [...]}`) or an array of GitHub issues; a GitLab `list_work_items` response (`{"items": [...], "pageInfo": {...}}`), a `get_work_item` response or an array of work items. Join the pages into one array: an issue missing from the listing is neither pulled nor checked for conflicts. Pull requests are skipped with a warning. A listing from the other host (a GitLab answer for a GitHub connection) or an unknown format gives `INVALID_INPUT`; an unknown connection gives `NOT_FOUND` before the file is read.
+- **Read only, deterministic**: it writes nothing (no outbox entry is acknowledged, no remote ref or item changes, no history) and makes no network call. The same database and listing give byte-for-byte the same output, whatever order the listing has: push operations and conflicts by item ID, pull operations by issue (repository, then number). An issue listed twice uses the entry updated last, with a warning.
+- **Synced fields**: `title`, `body` (the item's description), `labels`, `state` (`open` or `closed`), `assignee` (the first assignee) and `milestone`, always in this order. The snapshot (`item_remote_refs.synced_fields`) holds the issue's values as of the last sync; `import` writes it. A field missing from the snapshot is unknown: it is never pulled or in conflict, and a missing `state` falls back to the remote ref's state.
+
+**The issue an item should be** comes from the item and the connection's mapping:
+
+- `title`, `body`, `assignee` and `milestone` from the item.
+- `labels`: the item's tags, minus every tag that is a mapped label of the connection (the label of an earlier kind, priority or status), plus the mapped kind, priority and status values; sorted, without repeats.
+- `state`: a status mapped to `open`, `opened` or `closed` (any case) sets it. Otherwise the delivered and closed statuses (`done`, `cancelled`, `implemented`, `verified`, `rejected`, `obsolete`) close the issue and the other statuses leave it open.
+- Each unmapped kind, status or priority value gives one warning naming the items pushed with it, since no label is sent for it.
+
+**Push** operations, one per outbox entry that changes the issue: `{"op", "item_id", "seq", "external_ref", "url", "fields", "issue"}`.
+
+| Field | Meaning |
+|---|---|
+| `op` | `create` when the item has no remote ref on the connection (`external_ref` and `url` null, `fields` all six); `close` or `reopen` when `fields` holds `state` (by the new state); `update` otherwise |
+| `seq` | the outbox entry to acknowledge with `sync outbox ack` once the push is confirmed |
+| `fields` | the synced fields to set. For an update: those the entry's changed fields touch (`title` → title, `description` → body, `tags`, `kind` and `priority` → labels, `status` → state and labels, `assignee`, `milestone`), minus those whose new value equals the snapshot and those in conflict. Other item fields (links, acceptance criteria, …) are not synced |
+| `issue` | the whole issue as the push leaves it: `{"title", "body", "labels", "state", "assignee", "milestone"}`; a push sets only `fields` |
+
+- A pending `create` whose item already has a remote ref on the connection (a push not acknowledged yet) updates every synced field of that issue; it never opens a second one.
+- A `delete` closes the deleted item's issue: `fields: ["state"]`, `issue` with the listing's values and `state: "closed"`, or the tombstone's title and `null` body and labels when the listing lacks the issue.
+- An entry that changes nothing on the issue (only unsynced fields, values the issue already has, a deleted item without an issue on the connection or with a closed one) gives a warning naming its `seq`, so it can be acknowledged.
+
+**Pull** operations, one per listed issue to apply to the board: `{"op", "external_ref", "url", "item_id", "fields", "issue"}`.
+
+- `update`: a linked issue whose `fields` differ from the snapshot, minus those the item changed locally since (pending in the outbox).
+- `create`: an issue no item has (`item_id` null); `fields` lists every field the listing has. Issues of locally deleted items are skipped. An issue imported before the connection existed (its item has the issue's `external_ref` but no remote ref on the connection) gives a warning instead.
+- `issue`: the listing's values; `body` is `null` when the listing has no bodies (GitLab `list_work_items`).
+
+**Conflicts**: `{"item_id", "seq", "external_ref", "url", "field", "local", "remote", "snapshot"}`, one per field changed both locally (pending in the outbox) and remotely (the listing differs from the snapshot) to different values. `local` is the value the push would send, `remote` the listing's and `snapshot` the value of the last sync. Neither the push nor the pull touches that field; the plan does not resolve it. When both sides now hold the same value, there is no conflict and nothing to send.
+
+It has no MCP tool; `sync plan --help` lists the accepted listings.
+
 ### Web board
 
 `overseer board` (or asking the agent to open it) serves the board on `http://127.0.0.1:4477`. If that port is taken, it tries the next ones, up to 4496.
@@ -541,7 +580,7 @@ The `overseer-import` skill reads issues through the GitHub or GitLab MCP server
 - **Re-running is safe**: re-imports update titles, descriptions, labels, the assignee, the milestone and the issue URL. An issue without `body` keeps its stored description; `"body": ""` clears it. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
 - **Closed issues**: a closed issue makes the item `done` (requirements `implemented`); a GitHub issue closed as not planned or duplicate (`state_reason` / `stateReason`) makes it `cancelled`.
 - **Deleted issues**: `deleted: ["<external_id>", ...]` next to `items` or `payload` deletes the item of each listed issue as `overseer delete` does (tombstone kept, delete event via `import:<source>`) and lists the item IDs in `deleted`. An item with children is kept, and an issue without an item is skipped, each with a warning. `items` may be empty when `deleted` is given.
-- **Connected repositories**: when `sync connections` holds a connection for the import's host and repository (case-insensitive), each imported item gets or refreshes its remote ref for that connection (issue ID, URL, state, sync time). Without one, nothing else changes.
+- **Connected repositories**: when `sync connections` holds a connection for the import's host and repository (case-insensitive), each imported item gets or refreshes its remote ref for that connection (issue ID, URL, state, sync time) and the snapshot `sync plan` compares against: the issue's `title`, `body`, `labels`, `state`, `assignee` and `milestone` (see [Sync plan](#sync-plan)). A listing without bodies (GitLab `list_work_items`) keeps the snapshot's earlier body. Without a connection, nothing else changes.
 - **One-way**: nothing is pushed back to GitHub or GitLab.
 - **Setup**: [`templates/skills/overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md) is a per-harness guide (Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor, OMP, OpenCode) with a source for each snippet. GitHub: the official server, read-only for import or with issue write access plus label and project reads. GitLab: [zereight/gitlab-mcp](https://github.com/zereight/gitlab-mcp) (`npx -y @zereight/mcp-gitlab`, read-only switch for import) or GitLab's built-in server.
 
