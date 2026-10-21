@@ -5,7 +5,7 @@ description: Build or refresh the overseer requirements registry from an existin
 
 # overseer-bootstrap
 
-Uses the `overseer` skill's tools and rules (find_similar before every create, one requirement per
+Uses the `overseer` skill's tools and rules (`create_item` runs the duplicate check, one requirement per
 item, EARS statements, user's language). Never modify project files; only read them.
 
 ## 1. Check the current state
@@ -30,9 +30,9 @@ For each behaviour found:
 - Documented but absent from code → `status: proposed`, same tags/asked_by, `source` = the doc path.
 - Limits and qualities (timeouts, auth, availability) → `non_functional` with `nfr_category` and the
   observed value as `fit_criterion`.
-- Run `find_similar` for every candidate; on `duplicate`, update the existing item (add `code_refs`)
-  instead of creating.
-- Work in batches grouped by area (`component`); keep each requirement atomic.
+- Work in batches grouped by area (`component`): one `create_item` `{items}` call per area, no
+  `find_similar` first; keep each requirement atomic. On `possible_duplicate`, update each flagged
+  existing item (add `code_refs`) and resend the batch once without those entries.
 
 ## 2b. New project — interview
 

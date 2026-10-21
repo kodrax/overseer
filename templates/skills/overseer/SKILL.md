@@ -13,7 +13,7 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 
 | Tool | Purpose | CLI equivalent (`--json`) |
 |---|---|---|
-| `find_similar` | Semantic duplicate check (`verdict`: duplicate / related / new / unknown) | `overseer similar "<text>" [--kind K]` |
+| `find_similar` | Semantic similarity check (`verdict`: duplicate / related / new / unknown); not needed before `create_item`, which runs it | `overseer similar "<text>" [--kind K]` |
 | `check_coverage` | "Is X covered/tracked/delivered?" over requirements | `overseer coverage "<text>"` |
 | `create_item` | Create requirement / epic / story / task / bug (duplicate guard); `items` creates up to 50 in one call | `overseer add <kind> --title … [flags]` / `overseer add --batch <file\|->` |
 | `update_item` | Change fields, status, comment, `delivered_in` | `overseer update <id> [flags] [--comment …]` |
@@ -58,7 +58,9 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 
 ## Rules
 
-1. Always call `find_similar` (or `check_coverage`) before `create_item`. Never create blindly.
+1. Record first: `create_item` runs the duplicate check itself, so never call `find_similar` before it.
+   Record a dictation with one `create_item` `{items}` call (see *Capture*); `find_similar` /
+   `check_coverage` are for questions, not for a step before creating.
 2. Record text in the user's language. One requirement per item (split "and"/"y" statements).
 3. Never read or edit `.overseer/` files directly; change records only through the tools or CLI.
 4. Always report the IDs (`REQ-0007`, `US-0003`, …) and statuses you created or changed.
@@ -72,23 +74,32 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 9. Close items with a status (`cancelled`, `rejected`, `obsolete`). Call `delete_item` only when the user
    asks to delete; an item with children answers `CONFLICT` listing them.
 
-## Capture a requirement
+## Capture (requirements, stories, tasks, bugs)
 
-1. Restate it as one EARS sentence (`references/ears.md`):
-   "When <trigger>, the <system> shall <response>." / "Cuando <disparador>, el <sistema> deberá <respuesta>."
-2. Decide `req_type`: `functional` (behaviour) or `non_functional` (quality).
-   For NFRs set `nfr_category` (ISO/IEC 25010:2023) and a measurable `fit_criterion`
-   (e.g. "p95 < 300 ms at 100 rps") — see `references/nfr-iso25010.md`.
-3. Set `priority` (MoSCoW: must / should / could / wont; default should), `rationale` (why),
-   `acceptance_criteria` as Given/When/Then strings, `verification_method`
-   (test / inspection / analysis / demonstration), `component`, `tags` when known.
-4. `find_similar` with title + description, `kind: requirement`:
-   - `duplicate` → do not create; show the candidate and ask.
-   - `related` → mention candidates; consider `refines` / `conflicts_with` links.
-5. `create_item`. If it returns `created: false, reason: possible_duplicate`, show the candidates and
-   offer: (a) update the existing item, (b) create and link `refines` to it, (c) create anyway
-   (`allow_duplicate: true`).
-6. Ask only for what is genuinely missing; otherwise record and list open questions.
+Record what the user dictated before anything else: do not read code, search or ask first.
+
+1. Build one `create_item` call with `items: [...]` for everything dictated (up to 50 entries), each
+   with a `key`. Express every relation in the batch: `parent_id: "@<key>"` for stories under an epic and
+   tasks under a story, `links: [{rel: implements, to: "@<key>"}]` for stories/tasks that implement a
+   dictated requirement, `affects` for bugs, `depends_on` / `refines` where the dictation says so.
+2. Write each entry from the dictation alone, with defaults for what is missing:
+   - Requirement: `title` and `description` as one EARS sentence (`references/ears.md`): "When <trigger>,
+     the <system> shall <response>." / "Cuando <disparador>, el <sistema> deberá <respuesta>.";
+     `req_type` `functional` unless it states a quality (then `non_functional` with `nfr_category`,
+     ISO/IEC 25010:2023, `references/nfr-iso25010.md`, and `fit_criterion` when a number is given);
+     `status: approved` (rule 6).
+   - All kinds: `priority` `should` unless stated (MoSCoW: must / should / could / wont);
+     `acceptance_criteria` as Given/When/Then when the dictation gives them; `rationale`,
+     `verification_method`, `component`, `tags`, `estimate` only when stated. Leave the rest unset.
+3. Send it. On `created: false, reason: possible_duplicate`, resend once: replace each entry listed in
+   `duplicates` by a link to its existing candidate (`links[].to` / `parent_id` of the entries that
+   referenced `@<key>`; add `refines` or `relates_to` when the dictation adds something), or keep the entry
+   with `allow_duplicate: true` when the dictation clearly means something different. Do not send a third
+   time; if it still fails, report it.
+4. Reply with the created IDs and statuses, then the entries the resend changed (linked to `<ID>` or
+   created with `allow_duplicate`), then `warnings` and `related` candidates worth a link, then open
+   questions: every field you defaulted that matters (priority, estimate, NFR target, unclear scope).
+   Fix answers afterwards with `update_item`.
 
 ## Is X covered?
 
@@ -111,7 +122,9 @@ done) · `verified` · `not_applicable` (deferred/rejected/obsolete). Mention `i
 - Story: INVEST, description "As a <role> I want <goal> so that <benefit>" /
   "Como <rol> quiero <objetivo> para <beneficio>"; `parent_id` = epic; add Given/When/Then AC;
   `links: [{rel: implements, to: REQ-…}]` (this puts the requirement in the backlog).
-- Task: `parent_id` = story; may also `implements` a requirement.
+- Task: one pull request of work; `parent_id` = story; may also `implements` a requirement. A step
+  smaller than a PR (a one-line change, a rename, a doc line) is not a task: add it as an acceptance
+  criterion of the related task.
 - Bug: `bug_details {steps[], expected, actual, environment?}`, `severity`
   (critical/major/minor/trivial), optional `parent_id` (epic/story), link `affects` → requirement/story.
 - Work-item statuses: backlog → ready → in_progress → review → done (or cancelled).
