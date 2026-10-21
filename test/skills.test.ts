@@ -120,3 +120,31 @@ describe('integrations.md and overseer sync inspect', () => {
     });
   }
 });
+
+describe('DISABLED rule', () => {
+  const EXCEPTION =
+    'run `overseer enable` only when the user asked for it explicitly (also when the parent agent passes that request on in the task), then continue';
+  const texts: Record<string, string> = {
+    'agent-prompt.md': readFileSync(join(templates, 'agent-prompt.md'), 'utf8'),
+    'overseer/SKILL.md': readFileSync(join(skillsDir, 'overseer', 'SKILL.md'), 'utf8'),
+    'overseer-bootstrap/SKILL.md': readFileSync(join(skillsDir, 'overseer-bootstrap', 'SKILL.md'), 'utf8'),
+  };
+
+  /** The paragraph (list item or blank-line block) that first mentions `DISABLED`, whitespace-normalised. */
+  function disabledRule(text: string): string {
+    const blocks = text.split(/\n(?=\s*\n|- )/);
+    const block = blocks.find((b) => b.includes('`DISABLED`'));
+    expect(block).toBeDefined();
+    return (block ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  for (const [name, text] of Object.entries(texts)) {
+    it(`${name} gives the shared DISABLED rule`, () => {
+      const rule = disabledRule(text);
+      expect(rule).toContain('stop using overseer');
+      expect(rule).toContain('answer in one line');
+      expect(rule).toContain(EXCEPTION);
+      expect(rule).not.toMatch(/\bnever\b|turn it on yourself|ask the user to run/i);
+    });
+  }
+});

@@ -33,10 +33,10 @@ Field dictionary, statuses, relations, coverage, drift and lint rules: `referenc
 - Every tool accepts `project_dir`. On `NO_PROJECT`, retry the same call with `project_dir` set to the
   absolute project root (the repository you are working in).
 - overseer is off by default: it works only in projects the user turned on with `overseer enable` (or
-  `overseer init`). `DISABLED` means it is off for this project. Stop using overseer there: no retries, no
-  `project_dir` tricks, no CLI fallback, no subagent, and never run `overseer enable`/`init` yourself unless
-  the user asks you to. If the user asked you to record or look up requirements or backlog items, tell them
-  once that `overseer enable` in the project turns it on.
+  `overseer init`). `DISABLED` means it is off for this project: stop using overseer there (no retries, no
+  `project_dir` tricks, no CLI fallback, no subagent) and answer in one line: "`overseer enable` in the project
+  turns it on". Only exception: run `overseer enable` only when the user asked for it explicitly (also when the
+  parent agent passes that request on in the task), then continue.
 - No overseer MCP tools available? Run the CLI from the project root: `overseer <cmd> --json`
   (or add `--project <abs-path>`). Errors print `{"error":{"code","message"}}` and exit 1.
 - Reads on a project without `.overseer/` return `{ initialized: false }`; the first write creates it.
