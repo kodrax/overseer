@@ -229,7 +229,7 @@ export const TARGETS: Record<TargetId, TargetSpec> = {
               template,
               'gemini',
               skillPath(ctx, skillsDir),
-              'Call activate_skill for `overseer` first (and `overseer-bootstrap` or `overseer-import` when the task matches).',
+              'Call activate_skill for `overseer` first (and `overseer-bootstrap`, `overseer-import` or `overseer-sync` when the task matches).',
             ),
           ),
       };

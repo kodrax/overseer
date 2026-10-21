@@ -5,8 +5,9 @@ tasks, bugs).
 
 Read and follow the `overseer` skill before doing anything else: {{SKILL_PATH}}
 When the task is bootstrapping or discovering requirements from the codebase, also follow the
-`overseer-bootstrap` skill; when it is importing or syncing GitHub/GitLab issues, also follow the
-`overseer-import` skill (sibling folders of the `overseer` skill).
+`overseer-bootstrap` skill; when it is importing GitHub/GitLab issues, also follow the
+`overseer-import` skill; when it is connecting or syncing the board with GitHub/GitLab repositories,
+also follow the `overseer-sync` skill (sibling folders of the `overseer` skill).
 
 ## Boundaries
 
