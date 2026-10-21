@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -36,13 +36,14 @@ async function call(client: Client, name: string, args: Record<string, unknown>)
 }
 
 describe('mcp server', () => {
-  it('lists exactly the twelve tools and sends the instructions', async () => {
+  it('lists exactly the thirteen tools and sends the instructions', async () => {
     const client = await connect({ cwd: tempRepo() });
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual(
       [
         'check_coverage',
         'create_item',
+        'delete_item',
         'export_report',
         'find_similar',
         'get_item',
@@ -57,6 +58,7 @@ describe('mcp server', () => {
     );
     expect(tools.find((tool) => tool.name === 'find_similar')!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((tool) => tool.name === 'create_item')!.annotations?.readOnlyHint).toBe(false);
+    expect(tools.find((tool) => tool.name === 'delete_item')!.annotations).toEqual({ readOnlyHint: false, destructiveHint: true, openWorldHint: false });
     for (const tool of tools) expect(Object.keys(tool.inputSchema.properties ?? {})).toContain('project_dir');
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
   });
@@ -188,6 +190,39 @@ describe('mcp server', () => {
       warnings: [expect.objectContaining({ rule: expect.any(String) })],
     });
     expect(Object.keys(fullUpdate.data!).sort()).toEqual(['changed_fields', 'item', 'warnings']);
+  });
+
+  it('delete_item deletes an item, refuses one with children, and get_item then says when it was deleted', async () => {
+    const client = await connect({ cwd: tempRepo() });
+    await call(client, 'create_item', { kind: 'epic', title: 'Accounts' });
+    await call(client, 'create_item', { kind: 'story', title: 'Sign in', parent_id: 'EPIC-0001' });
+
+    const refused = await call(client, 'delete_item', { id: 'EPIC-0001' });
+    expect(refused.result.isError).toBe(true);
+    expect(refused.text).toBe('CONFLICT: EPIC-0001 has children: US-0001. Delete them or give them another parent first; nothing was deleted.');
+
+    const deleted = await call(client, 'delete_item', { id: 'US-0001' });
+    expect(deleted.result.isError).toBeFalsy();
+    expect(deleted.data).toEqual({ deleted: true, id: 'US-0001', kind: 'story', title: 'Sign in', external_refs: [], deleted_at: expect.any(String), actor: expect.any(String) });
+    const at = String(deleted.data!.deleted_at);
+    expect((await call(client, 'get_item', { id: 'US-0001' })).text).toBe(`NOT_FOUND: Item US-0001 was deleted on ${at}.`);
+    expect((await call(client, 'get_item', { ids: ['EPIC-0001', 'US-0001', 'US-0009'] })).text).toBe(
+      `NOT_FOUND: No items with ids US-0001 (deleted on ${at}), US-0009.`,
+    );
+    expect((await call(client, 'get_item', { id: 'EPIC-0001' })).data).toMatchObject({ children: [] });
+    expect((await call(client, 'create_item', { kind: 'story', title: 'Sign out' })).data).toMatchObject({ id: 'US-0002' });
+  });
+
+  it('names every tool in the overseer skill tool table and the README tool list', async () => {
+    const client = await connect({ cwd: tempRepo() });
+    const { tools } = await client.listTools();
+    const skill = readFileSync(join(import.meta.dirname, '../templates/skills/overseer/SKILL.md'), 'utf8');
+    const readme = readFileSync(join(import.meta.dirname, '../README.md'), 'utf8');
+    const readmeTools = readme.slice(readme.indexOf('### MCP tools'), readme.indexOf('## Data model'));
+    for (const { name } of tools) {
+      expect(skill, name).toMatch(new RegExp(`^\\| \`${name}\` \\| .+ \\| \`overseer .+\\|$`, 'm'));
+      expect(readmeTools, name).toContain(`\`${name}\``);
+    }
   });
 
   it('answers reads on an uninitialized project without creating it', async () => {

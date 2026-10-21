@@ -156,4 +156,34 @@ describe('board API', () => {
     other.close();
     dispose();
   });
+
+  it('streams a changed event when another connection deletes an item, which then leaves the item list', async () => {
+    const root = tempRepo();
+    const { request, dispose, service } = setup(openService(root));
+    await service.createItem({ kind: 'task', title: 'Stays' }, ctx);
+    await service.createItem({ kind: 'task', title: 'Goes away' }, ctx);
+    const response = await request('GET', '/api/events');
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = '';
+    const readUntil = async (pattern: RegExp) => {
+      while (!pattern.test(received)) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        received += decoder.decode(value);
+      }
+    };
+    await readUntil(/event: ready/);
+    const other = OverseerService.open({ root, create: false, embedder: new HashEmbedder() })!;
+    other.deleteItem('TASK-0002', ctx);
+    await readUntil(/event: changed/);
+    expect(received).toMatch(/event: changed\ndata: \{"data_version":\d+\}/);
+    expect(await (await request('GET', '/api/items')).json()).toMatchObject({ total: 1, items: [{ id: 'TASK-0001' }] });
+    const gone = await request('GET', '/api/items/TASK-0002');
+    expect(gone.status).toBe(404);
+    expect(await gone.json()).toMatchObject({ error: { code: 'NOT_FOUND', message: expect.stringMatching(/^Item TASK-0002 was deleted on /) } });
+    await reader.cancel();
+    other.close();
+    dispose();
+  });
 });

@@ -108,7 +108,7 @@ describe('overseer mcp over stdio', () => {
     const repo = tempRepo();
     const mcp = await startMcp(repo);
     const { tools } = await mcp.client.listTools();
-    expect(tools).toHaveLength(12);
+    expect(tools).toHaveLength(13);
     // Opens (and creates) the project; the model cache is empty, so search stays keyword-only, warns and downloads nothing.
     expect(await call(mcp.client, 'create_item', { kind: 'requirement', title: 'Password reset by email', req_type: 'functional' })).toMatchObject({
       created: true,

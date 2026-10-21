@@ -32,4 +32,28 @@ describe('live updates', () => {
     expect(callsTo('GET', '/api/items')).toHaveLength(2);
     await waitFor(() => expect(callsTo('GET', '/api/project')).toHaveLength(2));
   });
+
+  it('drops the card of an item deleted elsewhere after the changed event', async () => {
+    let list: ListItemsResult = {
+      total: 2,
+      items: [listedItem({ id: 'TASK-0001', title: 'Kept task' }), listedItem({ id: 'TASK-0002', title: 'Deleted task' })],
+    };
+    stubApi(({ method, path }) => {
+      if (method === 'GET' && path === '/api/project') return project;
+      if (method === 'GET' && path.startsWith('/api/items?')) return list;
+      return undefined;
+    });
+    renderWithProviders(<App />);
+
+    await screen.findByText('Deleted task');
+    const source = FakeEventSource.instances[0]!;
+    act(() => source.emit('open'));
+
+    // `overseer delete TASK-0002` (or delete_item) commits; the board server announces the new data_version.
+    list = { total: 1, items: [listedItem({ id: 'TASK-0001', title: 'Kept task' })] };
+    act(() => source.emit('changed', JSON.stringify({ data_version: 3 })));
+
+    await waitFor(() => expect(screen.queryByText('Deleted task')).toBeNull());
+    expect(screen.getByText('Kept task')).toBeTruthy();
+  });
 });

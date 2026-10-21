@@ -6,7 +6,7 @@ import { runCli } from '../src/cli/index.js';
 import type { ExportResult } from '../src/core/export.js';
 import type { ImportResult } from '../src/core/import.js';
 import type { SimilarResult } from '../src/core/search.js';
-import type { CompactCreatedResult, CompactUpdateResult, ItemDetail, ListResult, UpdateResult } from '../src/core/service.js';
+import type { CompactCreatedResult, CompactUpdateResult, DeleteResult, ItemDetail, ListResult, UpdateResult } from '../src/core/service.js';
 import type { CheckLine } from '../src/install/index.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { git, isolateGitConfig, tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
@@ -242,6 +242,56 @@ describe('cli update', () => {
     const result = await cli(repo, ['update', 'REQ-0001', '--clear', 'title', '--json']);
     expect(result.code).toBe(1);
     expect(result.json<ErrorEnvelope>().error.code).toBe('INVALID_INPUT');
+  });
+});
+
+describe('cli delete', () => {
+  it('deletes an item, keeps its history and answers NOT_FOUND with the deletion time afterwards', async () => {
+    const repo = tempRepo();
+    await cli(repo, RESET);
+    await cli(repo, ['add', 'story', '--title', 'Reset forgotten password', '--implements', 'REQ-0001']);
+    const deleted = await cli(repo, ['delete', 'us-1', '--json']);
+    expect(deleted.code).toBe(0);
+    const result = deleted.json<DeleteResult>();
+    expect(result).toEqual({
+      deleted: true,
+      id: 'US-0001',
+      kind: 'story',
+      title: 'Reset forgotten password',
+      external_refs: [],
+      deleted_at: expect.any(String),
+      actor: expect.any(String),
+    });
+
+    const shown = await cli(repo, ['show', 'US-0001', '--json']);
+    expect(shown.code).toBe(1);
+    expect(shown.json()).toEqual({ error: { code: 'NOT_FOUND', message: `Item US-0001 was deleted on ${result.deleted_at}.` } });
+    const several = await cli(repo, ['show', 'REQ-0001', 'US-0001']);
+    expect(several.err).toBe(`error: NOT_FOUND: Item US-0001 was deleted on ${result.deleted_at}.\n`);
+    const history = (await cli(repo, ['show', 'REQ-0001', '--history', '--json'])).json<ItemDetail>().history!;
+    expect(history.map((event) => [event.item_id, event.action])).toEqual([
+      ['REQ-0001', 'create'],
+      ['US-0001', 'link'],
+      ['REQ-0001', 'update'],
+      ['US-0001', 'unlink'],
+    ]);
+
+    await cli(repo, ['add', 'story', '--title', 'Another story']);
+    expect((await cli(repo, ['list', '--kind', 'story', '--json'])).json<ListResult>().items.map((item) => item.id)).toEqual(['US-0002']);
+  });
+
+  it('refuses an item with children and prints the deletion in text mode', async () => {
+    const repo = tempRepo();
+    await cli(repo, ['add', 'epic', '--title', 'Accounts']);
+    await cli(repo, ['add', 'story', '--title', 'Sign in', '--parent', 'EPIC-0001']);
+    const refused = await cli(repo, ['delete', 'EPIC-0001', '--json']);
+    expect(refused.code).toBe(1);
+    expect(refused.json()).toEqual({
+      error: { code: 'CONFLICT', message: 'EPIC-0001 has children: US-0001. Delete them or give them another parent first; nothing was deleted.' },
+    });
+    const text = await cli(repo, ['delete', 'US-0001']);
+    expect(text).toMatchObject({ code: 0, out: 'Deleted US-0001  Sign in\n' });
+    expect((await cli(repo, ['delete', 'EPIC-0001'])).code).toBe(0);
   });
 });
 

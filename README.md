@@ -214,6 +214,7 @@ overseer export                             # writes docs/overseer/
 | `similar <text>` | duplicate check |
 | `coverage <text>` | is this already covered, tracked or delivered? |
 | `link` / `unlink <src> <rel> <dst>` | relate items |
+| `delete <id>` | delete an item without children, with its links; a tombstone keeps its ID, kind, title, external refs, time and actor (see [Data model](#data-model)) |
 | `report <kind>` | `summary`, `coverage`, `board`, `drift`, `lint`, `traceability` |
 | `export [--out] [--only] [--since]` | write Markdown/JSON reports into the project |
 | `import <file\|-> --source github\|gitlab --repo <repo>` | import issues from a JSON array of ImportItems or a raw GitHub/GitLab MCP response |
@@ -321,7 +322,7 @@ The bundle is one JSON object keyed by MCP tool name. Each value is the tool's r
 - **Coverage**: counts, drift and the traceability matrix.
 - **New item** dialog with duplicate hints, and an **Export** button.
 
-The page updates live when an agent or the CLI writes to the database. The server listens on 127.0.0.1 only and rejects requests whose `Host` is not localhost. Writes need a token generated each time the server starts.
+The page updates live when an agent or the CLI writes to the database, deletions included: a deleted item's card disappears. The server listens on 127.0.0.1 only and rejects requests whose `Host` is not localhost. Writes need a token generated each time the server starts.
 
 ### MCP tools
 
@@ -332,6 +333,7 @@ The page updates live when an agent or the CLI writes to the database. The serve
 | `create_item` / `update_item` / `get_item` / `list_items` | item lifecycle; creates and updates return compact results unless `full: true` |
 | `search` | hybrid search |
 | `link_items` | add or remove a relation |
+| `delete_item` | delete an item without children; `destructiveHint: true` |
 | `report` | the six reports, as Markdown plus data |
 | `export_report` | write `docs/overseer/` |
 | `import_items` | idempotent GitHub/GitLab issue import (`items` or a raw MCP `payload`) |
@@ -347,7 +349,9 @@ The page updates live when an agent or the CLI writes to the database. The serve
 | task | `TASK-0001` | same as story |
 | bug | `BUG-0001` | same as story |
 
-Items are never deleted; you close them with a status. Lists hide `rejected`, `obsolete` and `cancelled` items unless you ask for `--all`.
+Close items with a status. Lists hide `rejected`, `obsolete` and `cancelled` items unless you ask for `--all`.
+
+`overseer delete <id>` (`delete_item` in MCP) removes an item for good, in one transaction: its row, its links in both directions (each recorded as an `unlink` event on the linking item), its embeddings and its keyword-index row. An item with children is refused with `CONFLICT` listing them, and nothing is deleted. A tombstone keeps the ID, kind, title, external refs (the `external_ref` of an imported item and its refs in connected repositories), `deleted_at` and the actor; a `delete` event joins the history. `show` and `get_item` on the ID answer `NOT_FOUND: Item TASK-0007 was deleted on <time>.`; `overseer export` keeps its events in `history.md` and `overseer.json`. IDs come from per-kind counters, so a deleted ID is never reused. `--json` prints `{"deleted": true, "id", "kind", "title", "external_refs": [{"connection_id", "external_ref", "url"}], "deleted_at", "actor"}`.
 
 Requirements carry:
 - an EARS statement ("When <trigger>, the <system> shall <response>")

@@ -204,6 +204,27 @@ export class SemanticIndex {
     }
   }
 
+  /**
+   * Drops a deleted item's embedding record and its vectors, taking them out of the stored running sums. Runs inside
+   * the caller's transaction. Without sqlite-vec the vec tables are unreadable; a later item reusing the rid replaces
+   * the leftover vectors when it is embedded.
+   */
+  removeItem(rid: number): void {
+    this.db.prepare('DELETE FROM item_embeddings WHERE rid = ?').run(rid);
+    if (!this.vecAvailable) return;
+    for (const table of VEC_TABLES) {
+      const old = this.db.prepare(`SELECT embedding FROM ${table} WHERE rid = ?`).get(BigInt(rid)) as { embedding: Uint8Array } | undefined;
+      if (!old) continue;
+      if (this.db.prepare('SELECT 1 FROM meta WHERE key = ?').get(`vec_sum:${table}`)) {
+        const vector = vectorOf(old.embedding);
+        const total = this.vectorSum(table, vector.length);
+        accumulate(total, vector, -1);
+        this.writeVectorSum(table, total);
+      }
+      this.db.prepare(`DELETE FROM ${table} WHERE rid = ?`).run(BigInt(rid));
+    }
+  }
+
   /** On a model change, drop all vectors (and their running sums) so every item is re-embedded with the new model. */
   private syncModel(embedder: Embedder): void {
     const current = this.db.prepare("SELECT value FROM meta WHERE key = 'embed_model'").get()?.value;
