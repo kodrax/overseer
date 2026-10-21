@@ -115,6 +115,20 @@ describe('skill templates', () => {
     expect(sync).toMatch(/`update_issue`[^]*`state_event: close`/);
   });
 
+  it('overseer-sync syncs the source-of-truth connection first, pull then push, then the others (TASK-0053 AC4)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const sync = text.slice(text.indexOf('\n## Sync\n'));
+    expect(sync.indexOf('\n## Sync\n')).toBe(0);
+    const several = sync.slice(sync.indexOf('\n### Several connections\n'));
+    expect(several).not.toMatch(/\n## /);
+    expect(several).toMatch(/one connection at a time, each completely \(pull, then push\)/);
+    const first = several.indexOf('`overseer sync source-of-truth --json`');
+    const others = several.indexOf('Then each other connection');
+    expect(first).toBeGreaterThan(0);
+    expect(others).toBeGreaterThan(first);
+    expect(several).toMatch(/`overwritten` list/);
+  });
+
   it('the overseer skill and the subagent prompt point to overseer-sync for connecting and syncing', () => {
     expect(readFileSync(join(skillsDir, 'overseer', 'SKILL.md'), 'utf8')).toMatch(/Connecting or syncing[^]*`overseer-sync` skill/);
     const prompt = readFileSync(join(templates, 'agent-prompt.md'), 'utf8');

@@ -44,6 +44,8 @@ export interface PushOp {
   /** Issue fields the push sets, in SYNCED_FIELDS order; every field for create. */
   fields: SyncedField[];
   issue: TargetIssue;
+  /** The remote values these fields replace: fields in conflict won by the board or another connection as source of truth. */
+  overwritten?: Partial<Record<SyncedField, FieldValue>>;
 }
 
 /** One remote change to apply to the board. */
@@ -57,6 +59,8 @@ export interface PullOp {
   fields: SyncedField[];
   /** The issue as the listing has it; `body` is null when the listing has no bodies (GitLab list_work_items). */
   issue: Omit<IssueFields, 'body'> & { body: string | null };
+  /** The local values these fields replace: fields in conflict won by this connection as source of truth. */
+  overwritten?: Partial<Record<SyncedField, FieldValue>>;
 }
 
 type FieldValue = IssueFields[SyncedField] | null;
@@ -76,12 +80,25 @@ export interface SyncConflict {
   snapshot: FieldValue;
 }
 
+/** A conflict resolved by the source of truth: `winner` says which side's `value` the sync keeps. */
+export interface SyncOverwrite {
+  item_id: string;
+  external_ref: string;
+  field: SyncedField;
+  /** local: the push sends the item's value (the board or another connection is the source of truth); remote: the pull applies the issue's. */
+  winner: 'local' | 'remote';
+  value: FieldValue;
+  /** The losing value the sync replaces. */
+  overwritten: FieldValue;
+}
+
 export interface SyncPlan {
   push: PushOp[];
   pull: PullOp[];
   conflicts: SyncConflict[];
   /** Seqs of outbox entries that need no remote call (nothing to send), to acknowledge as they are; ascending. */
   ack: number[];
+  overwritten: SyncOverwrite[];
   warnings: string[];
 }
 
@@ -103,6 +120,8 @@ export interface PlanTombstone {
 /** Everything the planner reads; {@link planSync} loads it from the project database and the listing. */
 export interface SyncPlanInput {
   connection_id: number;
+  /** The project's source of truth: the board or a connection id. Conflicts on the planned connection are resolved in its favour. */
+  source_of_truth: 'board' | number;
   mapping: Record<MappingDimension, DimensionMapping>;
   outbox: readonly OutboxEntry[];
   /** The items of the outbox entries. */
@@ -203,15 +222,18 @@ export function uniqueIssues(issues: readonly ImportItem[], warnings: string[]):
 /**
  * The push, pull and conflict operations that bring one connection's repository and the board together, from its
  * pending outbox entries, remote refs (with their last synced snapshot), mapping and a listing of its issues. Pure:
- * the same input always gives the same plan, in the same order (push and conflicts by item ID, pull by issue).
+ * the same input always gives the same plan, in the same order (push, conflicts and overwritten by item ID, pull by
+ * issue).
  *
  * - push: each outbox entry. No remote ref → create; else the issue fields its changed fields touch, minus those the
  *   issue already had at the last sync → update, or close/reopen when the state changes. A pending create with a
  *   remote ref updates every field. A delete closes the issue of the deleted item.
  * - pull: each linked issue's fields that differ from the snapshot and have no pending local change; each issue no
  *   item has → create.
- * - conflicts: a field with a pending local change whose remote value also differs from the snapshot, unless both
- *   sides hold the same value now. Neither push nor pull touches it.
+ * - a field with a pending local change whose remote value also differs from the snapshot, unless both sides hold the
+ *   same value now, is a conflict the source of truth resolves: this connection → the remote value wins and the field
+ *   is pulled; the board or another connection → the local value wins and the field is pushed. The op names the
+ *   losing value in `overwritten`, and `overwritten` lists each resolution; `conflicts` keeps only unresolved ones.
  */
 export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
   const connection = input.connection_id;
@@ -221,11 +243,15 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
   const refByIssue = new Map(input.refs.map((ref) => [ref.external_ref, ref]));
   const push: PushOp[] = [];
   const conflicts: SyncConflict[] = [];
+  const overwritten: SyncOverwrite[] = [];
+  const remoteWins = input.source_of_truth === connection;
+  /** Local values the pull replaces, by item and field: conflicts this connection wins. */
+  const pulledOver = new Map<string, Partial<Record<SyncedField, FieldValue>>>();
   /** Issue fields each item changed locally since the last sync, skipped by pull. */
   const localChanges = new Map<string, Set<SyncedField>>();
   /** Items per unmapped dimension and local value. */
   const unmapped = new Map<string, string[]>();
-  /** Outbox entries with nothing to send: deleted items without an open issue, gone items, issues that already match. */
+  /** Outbox entries with nothing to send: deleted items without an open issue, gone items, issues that already match or won every changed field. */
   const ack: number[] = [];
 
   for (const entry of [...input.outbox].sort((a, b) => compareIds(a.item_id, b.item_id))) {
@@ -279,22 +305,34 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
       const current = remote && issueFieldsOf(remote);
       const changes = new Set<SyncedField>();
       const fields: SyncedField[] = [];
+      const issue: TargetIssue = { ...target };
+      const replaced: Partial<Record<SyncedField, FieldValue>> = {};
+      const lost: SyncedField[] = [];
       for (const field of touched) {
         // The issue held this value at the last sync: the local edits left the field as it was.
         if (field in base && same(target[field], base[field])) continue;
         changes.add(field);
         if (current && field in current && field in base && !same(current[field], base[field])) {
           if (!same(current[field], target[field])) {
-            conflicts.push({
+            const local = target[field];
+            const theirs = current[field] ?? null;
+            overwritten.push({
               item_id: item.id,
-              seq: entry.seq,
               external_ref: ref.external_ref,
-              url: ref.url,
               field,
-              local: target[field],
-              remote: current[field] ?? null,
-              snapshot: base[field] ?? null,
+              winner: remoteWins ? 'remote' : 'local',
+              value: remoteWins ? theirs : local,
+              overwritten: remoteWins ? local : theirs,
             });
+            if (remoteWins) {
+              // The pull applies the issue's value; a push of other fields leaves this one as the issue has it.
+              pulledOver.set(item.id, { ...pulledOver.get(item.id), [field]: local });
+              Object.assign(issue, { [field]: theirs });
+              lost.push(field);
+              continue;
+            }
+            replaced[field] = theirs;
+            fields.push(field);
           }
           continue;
         }
@@ -302,9 +340,11 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
       }
       localChanges.set(item.id, changes);
       if (fields.length > 0) {
-        const kind: PushOperation = fields.includes('state') ? (target.state === 'closed' ? 'close' : 'reopen') : 'update';
-        op = { op: kind, item_id: item.id, seq: entry.seq, external_ref: ref.external_ref, url: ref.url, fields, issue: target };
-      } else if (!conflicts.some((conflict) => conflict.seq === entry.seq)) {
+        const kind: PushOperation = fields.includes('state') ? (issue.state === 'closed' ? 'close' : 'reopen') : 'update';
+        op = { op: kind, item_id: item.id, seq: entry.seq, external_ref: ref.external_ref, url: ref.url, fields, issue };
+        if (Object.keys(replaced).length > 0) op.overwritten = replaced;
+      } else {
+        // Nothing left to send: the issue already matches, or it won every changed field as source of truth.
         ack.push(entry.seq);
       }
     }
@@ -342,11 +382,17 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
     }
     const base = baseOf(ref);
     const skipped = localChanges.get(ref.item_id);
-    const fields = SYNCED_FIELDS.filter((field) => field in current && field in base && !same(current[field], base[field]) && !skipped?.has(field));
-    if (fields.length > 0) pull.push({ op: 'update', external_ref: externalId, url: remote.url, item_id: ref.item_id, fields, issue });
+    const replaced = pulledOver.get(ref.item_id);
+    const fields = SYNCED_FIELDS.filter(
+      (field) => field in current && field in base && !same(current[field], base[field]) && (!skipped?.has(field) || (replaced !== undefined && field in replaced)),
+    );
+    if (fields.length === 0) continue;
+    const op: PullOp = { op: 'update', external_ref: externalId, url: remote.url, item_id: ref.item_id, fields, issue };
+    if (replaced) op.overwritten = replaced;
+    pull.push(op);
   }
 
-  return { push, pull, conflicts, ack: ack.sort((a, b) => a - b), warnings };
+  return { push, pull, conflicts, ack: ack.sort((a, b) => a - b), overwritten, warnings };
 }
 
 interface RemoteRefRow {
@@ -393,6 +439,7 @@ export function loadSyncPlanInput(service: OverseerService, connectionId: number
   }
   return {
     connection_id: connection.id,
+    source_of_truth: service.connections.sourceOfTruth().source_of_truth,
     mapping: service.mappings.get(connection.id).mapping,
     outbox,
     items,

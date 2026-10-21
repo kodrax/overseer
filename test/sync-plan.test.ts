@@ -104,11 +104,11 @@ async function scenario(root = tempRepo()) {
 const seqOf = (service: OverseerService, itemId: string) => service.outbox.list().find((entry) => entry.item_id === itemId)!.seq;
 
 describe('sync plan', () => {
-  it('plans push, pull and conflict operations from the outbox, remote refs, mapping and listing (AC1–AC4)', async () => {
+  it('plans push, pull and overwritten operations from the outbox, remote refs, mapping and listing (AC1–AC4)', async () => {
     const { service, connection, listing } = await scenario();
     const seq = (id: string) => seqOf(service, id);
     const plan = planSync(service, connection.id, listing);
-    expect(Object.keys(plan)).toEqual(['push', 'pull', 'conflicts', 'ack', 'warnings']);
+    expect(Object.keys(plan)).toEqual(['push', 'pull', 'conflicts', 'ack', 'overwritten', 'warnings']);
 
     expect(plan.push).toEqual([
       // done maps to the closed state; the mapped kind and priority become labels.
@@ -149,6 +149,17 @@ describe('sync plan', () => {
         url: url(4),
         fields: ['state'],
         issue: { title: 'Obsolete page', body: 'Body of 4', labels: ['Task'], state: 'closed', assignee: null, milestone: null },
+      },
+      // The board is the source of truth: the local title of a conflict wins and replaces the remote one.
+      {
+        op: 'update',
+        item_id: 'TASK-0003',
+        seq: seq('TASK-0003'),
+        external_ref: 'acme/demo#5',
+        url: url(5),
+        fields: ['title'],
+        issue: { title: 'Rename the settings page', body: 'Body of 5', labels: ['P2', 'Task'], state: 'open', assignee: null, milestone: null },
+        overwritten: { title: 'Rename settings screen' },
       },
       // A pending create whose item already has an issue here updates it (TASK-0018); the empty snapshot hides nothing.
       {
@@ -199,22 +210,75 @@ describe('sync plan', () => {
       },
     ]);
 
-    expect(plan.conflicts).toEqual([
-      {
-        item_id: 'TASK-0003',
-        seq: seq('TASK-0003'),
-        external_ref: 'acme/demo#5',
-        url: url(5),
-        field: 'title',
-        local: 'Rename the settings page',
-        remote: 'Rename settings screen',
-        snapshot: 'Rename settings',
-      },
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.overwritten).toEqual([
+      { item_id: 'TASK-0003', external_ref: 'acme/demo#5', field: 'title', winner: 'local', value: 'Rename the settings page', overwritten: 'Rename settings screen' },
     ]);
     expect(plan.warnings).toEqual([
       'acme/demo#9: pull request skipped.',
       'kind "story" is unmapped on connection 1 (US-0001): no label sent.',
-      'status "backlog" is unmapped on connection 1 (TASK-0001, TASK-0005, US-0001): no label sent; the state follows the status.',
+      'status "backlog" is unmapped on connection 1 (TASK-0001, TASK-0003, TASK-0005, US-0001): no label sent; the state follows the status.',
+    ]);
+    service.close();
+  });
+
+  it('resolves a conflict for the remote value when the planned connection is the source of truth, and writes no history (AC1, AC3, AC5)', async () => {
+    const { service, connection, listing } = await scenario();
+    service.connections.setSourceOfTruth(connection.id);
+    const seq = seqOf(service, 'TASK-0003');
+    const events = service.db.prepare('SELECT count(*) AS n FROM events').get()!.n;
+    const plan = planSync(service, connection.id, listing);
+
+    // The title lost to the issue: nothing is left to push, and the pull applies the issue's title over the local one.
+    expect(plan.push.map((op) => op.item_id)).toEqual(['BUG-0001', 'BUG-0002', 'TASK-0001', 'TASK-0002', 'TASK-0005', 'US-0001']);
+    expect(plan.pull.map((op) => op.external_ref)).toEqual(['acme/demo#1', 'acme/demo#5', 'acme/demo#6', 'acme/demo#7']);
+    expect(plan.pull[1]).toEqual({
+      op: 'update',
+      external_ref: 'acme/demo#5',
+      url: url(5),
+      item_id: 'TASK-0003',
+      fields: ['title'],
+      issue: { title: 'Rename settings screen', body: 'Body of 5', labels: [], state: 'open', assignee: null, milestone: null },
+      overwritten: { title: 'Rename the settings page' },
+    });
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.overwritten).toEqual([
+      { item_id: 'TASK-0003', external_ref: 'acme/demo#5', field: 'title', winner: 'remote', value: 'Rename settings screen', overwritten: 'Rename the settings page' },
+    ]);
+    // Nothing is left to push for TASK-0003: its seq is acknowledged as it is, without a warning.
+    expect(plan.ack).toContain(seq);
+    expect(plan.warnings.some((warning) => warning.includes('TASK-0003'))).toBe(false);
+    // Planning records nothing: the overwritten value goes to history when the sync applies it (TASK-0024).
+    expect(service.db.prepare('SELECT count(*) AS n FROM events').get()!.n).toBe(events);
+
+    // Another local change still pushes; the issue it leaves keeps the winning remote title.
+    await service.updateItem({ id: 'TASK-0003', milestone: 'W3' }, ctx);
+    const after = planSync(service, connection.id, listing);
+    expect(after.push.find((op) => op.item_id === 'TASK-0003')).toEqual({
+      op: 'update',
+      item_id: 'TASK-0003',
+      seq: seqOf(service, 'TASK-0003'),
+      external_ref: 'acme/demo#5',
+      url: url(5),
+      fields: ['milestone'],
+      issue: { title: 'Rename settings screen', body: 'Body of 5', labels: ['P2', 'Task'], state: 'open', assignee: null, milestone: 'W3' },
+    });
+    expect(after.pull[1]!.overwritten).toEqual({ title: 'Rename the settings page' });
+    expect(after.overwritten).toEqual(plan.overwritten);
+    service.close();
+  });
+
+  it('resolves a conflict for the local value when the source of truth is another connection, as for the board (AC2, AC3)', async () => {
+    const { service, connection, listing } = await scenario();
+    const board = planSync(service, connection.id, listing);
+    const gitlab = service.connections.add({ host: 'gitlab', repository: 'acme/app' });
+    service.connections.setSourceOfTruth(gitlab.id);
+    const plan = planSync(service, connection.id, listing);
+    expect(plan).toEqual(board);
+    expect(plan.push.find((op) => op.item_id === 'TASK-0003')).toMatchObject({ op: 'update', fields: ['title'], overwritten: { title: 'Rename settings screen' } });
+    expect(plan.pull.some((op) => op.item_id === 'TASK-0003')).toBe(false);
+    expect(plan.overwritten).toEqual([
+      { item_id: 'TASK-0003', external_ref: 'acme/demo#5', field: 'title', winner: 'local', value: 'Rename the settings page', overwritten: 'Rename settings screen' },
     ]);
     service.close();
   });
@@ -263,6 +327,7 @@ describe('sync plan', () => {
       pull: [],
       conflicts: [],
       ack: [closed!.seq, never!.seq],
+      overwritten: [],
       warnings: [],
     });
     // Missing from the listing: the close keeps the tombstone's title and leaves the other fields alone.
@@ -289,6 +354,7 @@ describe('sync plan', () => {
       pull: [],
       conflicts: [],
       ack: [],
+      overwritten: [],
       warnings: ['acme/demo#1: imported as TASK-0001 but not linked to it in connection 1; import the issue again to link it.'],
     });
     service.close();
@@ -423,7 +489,15 @@ describe('sync plan CLI', () => {
     const first = await cli(root, ['sync', 'plan', '1', '-', '--json'], JSON.stringify({ issues }));
     expect(first.code).toBe(0);
     const plan = JSON.parse(first.out) as SyncPlan;
-    expect(plan.push.map((op) => `${op.op} ${op.item_id}`)).toEqual(['close BUG-0001', 'reopen BUG-0002', 'update TASK-0001', 'close TASK-0002', 'update TASK-0005', 'create US-0001']);
+    expect(plan.push.map((op) => `${op.op} ${op.item_id}`)).toEqual([
+      'close BUG-0001',
+      'reopen BUG-0002',
+      'update TASK-0001',
+      'close TASK-0002',
+      'update TASK-0003',
+      'update TASK-0005',
+      'create US-0001',
+    ]);
     expect(plan.warnings).toContain('acme/demo#6: listed 2 times; the entry updated last was used.');
     for (const seed of [1, 2, 3]) {
       const again = await cli(root, ['sync', 'plan', '1', '-', '--json'], JSON.stringify({ issues: shuffled(issues, seed) }));
@@ -433,10 +507,12 @@ describe('sync plan CLI', () => {
     const text = await cli(root, ['sync', 'plan', '1', '-'], JSON.stringify({ issues: shuffled(issues, 4) }));
     expect(text.code).toBe(0);
     expect(text.out).toBe((await cli(root, ['sync', 'plan', '1', '-'], JSON.stringify({ issues }))).out);
-    expect(text.out).toMatch(/^Sync plan for connection 1: 6 push, 3 pull, 1 conflict\.\n\nPush:\nOp +Item +Issue +Seq +Fields\n/);
+    expect(text.out).toMatch(/^Sync plan for connection 1: 7 push, 3 pull, 0 conflicts, 1 overwritten\.\n\nPush:\nOp +Item +Issue +Seq +Fields\n/);
     expect(text.out).toMatch(/\ncreate +US-0001 +- +\d+ +title, body, labels, state, assignee, milestone\n/);
     expect(text.out).toMatch(/\nPull:\nOp +Issue +Item +Fields\n[^]*\ncreate +acme\/demo#7 +- +title, body/);
-    expect(text.out).toMatch(/\nConflicts:\nItem +Issue +Field +Local +Remote +Snapshot\n-[- ]+\nTASK-0003 +acme\/demo#5 +title +"Rename the settings page" +"Rename settings screen" +"Rename settings"\n/);
+    expect(text.out).toMatch(
+      /\nOverwritten:\nItem +Issue +Field +Winner +Value +Overwritten\n-[- ]+\nTASK-0003 +acme\/demo#5 +title +local +"Rename the settings page" +"Rename settings screen"\n/,
+    );
     expect(text.out).toMatch(/\nwarning: acme\/demo#9: pull request skipped\.\n/);
 
     const after = openService(root);

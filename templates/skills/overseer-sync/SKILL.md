@@ -102,12 +102,14 @@ Run for one connection when the user asks to sync, or to sync every connection i
 2. `overseer sync pull <id> <file> --json` → `{created, updated, conflicts, warnings}`. It applies only the
    pull operations of `overseer sync plan <id> <file>`: issues no item has become items; remote changes
    to title, body, labels, state, assignee and milestone reach their items, except fields also changed
-   locally since the last sync. Running it again with the same listing changes nothing. Report the
+   locally since the last sync (unless this connection is the source of truth: then the issue's value
+   overwrites them). Running it again with the same listing changes nothing. Report the
    created and updated items, each conflict (`item_id`, `field`, `local`, `remote`, `snapshot`; left
    untouched on both sides) and the warnings.
 
 3. With the same listing file, run `overseer sync plan <connection> <listing> --json` → `push`, `ack`,
-   `conflicts`, `warnings`. Report `conflicts` and `warnings`; push nothing for a conflict field.
+   `conflicts`, `overwritten`, `warnings`. Report `conflicts`, `overwritten` and `warnings`; push nothing
+   for a conflict field.
 4. Run each `push` op with the connection's MCP tools, setting only the op's `fields` from its
    `issue` (`body` is the description). Labels only: never set an issue type.
    - **GitHub** — `issue_write` with `method: create` (`title`, `body`, `labels`, `assignees`,
@@ -127,5 +129,20 @@ Run for one connection when the user asks to sync, or to sync every connection i
    for them).
 7. Repeat for every connection: an item keeps one issue per connection. Finish with
    `overseer sync status --json`.
+
+### Several connections
+
+Sync one connection at a time, each completely (pull, then push) before planning the next, so each plan
+starts from what the previous one applied:
+
+1. `overseer sync source-of-truth --json`. When `source_of_truth` is a connection id, sync that
+   connection first: its plan resolves every conflict for the issue's value (`winner: "remote"`), so
+   the board takes the source of truth's values before anything else is pushed.
+2. Then each other connection, by id: their plans resolve conflicts for the board's value
+   (`winner: "local"`), which now holds the source of truth's.
+
+When the board is the source of truth, every plan keeps the board's values; sync the connections by id.
+Show the user each plan's `overwritten` list: item, issue, field, the winning value and the value it
+replaces.
 
 <!-- managed-by: overseer-cli -->
