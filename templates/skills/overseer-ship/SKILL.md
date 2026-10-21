@@ -129,8 +129,8 @@ overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] [--no-setup] -
    delivered_in, code_refs}`. It reads the ID from the branch, sets the item `review` with
    `delivered_in` = the URL, `code_refs` = the files the branch changed against the base, and a comment
    with the URL. From elsewhere, pass the ID: `overseer pr opened <ID> --url <url> --json`.
-6. `report drift` and resolve every finding for this item or its requirements, as in the `overseer`
-   skill's "After implementing".
+6. `report drift` and resolve every finding for this item or its requirements, as in "After implementing"
+   of the `overseer` skill's `references/board.md`.
 7. Report the item ID, its status, the branch, the worktree path and the pull request URL.
 
 ## 6. After the merge

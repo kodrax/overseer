@@ -1,9 +1,11 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { bundleKeys } from '../src/core/tracking.js';
+import { install } from '../src/install/index.js';
+import { sandbox } from './fixtures/install/harness.js';
 
 const templates = fileURLToPath(new URL('../templates/', import.meta.url));
 const skillsDir = join(templates, 'skills');
@@ -94,6 +96,19 @@ describe('skill templates', () => {
     const prompt = readFileSync(join(templates, 'agent-prompt.md'), 'utf8');
     expect(prompt).toMatch(/connecting or syncing[^]*`overseer-sync` skill/);
     expect(prompt).not.toMatch(/importing or syncing/);
+  });
+
+  it('overseer SKILL.md names every reference file, each exists and install copies it', () => {
+    const text = readFileSync(join(skillsDir, 'overseer', 'SKILL.md'), 'utf8');
+    const named = [...new Set([...text.matchAll(/`references\/([a-z0-9-]+\.md)`/g)].map((match) => match[1]))].sort();
+    expect(named).toEqual(readdirSync(join(skillsDir, 'overseer', 'references')).sort());
+    const box = sandbox({ shims: ['claude'] });
+    install(box.ctx('user', { templatesDir: templates }), ['claude']);
+    for (const name of named) {
+      const installed = join(box.home, '.claude/skills/overseer/references', name);
+      expect(existsSync(installed), installed).toBe(true);
+      expect(readFileSync(installed, 'utf8')).toBe(readFileSync(join(skillsDir, 'overseer', 'references', name), 'utf8'));
+    }
   });
 });
 

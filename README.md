@@ -523,7 +523,7 @@ Requirements carry:
 - whether it is in the backlog
 - tags, component, code references and delivery details
 
-The full field reference is in [`templates/skills/overseer/references/fields.md`](templates/skills/overseer/references/fields.md).
+The fields an agent sets are in [`templates/skills/overseer/references/fields.md`](templates/skills/overseer/references/fields.md); read-only fields, statuses, coverage, drift and lint rules are in [`references/board.md`](templates/skills/overseer/references/board.md).
 
 | Relation | From → to |
 |---|---|
