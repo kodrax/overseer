@@ -293,4 +293,33 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
         rt.emit(json, replaced, (result) => `Replaced the mapping of connection ${result.connection_id}.\n${formatMapping(result)}`);
       });
     });
+
+  // `--json` is read from optsWithGlobals: commander gives it to `outbox` when it comes after `ack`.
+  const outbox = sync
+    .command('outbox')
+    .description('pending local item changes per connection with auto-sync on, waiting for a push (local database only, no network)')
+    .argument('[connection]', 'connection id (see sync connections); all connections when omitted')
+    .option('--json', 'print JSON')
+    .action(async (connectionId: string | undefined, _options: unknown, command: Command) => {
+      await rt.withService(command, 'read', (service, { json }) => {
+        rt.emit(json, service.outbox.list(connectionId), (entries) =>
+          entries.length === 0
+            ? 'No pending outbox entries.'
+            : table(
+                ['Seq', 'Connection', 'Item', 'Operation', 'Changed fields', 'Changed at'],
+                entries.map((entry) => [entry.seq, entry.connection_id, entry.item_id, entry.operation, entry.changed_fields.join(', '), entry.created_at]),
+              ),
+        );
+      });
+    });
+  outbox
+    .command('ack')
+    .description('remove outbox entries once their push is confirmed; an unknown seq gives NOT_FOUND and removes nothing')
+    .argument('<seq...>', 'seq of each pushed entry (see sync outbox)')
+    .option('--json', 'print JSON')
+    .action(async (seqs: string[], _options: unknown, command: Command) => {
+      await rt.withService(command, 'write', (service, { json }) => {
+        rt.emit(json, service.outbox.ack(seqs), ({ acked }) => `Removed ${acked.length} outbox ${acked.length === 1 ? 'entry' : 'entries'}: ${acked.join(', ')}.`);
+      });
+    });
 }

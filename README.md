@@ -237,6 +237,8 @@ overseer export                             # writes docs/overseer/
 | `sync mapping <connection>` | a connection's kind, status and priority mapping, every local value listed and unmapped ones marked (see [Kind, status and priority mapping](#kind-status-and-priority-mapping)) |
 | `sync mapping set <connection> --dimension kind\|status\|priority --local <value> --remote <value>` | map one local value to a label, issue type or state, replacing its earlier remote value |
 | `sync mapping import <connection> <file\|->` | replace a connection's whole mapping with a JSON mapping, all or nothing |
+| `sync outbox [<connection>]` | local item changes waiting to be pushed, per connection with auto-sync on (see [Outbox](#outbox)) |
+| `sync outbox ack <seq...>` | remove outbox entries once their push is confirmed, all or nothing |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -403,6 +405,21 @@ Each connection maps overseer's kinds, statuses and priorities onto the reposito
 The whole file is checked before anything is written: an unknown dimension or local value, a remote value that is not a string of 1 to 255 characters, or input that is not a JSON object gives one `INVALID_INPUT` listing every problem (`kind: unknown kind value "feature"; valid: …`), and the old mapping stays as it was. `sync mapping <connection> --json | jq .mapping` gives a file another connection can import.
 
 An unknown connection gives `NOT_FOUND` for every mapping command, before the rest of the input is checked. `sync connection remove` deletes the connection's mapping with it. These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool; `sync mapping --help` lists the format and the local values.
+
+### Outbox
+
+Every item change made on this side (CLI, MCP tools, the web board, batch creates and imports) is queued in the outbox of each connection with auto-sync on, in the same transaction as the change, so the next push knows what to send. Without a connection, or with auto-sync off, nothing is queued; a connection only queues the changes made while its auto-sync is on.
+
+`overseer sync outbox [<connection>] --json` lists the pending entries by `seq`, of one connection or of all: `[{"seq", "connection_id", "item_id", "operation", "changed_fields", "created_at"}]` (`No pending outbox entries.` and a table without `--json`). An unknown connection gives `NOT_FOUND`.
+
+- **Operation**: `create` (also an item created by an import), `update`, `status` or `delete`. `changed_fields` names the item fields that changed; linking or unlinking an item is an update of `links` on the source item, and deleting an item also updates the `links` of the items that linked to it. A comment changes no field and queues nothing.
+- **One entry per item and connection**: later changes merge into the pending entry. Changed fields are joined; the operation is `status` while only the status changed, else `update`. A pending `create` stays a `create` with `changed_fields: []`, since the push sends the whole item. A delete replaces the entry (`delete`, `changed_fields: []`); a create followed by a delete before any push leaves no entry.
+- **New seq on every change**: a merged entry moves to the end with a new `seq`, so a push that read the entry before the latest change cannot acknowledge that change by mistake.
+- **Imports**: changes that come from importing a connection's issues (same host and repository as `import --source --repo`) are not queued for that connection, only for the others; this includes the deletions of an import's `deleted` list, which also drop that connection's pending entry for the deleted item. Issues of a repository without a connection are queued for every connection with auto-sync on.
+
+`overseer sync outbox ack <seq...> --json` removes the given entries once their push is confirmed and prints `{"acked": [<seq>, …]}`. If any seq is not pending (never existed, already acknowledged, or replaced by a later change), it gives `NOT_FOUND` naming them and removes nothing; a seq that is not a positive integer gives `INVALID_INPUT`. `sync connection remove` deletes the connection's pending entries with it.
+
+These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
 
 ### Web board
 

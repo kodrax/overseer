@@ -378,7 +378,6 @@ function importConnectionId(db: Database, source: ImportSource, repo: string): n
 export async function importItems(service: OverseerService, raw: unknown, ctx: Ctx): Promise<ImportResult> {
   const { input, warnings } = parseImportRequest(raw);
   const source: ImportSource = input.source;
-  const importCtx: Ctx = { ...ctx, via: `import:${source}` };
   const refOf = (externalId: string) => `${source}:${externalId}`;
   const result: ImportResult = {
     created: [],
@@ -393,6 +392,8 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
   const now = nowIso();
   const db = service.db;
   const connectionId = importConnectionId(db, source, input.repo);
+  // The imported connection already holds these changes: the outbox records them for the other connections only.
+  const importCtx: Ctx = { ...ctx, via: `import:${source}`, origin_connection: connectionId };
   /** Item of each upserted issue, for its remote ref. */
   const synced: { id: string; remote: ImportItem }[] = [];
 
