@@ -6,7 +6,7 @@ description: Ship one board item end to end. Resolves a board ID, a GitHub/GitLa
 # overseer-ship
 
 Drives one task or bug from the board to a merged pull request: one item, one worktree, one branch,
-one pull request. Uses the `overseer` skill's tools and rules (find_similar before every create, the
+one pull request. Uses the `overseer` skill's tools and rules (`create_item` runs the duplicate check, the
 user's language, report every ID and status you change; `DISABLED` → stop). The `overseer worktree`,
 `overseer pr`, `overseer sync` and `overseer config` commands are CLI only; run them with `--json` from the
 project root or from the worktree (board lookups from a worktree resolve to the main checkout). Never merge
