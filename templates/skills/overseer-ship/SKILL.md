@@ -23,7 +23,7 @@ the pull request yourself.
   - No acceptance criteria → derive Given/When/Then criteria from the description and the linked
     requirements, show them, and record them with `update_item` after the user agrees.
 - **Issue reference** (`#42`, `owner/repo#42`, an issue URL) → import that one issue with the
-  `overseer-import` steps (`import_items` with a single item). The ID in `created`, `updated` or
+  `overseer-import` steps (fetch it with the MCP tool and pass the raw answer as `import_items` `payload`). The ID in `created`, `updated` or
   `unchanged` is the board item; continue as for a board ID.
 - **Free text** → a bug when it reports broken behaviour, otherwise a task.
   1. `find_similar` with the request text and `kind: task` or `bug`:

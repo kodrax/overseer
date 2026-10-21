@@ -428,7 +428,7 @@ Cancelled implementing items are ignored: they neither count as work nor keep a 
 
 ## GitHub and GitLab issues
 
-The `overseer-import` skill reads issues through the GitHub or GitLab MCP server configured in your harness, so overseer itself stores no tokens. It maps issues to items and calls `import_items` in batches.
+The `overseer-import` skill reads issues through the GitHub or GitLab MCP server configured in your harness, so overseer itself stores no tokens. It fetches every page and passes each raw answer to `import_items` (`payload`) or `overseer import -`; overseer does the field mapping.
 
 - **Re-running is safe**: re-imports update titles, descriptions, labels, the assignee, the milestone and the issue URL. An issue without `body` keeps its stored description; `"body": ""` clears it. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
 - **One-way**: nothing is pushed back to GitHub or GitLab.
