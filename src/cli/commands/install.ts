@@ -102,7 +102,7 @@ export function registerInstallCommands(program: Command, rt: CliRuntime): void 
       const failed = report.actions.some((action) => action.status === 'failed');
       // Projects are off by default; installing overseer into one is the user turning it on there.
       const project = ctx.projectRoot !== undefined && !ctx.dryRun ? setProjectEnabled(ctx.projectRoot, true, rt.env) : undefined;
-      const pull: ModelPull | undefined = options.dryRun || options.skipModel ? undefined : await pullModel();
+      const pull: ModelPull | undefined = options.dryRun || options.skipModel ? undefined : await pullModel(rt.localEmbedder());
       if (options.json) {
         rt.out(JSON.stringify({ ...report, ...(project ? { project } : {}), ...(pull ? { model: pull } : {}) }, null, 2));
         if (pull && !pull.ready) rt.exitCode = 1;

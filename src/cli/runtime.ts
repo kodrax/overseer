@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
 import type { Command } from 'commander';
-import type { Embedder } from '../core/embeddings.js';
+import { DEFAULT_MODEL, type Embedder, modelCacheDir, TransformersEmbedder } from '../core/embeddings.js';
 import { errorMessage, isOverseerError } from '../core/errors.js';
 import { pickStartDir, resolveProjectRoot } from '../core/project.js';
 import type { Ctx } from '../core/schema.js';
@@ -33,16 +33,21 @@ export interface GlobalOptions {
 /** Shared state of one `runCli` invocation: streams, injected dependencies and the exit code. */
 export class CliRuntime {
   readonly io: CliIo;
-  readonly embedder: Embedder | null | undefined;
+  readonly embedder: Embedder | null;
   readonly env: Record<string, string | undefined>;
   readonly cwd: string;
   exitCode = 0;
 
   constructor(io: CliIo, deps: CliDeps) {
     this.io = io;
-    this.embedder = deps.embedder;
     this.env = deps.env ?? process.env;
+    this.embedder = deps.embedder === undefined ? this.localEmbedder() : deps.embedder;
     this.cwd = deps.cwd ?? process.cwd();
+  }
+
+  /** The local transformers.js embedder, with its model folder taken from this runtime's environment. */
+  localEmbedder(): TransformersEmbedder {
+    return new TransformersEmbedder(DEFAULT_MODEL, { cacheDir: modelCacheDir(this.env) });
   }
 
   get ctx(): Ctx {

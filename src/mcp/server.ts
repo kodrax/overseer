@@ -6,7 +6,7 @@ import { type CallToolResult, CallToolRequestSchema, RootsListChangedNotificatio
 import { z } from 'zod';
 import { startBoardServer, type BoardServer } from '../board/server.js';
 import { MAX_BATCH_ITEMS } from '../core/batch.js';
-import { type Embedder, TransformersEmbedder } from '../core/embeddings.js';
+import { DEFAULT_MODEL, type Embedder, modelCacheDir, TransformersEmbedder } from '../core/embeddings.js';
 import { errorMessage, isOverseerError, OverseerError } from '../core/errors.js';
 import { importRequestSchema } from '../core/import.js';
 import { packageVersion } from '../core/paths.js';
@@ -171,7 +171,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const server = new McpServer({ name: 'overseer', version: packageVersion() }, { instructions: INSTRUCTIONS });
   reportInvalidArguments(server);
   const env = options.env ?? process.env;
-  const embedder = options.embedder === undefined ? new TransformersEmbedder() : options.embedder;
+  const embedder = options.embedder === undefined ? new TransformersEmbedder(DEFAULT_MODEL, { cacheDir: modelCacheDir(env) }) : options.embedder;
   const services = new Map<string, OverseerService>();
   const boards = new Map<string, BoardServer>();
   let clientRoot: Promise<string | undefined> | undefined;

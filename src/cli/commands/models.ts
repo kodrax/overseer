@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { TransformersEmbedder } from '../../core/embeddings.js';
+import type { TransformersEmbedder } from '../../core/embeddings.js';
 import { errorMessage } from '../../core/errors.js';
 import type { CliRuntime } from '../runtime.js';
 
@@ -9,7 +9,7 @@ export interface ModelPull {
 }
 
 /** Downloads (if needed) and loads the embedding model; with `overseer install`, the only path that downloads it. */
-export async function pullModel(embedder: TransformersEmbedder = new TransformersEmbedder()): Promise<ModelPull> {
+export async function pullModel(embedder: TransformersEmbedder): Promise<ModelPull> {
   try {
     await embedder.warmup();
     return { ready: true, message: `Model ${embedder.model} ready in ${embedder.cacheDir}` };
@@ -35,6 +35,6 @@ export function registerModelCommands(program: Command, rt: CliRuntime): void {
     .command('pull')
     .description('download the embedding model into the local cache')
     .action(async () => {
-      reportModelPull(rt, await pullModel());
+      reportModelPull(rt, await pullModel(rt.localEmbedder()));
     });
 }

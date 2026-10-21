@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,8 +6,8 @@ import { runCli } from '../src/cli/index.js';
 import { tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
 
 // Offline stand-in for transformers.js in this file: every model load fails the way an unreachable hub does.
-const pipeline = vi.hoisted(() => vi.fn());
-vi.mock('@huggingface/transformers', () => ({ env: { cacheDir: null }, pipeline }));
+const { pipeline, transformersEnv } = vi.hoisted(() => ({ pipeline: vi.fn(), transformersEnv: { cacheDir: null as string | null } }));
+vi.mock('@huggingface/transformers', () => ({ env: transformersEnv, pipeline }));
 
 async function cli(cwd: string, args: string[], env: Record<string, string | undefined>) {
   let out = '';
@@ -50,5 +50,57 @@ describe('model download failures in the CLI', () => {
       targets: ['omp'],
       model: { ready: false, message: 'model download failed: fetch failed: getaddrinfo ENOTFOUND huggingface.co' },
     });
+  });
+});
+
+// BUG-0011: the model folder comes from the CLI's injected environment, never from process.env.
+describe('model folder from the CLI environment', () => {
+  let cacheDirsUsed: (string | null)[];
+
+  beforeEach(() => {
+    cacheDirsUsed = [];
+    pipeline.mockReset();
+    pipeline.mockImplementation(() => {
+      cacheDirsUsed.push(transformersEnv.cacheDir);
+      return Promise.resolve(() => Promise.resolve({ data: new Float32Array(384), dims: [1, 384] }));
+    });
+  });
+
+  function markCached(modelDir: string): void {
+    const model = join(modelDir, 'Xenova', 'multilingual-e5-small');
+    mkdirSync(join(model, 'onnx'), { recursive: true });
+    for (const file of ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/model_quantized.onnx']) writeFileSync(join(model, file), '');
+  }
+
+  it('models pull downloads into OVERSEER_MODEL_DIR from the CLI env and names it', async () => {
+    const modelDir = tempDir('ovs-models-');
+    expect(process.env.OVERSEER_MODEL_DIR).not.toBe(modelDir);
+    const result = await cli(tempRepo(), ['models', 'pull'], { HOME: tempDir('ovs-home-'), OVERSEER_MODEL_DIR: modelDir });
+    expect(result).toEqual({ code: 0, out: `Model Xenova/multilingual-e5-small ready in ${modelDir}\n`, err: '' });
+    expect(cacheDirsUsed).toEqual([modelDir]);
+  });
+
+  it('install without --skip-model uses the same folder', async () => {
+    const modelDir = tempDir('ovs-models-');
+    const result = await cli(tempRepo(), ['install', '--targets', 'omp'], { HOME: tempDir('ovs-home-'), PATH: '', OVERSEER_MODEL_DIR: modelDir });
+    expect(result.code).toBe(0);
+    expect(result.out).toContain(`ready in ${modelDir}`);
+    expect(cacheDirsUsed).toEqual([modelDir]);
+  });
+
+  it('doctor, models pull, install and search all use one folder', async () => {
+    const modelDir = tempDir('ovs-models-');
+    const repo = tempRepo();
+    const env = { HOME: tempDir('ovs-home-'), PATH: '', OVERSEER_MODEL_DIR: modelDir };
+    await cli(repo, ['models', 'pull'], env);
+    await cli(repo, ['install', '--targets', 'omp'], env);
+    markCached(modelDir);
+    expect((await cli(repo, ['doctor'], env)).out).toContain(`cached in ${modelDir}`);
+    const added = await cli(repo, ['add', 'requirement', '--title', 'Searchable thing', '--type', 'functional'], env);
+    expect(added.err).toBe('');
+    const search = await cli(repo, ['search', 'thing'], env);
+    expect(search.code).toBe(0);
+    expect(cacheDirsUsed.length).toBeGreaterThan(2);
+    expect(new Set(cacheDirsUsed)).toEqual(new Set([modelDir]));
   });
 });
