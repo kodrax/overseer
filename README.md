@@ -223,6 +223,10 @@ overseer export                             # writes docs/overseer/
 | `worktree finish <id> --merged-head <sha> [--pr] [--base]` | after the merge: remove the worktree and branches, fast-forward the base, set the item done and roll its story up to done |
 | `worktree list` | worktrees on task and bug branches, with their item IDs |
 | `sync remotes` | GitHub, GitLab and other repositories named by the project's git remotes (see [Repository remotes](#repository-remotes)) |
+| `sync connections` | the project's repository connections, with their MCP server and auto-sync flag (see [Repository connections](#repository-connections)) |
+| `sync connection add --host github\|gitlab --repo <repo> [--mcp-server <name>]` | connect a GitHub or GitLab repository to the project, with auto-sync on |
+| `sync connection set <id> [--auto-sync on\|off] [--mcp-server <name>]` | change a connection's auto-sync flag or MCP server |
+| `sync connection remove <id>` | delete a connection with its remote refs, mappings and pending outbox rows |
 | `sync inspect <file\|-> --source github\|gitlab` | labels, issue types, milestones, sub-issue support and boards of a repository, from a bundle of raw MCP responses (see [Tracking setup](#tracking-setup)) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
@@ -282,6 +286,19 @@ The same item, template and branch always give the same draft. This command has 
 - **No remotes**, or a folder outside git, print `[]` (`No git remotes.` without `--json`).
 
 It reads only the local git config and makes no network calls. This command has no MCP tool.
+
+### Repository connections
+
+A connection is one GitHub or GitLab repository the project syncs with. `overseer sync connection add --host github --repo acme/demo --mcp-server github --json` stores it and prints `{"id", "host", "repository", "mcp_server", "auto_sync", "last_sync_cursor", "created_at"}`; without `--json`, one `key: value` line per field:
+
+- **Repository**: `owner/repo` on GitHub; `group/project` on GitLab, with any number of subgroups (`group/sub/project`). Slashes around it and `.git` are dropped, as in `sync remotes`. Each part holds letters, digits, `.`, `_` and `-`. Another host, or another repository shape (a URL, `acme`, `acme/demo/extra` on GitHub), gives `INVALID_INPUT`.
+- **One connection per repository**: the same host and repository again (case-insensitive) gives `CONFLICT` naming the existing connection's id.
+- **MCP server**: the harness MCP server that reaches the repository (`--mcp-server`), else `null`.
+- **Auto-sync**: on for a new connection; `last_sync_cursor` is `null` until the first pull.
+
+`overseer sync connections --json` lists every connection by id (`[]` when there is none; `No connections.` and a table without `--json`). `overseer sync connection set <id> --auto-sync on|off --mcp-server <name> --json` changes either field and prints the connection; give at least one. `overseer sync connection remove <id> --json` deletes the connection together with its issue references on items, its kind/status/priority mappings and its pending outbox rows, and prints `{"removed": <connection>, "remote_refs", "mappings", "outbox"}` with the number of rows deleted from each. An unknown id gives `NOT_FOUND`.
+
+These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
 
 ### Tracking setup
 
@@ -492,7 +509,7 @@ npm run measure:capture -- --out docs/measurements/capture-<label> [--live]   # 
 
 | Path | Contents |
 |---|---|
-| `src/core/` | `OverseerService`, database and migrations, search and embeddings, coverage, lint, reports, export, import |
+| `src/core/` | `OverseerService`, database and migrations, search and embeddings, coverage, lint, reports, export, import, repository connections |
 | `src/mcp/` | MCP server |
 | `src/cli/` | CLI |
 | `src/board/`, `web/` | board server and React app |

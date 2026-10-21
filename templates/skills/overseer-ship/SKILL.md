@@ -8,9 +8,9 @@ description: Ship one board item end to end. Resolves a board ID, a GitHub/GitLa
 Drives one task or bug from the board to a merged pull request: one item, one worktree, one branch,
 one pull request. Uses the `overseer` skill's tools and rules (find_similar before every create, the
 user's language, report every ID and status you change; `DISABLED` → stop). The `overseer worktree`,
-`overseer pr` and `overseer config` commands are CLI only; run them with `--json` from the project root
-or from the worktree (board lookups from a worktree resolve to the main checkout). Never merge the pull
-request yourself.
+`overseer pr`, `overseer sync` and `overseer config` commands are CLI only; run them with `--json` from the
+project root or from the worktree (board lookups from a worktree resolve to the main checkout). Never merge
+the pull request yourself.
 
 ## 1. Resolve the item
 
@@ -35,10 +35,10 @@ request yourself.
      the `overseer` skill says. Bugs also get `severity` and
      `bug_details {steps[], expected, actual, environment?}`; ask for the steps if the request lacks them.
   4. Show the new ID and its acceptance criteria to the user.
-- **Connected repositories**: only when the project has a repository connection with auto-sync on,
-  push the new item to each connected repository through that connection's MCP server and record the
-  issue reference on the item before step 3. No connection, or auto-sync off → skip this step; never
-  create issues on your own.
+- **Connected repositories**: `overseer sync connections --json` lists the project's connections
+  (`[{id, host, repository, mcp_server, auto_sync, …}]`). Only for a connection with `auto_sync: true`,
+  push the new item to its repository through its `mcp_server` and record the issue reference on the
+  item before step 3. No connection, or auto-sync off → skip this step; never create issues on your own.
 
 ## 2. Worktree settings (first run)
 

@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { CONNECTION_HOSTS, type Connection } from '../../core/connections.js';
 import { detectRemotes } from '../../core/remotes.js';
 import { IMPORT_SOURCES } from '../../core/schema.js';
 import { bundleKeys, inspectTracking, type TrackingSetup } from '../../core/tracking.js';
@@ -30,6 +31,20 @@ function formatSetup(setup: TrackingSetup): string {
     ]),
     ...setup.warnings.map((warning) => `warning: ${warning}`),
   ].join('\n');
+}
+
+const AUTO_SYNC_STATES = ['on', 'off'] as const;
+
+function formatConnection(connection: Connection): string {
+  return fields([
+    ['id', connection.id],
+    ['host', connection.host],
+    ['repository', connection.repository],
+    ['mcp_server', connection.mcp_server ?? '-'],
+    ['auto_sync', connection.auto_sync ? 'on' : 'off'],
+    ['last_sync_cursor', connection.last_sync_cursor ?? '-'],
+    ['created_at', connection.created_at],
+  ]);
 }
 
 /** `overseer sync …`: GitHub and GitLab repository connections. Each subcommand registers on the `sync` group. */
@@ -72,5 +87,79 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
       assertProjectEnabled(root, rt.env);
       const source = oneOf(IMPORT_SOURCES, options.source, 'source');
       rt.emit(options.json, inspectTracking(parseJsonInput(await readInput(rt, file, 'Bundle'), 'Bundle'), source), formatSetup);
+    });
+
+  sync
+    .command('connections')
+    .description('repository connections of this project, with their MCP server and auto-sync flag (local database only, no network)')
+    .option('--json', 'print JSON')
+    .action(async (options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'read', (service) => {
+        rt.emit(options.json, service.connections.list(), (connections) =>
+          connections.length === 0
+            ? 'No connections.'
+            : table(
+                ['Id', 'Host', 'Repository', 'MCP server', 'Auto-sync', 'Last sync'],
+                connections.map((connection) => [
+                  connection.id,
+                  connection.host,
+                  connection.repository,
+                  connection.mcp_server,
+                  connection.auto_sync ? 'on' : 'off',
+                  connection.last_sync_cursor,
+                ]),
+              ),
+        );
+      });
+    });
+
+  const connection = sync.command('connection').description('add, change or remove a repository connection (local database only, no network)');
+  connection
+    .command('add')
+    .description('connect a GitHub or GitLab repository to this project, with auto-sync on')
+    .requiredOption('--host <host>', `hosting service: ${CONNECTION_HOSTS.join(' | ')}`)
+    .requiredOption('--repo <repo>', 'owner/repo on GitHub, group/project or group/subgroup/…/project on GitLab')
+    .option('--mcp-server <name>', 'harness MCP server that reaches the repository')
+    .option('--json', 'print JSON')
+    .action(async (options: { host: string; repo: string; mcpServer?: string; json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', (service) => {
+        const added = service.connections.add({
+          host: options.host,
+          repository: options.repo,
+          ...(options.mcpServer !== undefined ? { mcp_server: options.mcpServer } : {}),
+        });
+        rt.emit(options.json, added, formatConnection);
+      });
+    });
+  connection
+    .command('set')
+    .description("change a connection's auto-sync flag or MCP server")
+    .argument('<id>', 'connection id (see sync connections)')
+    .option('--auto-sync <state>', `push local changes without an explicit sync: ${AUTO_SYNC_STATES.join(' | ')}`)
+    .option('--mcp-server <name>', 'harness MCP server that reaches the repository')
+    .option('--json', 'print JSON')
+    .action(async (id: string, options: { autoSync?: string; mcpServer?: string; json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', (service) => {
+        const changed = service.connections.set(id, {
+          ...(options.autoSync !== undefined ? { auto_sync: oneOf(AUTO_SYNC_STATES, options.autoSync, 'auto-sync state') === 'on' } : {}),
+          ...(options.mcpServer !== undefined ? { mcp_server: options.mcpServer } : {}),
+        });
+        rt.emit(options.json, changed, formatConnection);
+      });
+    });
+  connection
+    .command('remove')
+    .description('delete a connection with its remote refs, mappings and pending outbox rows')
+    .argument('<id>', 'connection id (see sync connections)')
+    .option('--json', 'print JSON')
+    .action(async (id: string, options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', (service) => {
+        rt.emit(
+          options.json,
+          service.connections.remove(id),
+          ({ removed, remote_refs, mappings, outbox }) =>
+            `Removed connection ${removed.id} (${removed.host} ${removed.repository}) with ${remote_refs} remote refs, ${mappings} mappings and ${outbox} outbox rows.`,
+        );
+      });
     });
 }

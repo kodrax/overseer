@@ -1,4 +1,5 @@
 import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { Connections } from './connections.js';
 import { computeCoverage, implementersByRequirement } from './coverage.js';
 import { type Database, nowIso, openDatabase, tx } from './db.js';
 import { type Embedder, TransformersEmbedder } from './embeddings.js';
@@ -245,12 +246,15 @@ export class OverseerService {
   readonly db: Database;
   readonly vecAvailable: boolean;
   readonly semantic: SemanticIndex;
+  /** The project's GitHub/GitLab repository connections. */
+  readonly connections: Connections;
 
   private constructor(root: string, db: Database, vecAvailable: boolean, embedder: Embedder | null) {
     this.root = root;
     this.db = db;
     this.vecAvailable = vecAvailable;
     this.semantic = new SemanticIndex(db, vecAvailable, embedder);
+    this.connections = new Connections(db);
   }
 
   /**
