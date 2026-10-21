@@ -195,6 +195,7 @@ overseer add requirement --title "Password reset by email" --type functional --s
   --ac "Given a registered email, when a reset is requested, then a link valid for 30 minutes is sent"
 overseer add story --title "Reset forgotten password" \
   --description "As a user I want to reset my password so that I can regain access" --implements REQ-0001
+overseer add --batch dictation.json         # up to 50 items in one call (see below)
 overseer update US-0001 --status done --delivered-in "PR #42"
 overseer coverage "password reset"          # covered / partially / not_found
 overseer similar "Restablecer la contraseña por correo"
@@ -207,6 +208,7 @@ overseer export                             # writes docs/overseer/
 | `enable` / `disable` | turn overseer on or off for this project and the folders below it (off by default) |
 | `init [--name] [--asked-by]` | turn the project on and create `.overseer/` (optional: the first write creates it) |
 | `add <kind> --title …` | record a requirement, epic, story, task or bug; refuses likely duplicates unless `--allow-duplicate` (`--json` prints a compact result, `--full` the whole item) |
+| `add --batch <file\|->` | record up to 50 items from a JSON array in one transaction, all or nothing (see [Batch create](#batch-create)) |
 | `update <id> …` | change fields or status, `--comment`, `--delivered-in`, `--clear <field>` (`--json` prints a compact result, `--full` the whole item) |
 | `show <id>… [--context] [--history]` | items with links, children, coverage and history; several IDs (up to 50) print `{items:[…]}` with `--json`; `--context` adds the parent and the linked requirements with their acceptance criteria |
 | `list [--kind] [--status] [--type] [--coverage] [--tag] [--parent] [--all] [--limit] [--offset]` | list items (closed ones hidden unless `--all`); `--type` filters requirements by `functional` or `non_functional`, `--parent <id>` lists an item's children; pages of `--limit` items (default 50) starting at `--offset` |
@@ -251,6 +253,22 @@ The same item, template and branch always give the same draft. This command has 
 
 - **Item**: read from the current branch with `branch_pattern`. A branch the pattern does not produce for a task or bug ID (or a detached HEAD) gives `INVALID_INPUT` naming the branch and the pattern. With an explicit ID (`overseer pr opened TASK-0058 --url <url>`) it works from any folder, using the local, else `origin`, branch that fills `branch_pattern` with the ID.
 - **Status**: the item becomes `review` with `delivered_in` = the URL, `code_refs` = the files the branch changed since its merge-base with `origin/<base_branch>` (else the local base branch; the item's `code_refs` when nothing changed) and a comment with the URL. This command has no MCP tool.
+
+### Batch create
+
+`overseer add --batch <file|->` and `create_item` with `items` record up to 50 items in one call. The file is a JSON array (or `{"items": [...]}`); `create_item` takes `items` instead of the single-item fields, never both. Each entry takes the `create_item` fields plus an optional `key`: 1–64 letters, digits, `_`, `.` or `-`. `parent_id` and `links[].to` take an existing ID or `@<key>` of another entry in the same batch, in any order. Item IDs never start with `@`, so a reference is a batch key exactly when it does.
+
+```json
+[
+  {"key": "r1", "kind": "requirement", "req_type": "functional", "title": "Redeem a gift card at checkout"},
+  {"key": "s1", "kind": "story", "title": "Pay with a gift card", "parent_id": "EPIC-0002", "links": [{"rel": "implements", "to": "@r1"}]},
+  {"kind": "task", "title": "Add the gift card field to checkout", "parent_id": "@s1"}
+]
+```
+
+- **Validated as a whole first**: entry schemas and unknown fields, kind rules, statuses, duplicate keys, unknown keys and IDs, parent and link kind rules, and parent cycles. Any problem writes nothing; the `INVALID_INPUT` message lists every one as `items[<index>] (@<key>): …`.
+- **Duplicate check per entry**: each entry is compared with the stored items and with the earlier entries of the same kind, as a single create does. If any entry is a likely duplicate and lacks its own `"allow_duplicate": true`, nothing is written and the result is `{"created": false, "reason": "possible_duplicate", "duplicates": [{"index", "key", "candidates"}]}`. A candidate from the batch carries `index` and `key` instead of an `id`.
+- **One transaction**: IDs follow the batch order. On success, `--json` and `create_item` return `{"created": true, "items": [{"key", "id", "title", "status", "verdict", "candidates", "warnings"}]}`; `--full` (`full: true`) returns `{"created": true, "items": [{"key", "item", "warnings", "similar"}]}`.
 
 ### Worktrees
 
@@ -347,7 +365,7 @@ The page updates live when an agent or the CLI writes to the database, deletions
 |---|---|
 | `find_similar` | items similar to a text; verdict `duplicate`, `related` or `new` |
 | `check_coverage` | requirements covering a text, with their coverage and implementing items |
-| `create_item` / `update_item` / `get_item` / `list_items` | item lifecycle; creates and updates return compact results unless `full: true` |
+| `create_item` / `update_item` / `get_item` / `list_items` | item lifecycle; creates and updates return compact results unless `full: true`; `create_item` takes `items` for up to 50 items in one call ([Batch create](#batch-create)) |
 | `search` | hybrid search |
 | `link_items` | add or remove a relation |
 | `delete_item` | delete an item without children; `destructiveHint: true` |
@@ -426,7 +444,7 @@ Cancelled implementing items are ignored: they neither count as work nor keep a 
   - 71 English/Spanish requirement pairs (`test/fixtures/similarity-pairs.json`)
 
   At these thresholds, 5% of the requirements have a duplicate-class neighbour. 84% of the rewordings and 70% of the fixture duplicates count as duplicates, and every one of them at least as related.
-- `add` and `create_item` compare the new item only with existing items of the same kind, and return the candidates instead of creating the item when a duplicate is likely. When they do create it, they still return the `verdict` and the duplicate or related candidates.
+- `add` and `create_item` compare the new item only with existing items of the same kind, and return the candidates instead of creating the item when a duplicate is likely. When they do create it, they still return the `verdict` and the duplicate or related candidates. A batch also compares each entry with the earlier entries of the same kind, using the same vectors and thresholds, and embeds all of its texts before the write.
 - `search` reports plain cosine similarity, which only orders the results.
 - Without the model or `sqlite-vec`, results are keyword-only and carry `semantic: false` with a `warning`. Searches, similarity and coverage checks never download the model: until `overseer models pull` (or `overseer install`) puts it in the model cache, they answer from the keyword index and the warning names `overseer models pull`. `overseer doctor --deep` then reports the model load check as skipped instead of loading it.
 

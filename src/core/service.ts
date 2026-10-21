@@ -1,4 +1,5 @@
 import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { type BatchCreateResult, type CompactBatchCreateResult, compactBatchResult, createBatch } from './batch.js';
 import { Connections } from './connections.js';
 import { computeCoverage, implementersByRequirement } from './coverage.js';
 import { type Database, nowIso, openDatabase, tx } from './db.js';
@@ -48,7 +49,7 @@ import {
 } from './schema.js';
 import { type ExportOptions, type ExportResult, exportReports } from './export.js';
 import { type ImportResult, importItems } from './import.js';
-import { type MatchClass, type SearchResult, SemanticIndex, type SimilarMatch, type SimilarResult, type SimilarVerdict } from './search.js';
+import { type BatchSimilarEntry, type BatchSimilarResult, type MatchClass, type SearchResult, SemanticIndex, type SimilarMatch, type SimilarResult, type SimilarVerdict } from './search.js';
 import { detectSetupCommand, SETUP_NONE } from './worktree.js';
 
 export interface CreatedResult {
@@ -665,7 +666,8 @@ export class OverseerService {
     return parent;
   }
 
-  private assertLink(src: { id?: string; kind: Kind }, rel: Relation, dst: ItemRow): void {
+  /** INVALID_LINK unless `rel` may link `src` to `dst`; `id` names an item or a batch key reference. */
+  assertLink(src: { id?: string; kind: Kind }, rel: Relation, dst: { id: string; kind: Kind }): void {
     if (!(RELATIONS as readonly string[]).includes(rel)) {
       throw new OverseerError('INVALID_LINK', `Unknown relation "${rel}"; valid: ${RELATIONS.join(', ')}.`);
     }
@@ -678,7 +680,7 @@ export class OverseerService {
   }
 
   /** Inserts a link (idempotent) with its event; `implements` puts the requirement in the backlog. */
-  private insertLink(src: string, rel: Relation, dst: string, ctx: Ctx, at: string): boolean {
+  insertLink(src: string, rel: Relation, dst: string, ctx: Ctx, at: string): boolean {
     const inserted = this.db.prepare('INSERT OR IGNORE INTO links(src, rel, dst, created_at) VALUES (?, ?, ?, ?)').run(src, rel, dst, at);
     if (inserted.changes === 0) return false;
     this.addEvent(src, ctx, at, 'link', rel, null, dst);
@@ -706,8 +708,28 @@ export class OverseerService {
     return { created: true, id: item.id, title: item.title, status: item.status, verdict, candidates, warnings };
   }
 
-  private async create(raw: unknown, ctx: Ctx): Promise<{ result: CreateResult; verdict: SimilarVerdict }> {
-    const input: CreateInput = parseInput(createInputSchema, raw);
+  /** Batch create (`items`), full results: `{created:true, items:[{key, item, warnings, similar}]}`. */
+  async createBatch(raw: unknown, ctx: Ctx): Promise<BatchCreateResult> {
+    return (await createBatch(this, raw, ctx)).result;
+  }
+
+  /** Batch create (`items`), compact results: `{created:true, items:[{key, id, title, status, verdict, candidates, warnings}]}`. */
+  async createBatchCompact(raw: unknown, ctx: Ctx): Promise<CompactBatchCreateResult> {
+    return compactBatchResult(await createBatch(this, raw, ctx));
+  }
+
+  /** `findSimilarBatch` of the semantic index, with requirement coverage on the stored matches. */
+  async findSimilarBatch(entries: readonly BatchSimilarEntry[]): Promise<BatchSimilarResult[]> {
+    const results = await this.semantic.findSimilarBatch(entries);
+    const implementers = implementersByRequirement(this.db);
+    for (const match of results.flatMap((result) => result.board.matches)) {
+      if (match.kind === 'requirement') match.coverage = this.coverageOf(this.requireRow(match.id), implementers);
+    }
+    return results;
+  }
+
+  /** Kind rules of a parsed create input (kind-specific fields, req_type, status); returns the status to store. */
+  checkCreate(input: CreateInput): string {
     const { kind } = input;
     assertApplicable(kind, input);
     if (kind === 'requirement' && !input.req_type) {
@@ -715,25 +737,16 @@ export class OverseerService {
     }
     const status = input.status ?? STATUSES[kind][0]!;
     assertStatus(kind, status);
-    const parentId = input.parent_id ? this.assertParent(kind, normalizeId(input.parent_id)).id : null;
-    const links = (input.links ?? []).map(({ rel, to }) => {
-      const dst = this.requireRow(to);
-      this.assertLink({ kind }, rel, dst);
-      return { rel, dst: dst.id };
-    });
+    return status;
+  }
 
-    const description = input.description ?? '';
-    const similar = await this.findSimilar(`${input.title}\n${description}`, { kind });
-    const candidates = similar.matches.filter((match) => match.match === 'duplicate' || match.match === 'related');
-    if (!input.allow_duplicate && similar.matches.some((match) => match.match === 'duplicate')) {
-      return { result: { created: false, reason: 'possible_duplicate', candidates }, verdict: 'duplicate' };
-    }
-
-    const now = nowIso();
-    const values: Record<string, unknown> = {
+  /** Column values of a new item from a checked create input (S4 defaults). */
+  createValues(input: CreateInput, status: string, parentId: string | null, ctx: Ctx, now: string): Record<string, unknown> {
+    const { kind } = input;
+    return {
       kind,
       title: input.title,
-      description,
+      description: input.description ?? '',
       status,
       priority: input.priority ?? 'should',
       req_type: input.req_type ?? null,
@@ -761,7 +774,26 @@ export class OverseerService {
       updated_at: now,
       status_changed_at: now,
     };
-    const id = this.insertItem(values, ctx, links, 'create');
+  }
+
+  private async create(raw: unknown, ctx: Ctx): Promise<{ result: CreateResult; verdict: SimilarVerdict }> {
+    const input: CreateInput = parseInput(createInputSchema, raw);
+    const { kind } = input;
+    const status = this.checkCreate(input);
+    const parentId = input.parent_id ? this.assertParent(kind, normalizeId(input.parent_id)).id : null;
+    const links = (input.links ?? []).map(({ rel, to }) => {
+      const dst = this.requireRow(to);
+      this.assertLink({ kind }, rel, dst);
+      return { rel, dst: dst.id };
+    });
+
+    const similar = await this.findSimilar(`${input.title}\n${input.description ?? ''}`, { kind });
+    const candidates = similar.matches.filter((match) => match.match === 'duplicate' || match.match === 'related');
+    if (!input.allow_duplicate && similar.matches.some((match) => match.match === 'duplicate')) {
+      return { result: { created: false, reason: 'possible_duplicate', candidates }, verdict: 'duplicate' };
+    }
+
+    const id = this.insertItem(this.createValues(input, status, parentId, ctx, nowIso()), ctx, links, 'create');
     const item = this.itemOf(this.requireRow(id));
     return {
       result: {
@@ -776,17 +808,19 @@ export class OverseerService {
 
   /**
    * Inserts a fully validated item row with its FTS row, creation event and outgoing links.
-   * Returns the allocated ID. Callers validate beforehand; this never partially writes.
+   * Returns the ID: `preset` when the caller allocated it in its transaction, else a newly allocated one.
+   * Callers validate beforehand; this never partially writes.
    */
   insertItem(
     values: Record<string, unknown>,
     ctx: Ctx,
     links: { rel: Relation; dst: string }[],
     action: 'create' | 'import',
+    preset?: string,
   ): string {
     return tx(this.db, () => {
       const kind = values.kind as Kind;
-      const id = allocateId(this.db, kind);
+      const id = preset ?? allocateId(this.db, kind);
       const columns = ['id', ...Object.keys(values)];
       const result = this.db
         .prepare(`INSERT INTO items(${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)

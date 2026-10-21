@@ -10,8 +10,10 @@ import {
   REQ_TYPES,
 } from '../../core/schema.js';
 import type { SimilarMatch } from '../../core/search.js';
+import { type BatchCreateResult, type BatchSimilar, MAX_BATCH_ITEMS } from '../../core/batch.js';
 import { type CreateResult, type DeleteResult, type ItemDetail, type LinkResult, type ListResult, MAX_ITEM_IDS, type UpdateResult } from '../../core/service.js';
 import { fields, list, similarity, table } from '../format.js';
+import { parseJsonInput, readInput } from '../input.js';
 import { collect, collectList, oneOf, parseInteger, parseNumber } from '../options.js';
 import type { CliRuntime } from '../runtime.js';
 
@@ -49,6 +51,7 @@ interface AddOptions extends FieldOptions {
   link?: string[];
   implements?: string[];
   allowDuplicate?: boolean;
+  batch?: string;
 }
 
 interface UpdateOptions extends FieldOptions {
@@ -193,6 +196,25 @@ function formatCreate(result: CreateResult): string {
   return lines.join('\n');
 }
 
+function formatBatch(result: BatchCreateResult): string {
+  const name = (match: BatchSimilar): string =>
+    'index' in match ? `${match.id ?? `items[${match.index}]`}${match.key ? ` (@${match.key})` : ''}` : match.id;
+  if (!result.created) {
+    const lines = ['Not created: possible duplicates; nothing was written.'];
+    for (const { index, key, candidates } of result.duplicates) {
+      lines.push('', `items[${index}]${key ? ` (@${key})` : ''}:`, matchesTable(candidates.map((match) => ({ ...match, id: name(match) }))));
+    }
+    lines.push('', 'Update the existing items, drop the duplicate entries, or set "allow_duplicate": true on an entry to create it anyway.');
+    return lines.join('\n');
+  }
+  const lines = [`Created ${result.items.length} item${result.items.length === 1 ? '' : 's'}:`];
+  for (const { key, item, warnings, similar } of result.items) {
+    lines.push(`${item.id}${key ? ` (@${key})` : ''}  ${item.title}`, ...warningLines(warnings).map((line) => `  ${line}`));
+    for (const match of similar) lines.push(`  similar: ${name(match)} (${match.match ?? 'match'} ${similarity(match.similarity)})  ${match.title}`);
+  }
+  return lines.join('\n');
+}
+
 function formatUpdate(result: UpdateResult): string {
   const head =
     result.changed_fields.length > 0 ? `Updated ${result.item.id}: ${result.changed_fields.join(', ')}` : `No field changes to ${result.item.id}`;
@@ -304,23 +326,42 @@ export function registerItemCommands(program: Command, rt: CliRuntime): void {
   addFieldOptions(
     program
       .command('add')
-      .description('record a requirement, epic, story, task or bug')
-      .argument('<kind>', `item kind: ${KINDS.join(' | ')}`)
-      .requiredOption('--title <title>', 'short title (≤100 chars)'),
+      .description(`record a requirement, epic, story, task or bug, or up to ${MAX_BATCH_ITEMS} items with --batch`)
+      .argument('[kind]', `item kind: ${KINDS.join(' | ')} (not with --batch)`)
+      .option('--title <title>', 'short title (≤100 chars); required unless --batch'),
   )
     .option('--link <rel:id>', 'link to another item, e.g. refines:REQ-0002 (repeatable)', collect)
     .option('--implements <id>', 'requirement this item implements (repeatable)', collect)
     .option('--allow-duplicate', 'create even when a possible duplicate exists')
+    .option(
+      '--batch <file>',
+      'create items from a JSON array (or {"items": [...]}) in a file, or - for stdin: create_item fields plus an optional key that parent_id and links[].to of other entries reference as "@<key>"; all or nothing',
+    )
     .option('--json', 'print JSON (compact: id, title, status, verdict, candidates, warnings)')
     .option('--full', 'with --json, print the full item instead of the compact result')
-    .action(async (kind: string, options: AddOptions, command: Command) => {
+    .action(async (kind: string | undefined, options: AddOptions, command: Command) => {
+      const input: Record<string, unknown> = { ...(kind !== undefined ? { kind } : {}), ...fieldInput(options) };
+      const bug = bugDetails(options, () => null);
+      if (bug) input.bug_details = bug;
+      const links = [...(options.link ?? []).map(parseLink), ...(options.implements ?? []).map((to) => ({ rel: 'implements', to }))];
+      if (links.length > 0) input.links = links;
+      if (options.allowDuplicate) input.allow_duplicate = true;
+
+      if (options.batch !== undefined) {
+        if (Object.keys(input).length > 0) {
+          throw new OverseerError('INVALID_INPUT', '--batch takes every item from the file; drop the kind argument and the item flags (allow_duplicate goes on each entry).');
+        }
+        const data = parseJsonInput(await readInput(rt, options.batch, 'Batch'), 'Batch');
+        const request = Array.isArray(data) ? { items: data } : data;
+        await rt.withService(command, 'write', async (service) => {
+          if (options.json && !options.full) rt.out(JSON.stringify(await service.createBatchCompact(request, rt.ctx), null, 2));
+          else rt.emit(options.json, await service.createBatch(request, rt.ctx), formatBatch);
+        });
+        return;
+      }
+
+      if (kind === undefined || options.title === undefined) throw new OverseerError('INVALID_INPUT', 'add needs <kind> and --title, or --batch <file|->.');
       await rt.withService(command, 'write', async (service) => {
-        const input: Record<string, unknown> = { kind, ...fieldInput(options) };
-        const bug = bugDetails(options, () => null);
-        if (bug) input.bug_details = bug;
-        const links = [...(options.link ?? []).map(parseLink), ...(options.implements ?? []).map((to) => ({ rel: 'implements', to }))];
-        if (links.length > 0) input.links = links;
-        if (options.allowDuplicate) input.allow_duplicate = true;
         // --json is compact for agents; the text output and --full keep the full result.
         if (options.json && !options.full) rt.out(JSON.stringify(await service.createItemCompact(input, rt.ctx), null, 2));
         else rt.emit(options.json, await service.createItem(input, rt.ctx), formatCreate);

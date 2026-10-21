@@ -225,6 +225,93 @@ describe('mcp server', () => {
     }
   });
 
+  it('records the TASK-0056 dictation (20 items, 14 parents, 12 links) in one create_item call (AC5)', async () => {
+    const repo = tempRepo();
+    const client = await connect({ cwd: repo });
+    const epic = await call(client, 'create_item', { kind: 'epic', title: 'Payments', description: 'Paying for orders.' });
+    const epicId = String(epic.data!.id);
+    const requirement = (key: string, title: string, description: string) => ({ key, kind: 'requirement', req_type: 'functional', status: 'approved', title, description });
+    const story = (key: string, title: string, description: string, implemented: string[]) => ({
+      key,
+      kind: 'story',
+      title,
+      description,
+      parent_id: epicId,
+      links: implemented.map((to) => ({ rel: 'implements', to: `@${to}` })),
+    });
+    const task = (key: string, title: string, description: string, parent: string, implemented: string[] = []) => ({
+      key,
+      kind: 'task',
+      title,
+      description,
+      parent_id: `@${parent}`,
+      ...(implemented.length > 0 ? { links: implemented.map((to) => ({ rel: 'implements', to: `@${to}` })) } : {}),
+    });
+    // scripts/measure-capture.mjs DICTATION, as one batch.
+    const items = [
+      requirement('R1', 'Email the gift card code to the recipient', 'When a customer buys a gift card, the shop shall email the gift card code to the recipient within 5 minutes.'),
+      requirement('R2', 'Redeem a gift card at checkout', 'When a customer enters a valid gift card code at checkout, the shop shall subtract the card balance from the order total.'),
+      requirement('R3', 'Close used gift cards', 'When a gift card balance reaches zero, the shop shall mark the card as used and reject further redemptions.'),
+      requirement('R4', 'Unguessable gift card codes', 'The shop shall generate gift card codes of 16 random characters that cannot be guessed.'),
+      requirement('R5', 'Remind before a gift card expires', 'When a gift card is 30 days from its expiry date, the shop shall remind the recipient by email.'),
+      requirement('R6', 'Fast gift card balance check', 'When a customer checks a gift card balance, the shop shall answer within 500 ms.'),
+      story('S1', 'Buy a gift card for a friend', 'As a customer I want to buy a gift card for a friend so that I can give a present.', ['R1']),
+      story('S2', 'Pay with a gift card', 'As a customer I want to pay with a gift card at checkout so that I can use my present.', ['R2', 'R3']),
+      story('S3', 'Check my gift card balance', 'As a customer I want to check my gift card balance so that I know how much is left.', ['R6']),
+      story('S4', 'Get a reminder before my gift card expires', 'As a gift card recipient I want a reminder before my card expires so that I do not lose the money.', ['R5']),
+      story('S5', 'Reconcile gift card revenue', 'As a store manager I want to see sold and redeemed gift cards so that I can reconcile revenue.', ['R3']),
+      story('S6', 'Block a stolen gift card', 'As a store manager I want to block a stolen gift card so that nobody can use it.', ['R4']),
+      task('T1', 'Create the gift card product type', 'Add a gift card product type with amounts of 25, 50 and 100 EUR.', 'S1'),
+      task('T2', 'Send the gift card email', 'Send the recipient an email with the gift card code after payment.', 'S1', ['R1']),
+      task('T3', 'Add the gift card field to checkout', 'Add a gift card code field to the order review step of checkout.', 'S2'),
+      task('T4', 'Apply the gift card balance to the order', 'Subtract the gift card balance from the order total and store the remaining balance.', 'S2', ['R2']),
+      task('T5', 'Build the gift card balance page', 'Page where a customer enters a code and sees the remaining balance.', 'S3', ['R6']),
+      task('T6', 'Schedule the gift card expiry reminder job', 'Daily job that emails recipients whose card expires in 30 days.', 'S4', ['R5']),
+      task('T7', 'Add the gift card report to the admin dashboard', 'Report of gift cards sold, redeemed and outstanding per month.', 'S5'),
+      task('T8', 'Generate secure gift card codes', 'Generate 16-character codes from a cryptographic random source and reject collisions.', 'S6', ['R4']),
+    ];
+    expect(items.filter((item) => 'parent_id' in item)).toHaveLength(14);
+    expect(items.flatMap((item) => ('links' in item ? item.links : []))).toHaveLength(12);
+
+    const recorded = await call(client, 'create_item', { items });
+    expect(recorded.result.isError).toBeFalsy();
+    expect(recorded.data).toMatchObject({ created: true });
+    const created = recorded.data!.items as { key: string; id: string; verdict: string }[];
+    expect(created.map(({ key, id }) => `${key}=${id}`)).toEqual([
+      ...[1, 2, 3, 4, 5, 6].map((n) => `R${n}=REQ-000${n}`),
+      ...[1, 2, 3, 4, 5, 6].map((n) => `S${n}=US-000${n}`),
+      ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `T${n}=TASK-000${n}`),
+    ]);
+    expect(created.every(({ verdict }) => ['new', 'related', 'duplicate'].includes(verdict))).toBe(true);
+
+    const details = await call(client, 'get_item', { ids: created.map(({ id }) => id) });
+    const stored = details.data!.items as { item: { parent_id: string | null }; links: { outgoing: unknown[] } }[];
+    expect(stored.filter(({ item }) => item.parent_id !== null)).toHaveLength(14);
+    expect(stored.flatMap(({ links }) => links.outgoing)).toHaveLength(12);
+    expect(stored[12]!.item.parent_id).toBe('US-0001');
+    expect(stored[6]!.item.parent_id).toBe(epicId);
+  });
+
+  it('create_item takes either the item fields or items; full:true returns full batch items', async () => {
+    const repo = tempRepo();
+    const client = await connect({ cwd: repo });
+    const { tools } = await client.listTools();
+    const schema = tools.find((tool) => tool.name === 'create_item')!.inputSchema;
+    expect(schema.properties).toHaveProperty('items');
+    expect(schema.required ?? []).toEqual([]);
+
+    const both = await call(client, 'create_item', { kind: 'task', title: 'Single', items: [{ kind: 'task', title: 'Batch' }] });
+    expect(both.text).toBe("INVALID_INPUT: Pass either one item's fields or items, not both; move title, kind into the items entries.");
+    const invalid = await call(client, 'create_item', { items: [{ kind: 'task' }, { kind: 'story', title: 'Orphan', parent_id: '@missing' }] });
+    expect(invalid.text).toBe(
+      'INVALID_INPUT: Nothing written: 2 problems in the batch: items[0]: title: Invalid input: expected string, received undefined; items[1]: parent_id "@missing": no entry of this batch has key "@missing"',
+    );
+
+    const full = await call(client, 'create_item', { items: [{ key: 'a', kind: 'task', title: 'Write the importer' }], full: true });
+    expect(full.data).toMatchObject({ created: true, items: [{ key: 'a', item: { id: 'TASK-0001', recorded_via: 'test-client' }, warnings: [], similar: [] }] });
+    expect(await call(client, 'list_items', {})).toMatchObject({ data: { total: 1 } });
+  });
+
   it('answers reads on an uninitialized project without creating it', async () => {
     const repo = tempRepo();
     const client = await connect({ cwd: repo });

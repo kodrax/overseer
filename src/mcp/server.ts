@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { type CallToolResult, CallToolRequestSchema, RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { startBoardServer, type BoardServer } from '../board/server.js';
+import { MAX_BATCH_ITEMS } from '../core/batch.js';
 import { type Embedder, TransformersEmbedder } from '../core/embeddings.js';
 import { errorMessage, isOverseerError, OverseerError } from '../core/errors.js';
 import { importRequestSchema } from '../core/import.js';
@@ -50,25 +51,41 @@ const kind = z.enum(KINDS);
 const full = z.boolean().optional().describe('Return the full item instead of the compact result. Only when you need fields beyond id, title and status.');
 const text = z.string().min(1).max(4000);
 
-const createShape = {
+const createSchema = z.object({
   ...createInputSchema.shape,
-  kind: kind.describe('requirement | epic | story | task | bug'),
-  title: createInputSchema.shape.title.describe('Short name (≤100 chars), in the user’s language.'),
+  kind: kind.optional().describe('requirement | epic | story | task | bug. Required unless items is given.'),
+  title: createInputSchema.shape.title.optional().describe('Short name (≤100 chars), in the user’s language. Required unless items is given.'),
   description: createInputSchema.shape.description.describe(
     'Requirement statement (EARS: "When <trigger>, the <system> shall <response>"), story ("As a <role>, I want <goal> so that <benefit>"), or task/bug details.',
   ),
   status: z.string().optional().describe(`Defaults to the first status of the kind. ${STATUS_HELP}`),
   req_type: createInputSchema.shape.req_type.describe('Required for requirements.'),
-  parent_id: createInputSchema.shape.parent_id.describe('story→epic, task→story, bug→epic|story, requirement→requirement.'),
+  parent_id: createInputSchema.shape.parent_id.describe(
+    'story→epic, task→story, bug→epic|story, requirement→requirement. In items: an ID or "@<key>" of another entry.',
+  ),
   links: createInputSchema.shape.links.describe(
-    'Outgoing links, e.g. [{"rel":"implements","to":"REQ-0001"}]. implements: story|task→requirement; affects: bug→requirement|story; refines/conflicts_with/supersedes: requirement→requirement; duplicates: same kind; depends_on/relates_to: any.',
+    'Outgoing links, e.g. [{"rel":"implements","to":"REQ-0001"}]. implements: story|task→requirement; affects: bug→requirement|story; refines/conflicts_with/supersedes: requirement→requirement; duplicates: same kind; depends_on/relates_to: any. In items, to may be "@<key>".',
   ),
   allow_duplicate: createInputSchema.shape.allow_duplicate.describe(
     'Create even when a likely duplicate exists. Only after showing the candidates to the user.',
   ),
+  items: z
+    .array(z.looseObject({}))
+    .min(1)
+    .max(MAX_BATCH_ITEMS)
+    .optional()
+    .describe(
+      `Instead of the fields above: up to ${MAX_BATCH_ITEMS} entries with the same fields (allow_duplicate per entry) plus an optional key (letters, digits, _ . -) that parent_id and links[].to of other entries reference as "@<key>".`,
+    ),
   full,
   project_dir: projectDir,
-};
+}).superRefine(({ items, full: _full, project_dir: _projectDir, ...input }, context) => {
+  // Without items, the single-item fields are checked here, before the project database is opened (and created);
+  // batch entries need the board and are checked by the service.
+  if (items !== undefined) return;
+  const result = createInputSchema.safeParse(input);
+  if (!result.success) for (const { message, path } of result.error.issues) context.addIssue({ code: 'custom', message, path });
+});
 
 const updateShape = {
   ...updateInputSchema.shape,
@@ -85,7 +102,7 @@ const toolsHelp = {
   check_coverage:
     'Answer "is X already covered / tracked / delivered?": finds matching requirements with their coverage (untracked, tracked, in_progress, delivered, verified, not_applicable) and the work items implementing them. Verdict covered | partially | not_found | unknown.',
   create_item:
-    'Record a requirement, epic, user story, task or bug. Returns {created:true, id, title, status, verdict, candidates:[{id, title, similarity, match}], warnings} (verdict and candidates from the duplicate check, as in find_similar; with verdict unknown the candidates are keyword hits), or {created:false, reason:"possible_duplicate", verdict:"duplicate", candidates} without writing when a likely duplicate exists. full:true returns the whole item instead: {created:true, item, warnings, similar}. Surface lint warnings to the user.',
+    'Record a requirement, epic, user story, task or bug. Returns {created:true, id, title, status, verdict, candidates:[{id, title, similarity, match}], warnings} (verdict and candidates from the duplicate check, as in find_similar; with verdict unknown the candidates are keyword hits), or {created:false, reason:"possible_duplicate", verdict:"duplicate", candidates} without writing when a likely duplicate exists. full:true returns the whole item instead: {created:true, item, warnings, similar}. Several items: pass items instead of the fields; all are created in one transaction or none, and INVALID_INPUT lists every problem by items[index] and @key. Each entry is checked against the board and the earlier entries: {created:true, items:[{key, id, title, status, verdict, candidates, warnings}]} (full:true: items:[{key, item, warnings, similar}]), or {created:false, reason:"possible_duplicate", duplicates:[{index, key, candidates}]} without writing when an entry without allow_duplicate is a likely duplicate; batch candidates carry index and key. Surface lint warnings to the user.',
   update_item:
     'Update fields or status of an item (nullable fields accept null to clear), optionally adding a comment. Returns {id, title, status, changed_fields, warnings}; full:true returns {item, changed_fields, warnings}. Surface lint warnings to the user.',
   get_item: `Get one item (id) or up to ${MAX_ITEM_IDS} items (ids, in request order, as {items:[…]}) with coverage, outgoing/incoming links, children and optionally its history. context:true adds the parent summary and the linked requirements (implements/affects) with their acceptance criteria, so one call gives the working context. Pass exactly one of id and ids.`,
@@ -237,9 +254,12 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
 
   server.registerTool(
     'create_item',
-    { title: 'Create item', description: toolsHelp.create_item, inputSchema: createShape, annotations: writes },
-    ({ project_dir, full, ...input }) =>
-      run(project_dir, true, (service) => (full ? service.createItem(input, ctx()) : service.createItemCompact(input, ctx()))),
+    { title: 'Create item', description: toolsHelp.create_item, inputSchema: createSchema, annotations: writes },
+    ({ project_dir, full, items, ...input }) =>
+      run(project_dir, true, (service) => {
+        if (items !== undefined) return full ? service.createBatch({ items, ...input }, ctx()) : service.createBatchCompact({ items, ...input }, ctx());
+        return full ? service.createItem(input, ctx()) : service.createItemCompact(input, ctx());
+      }),
   );
 
   server.registerTool(

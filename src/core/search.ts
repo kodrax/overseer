@@ -27,6 +27,20 @@ export interface SimilarResult {
   matches: SimilarMatch[];
 }
 
+/** One new item of a batch duplicate check: the query text (`title\ndescription`), its kind and its stored texts. */
+export interface BatchSimilarEntry {
+  text: string;
+  kind: Kind;
+  item: EmbeddableItem;
+}
+
+export interface BatchSimilarResult {
+  /** Stored items, as `findSimilar(text, {kind})`. */
+  board: SimilarResult;
+  /** Earlier entries of the same kind classed duplicate or related, most similar first; empty without vectors. */
+  earlier: { index: number; similarity: number; match: MatchClass }[];
+}
+
 export interface SearchHit extends ItemRef {
   score: number;
   similarity: number | null;
@@ -55,7 +69,7 @@ interface CandidateRow extends ItemRef {
   external_ref: string | null;
 }
 
-interface EmbeddableItem {
+export interface EmbeddableItem {
   title: string;
   description: string;
   acceptance_criteria: readonly string[];
@@ -355,42 +369,91 @@ export class SemanticIndex {
     text: string,
     options: { kind?: Kind; limit?: number; excludeImported?: boolean } = {},
   ): Promise<SimilarResult> {
-    const limit = options.limit ?? 5;
     let warning = await this.embedPending();
-    let similarities: Map<number, number> | undefined;
     if (!warning) {
       try {
-        const query = await this.embedQuery(text);
-        const distances = this.knn(query, options.kind);
-        const { centering } = this.info;
-        similarities = centering
-          ? this.centeredSimilarities(query, [...distances.keys()], centering)
-          : new Map([...distances].map(([rid, distance]) => [rid, 1 - distance]));
+        return this.semanticMatches(await this.embedQuery(text), options);
       } catch (error) {
         warning = `Semantic search unavailable (${errorMessage(error)}): keyword (FTS) results only.`;
         warnOnce('embed', warning);
       }
     }
-    if (!similarities) {
-      const ranks = this.ftsRanks(text, options.kind);
-      const rows = this.candidates(ranks.keys());
-      const matches = [...ranks.keys()]
-        .map((rid) => rows.get(rid)!)
-        .filter((row) => !(options.excludeImported && row.external_ref))
-        .slice(0, limit)
-        .map((row): SimilarMatch => ({ ...ref(row), similarity: null, match: null }));
-      return { semantic: false, warning, verdict: 'unknown', matches };
+    return this.keywordMatches(text, options, warning);
+  }
+
+  /**
+   * Duplicate check of new items submitted together: per entry, the stored items as `findSimilar(text, {kind})` finds
+   * them, and the earlier entries of the same kind classed duplicate or related, compared like stored items (highest
+   * similarity over their three texts). Embeds every query and entry text before returning, in batches. Without vectors
+   * each entry gets the keyword matches and no earlier entries.
+   */
+  async findSimilarBatch(entries: readonly BatchSimilarEntry[], options: { limit?: number } = {}): Promise<BatchSimilarResult[]> {
+    let warning = await this.embedPending();
+    if (!warning) {
+      try {
+        const { prefix, centering } = this.info;
+        const texts = entries.flatMap((entry) => {
+          const byTable = embeddingTexts(entry.item, prefix);
+          return [prefix + entry.text.slice(0, EMBED_TEXT_MAX), ...VEC_TABLES.map((table) => byTable[table])];
+        });
+        const stride = VEC_TABLES.length + 1;
+        const vectors: Float32Array[] = [];
+        for (let start = 0; start < texts.length; start += BATCH * stride) {
+          vectors.push(...(await this.embedder!.embed(texts.slice(start, start + BATCH * stride))));
+        }
+        // Per vec table: the table's center when the model centers, else the origin (centerVector then only normalizes),
+        // so a dot product of two prepared vectors is the similarity findSimilar reports.
+        const centers = VEC_TABLES.map((table) =>
+          centering ? centerOf(this.vectorSum(table, vectors[0]!.length), centering, table) : new Float64Array(vectors[0]!.length),
+        );
+        const queries = entries.map((_, index) => centers.map((center) => centerVector(vectors[index * stride]!, center)));
+        const stored = entries.map((_, index) => centers.map((center, variant) => centerVector(vectors[index * stride + 1 + variant]!, center)));
+        return entries.map((entry, index) => {
+          const earlier: BatchSimilarResult['earlier'] = [];
+          for (let other = 0; other < index; other++) {
+            if (entries[other]!.kind !== entry.kind) continue;
+            const value = round4(Math.max(...centers.map((_, variant) => dot(queries[index]![variant]!, stored[other]![variant]!))));
+            const match = this.classify(value);
+            if (match !== 'weak') earlier.push({ index: other, similarity: value, match });
+          }
+          earlier.sort((a, b) => b.similarity - a.similarity || a.index - b.index);
+          return { board: this.semanticMatches(vectors[index * stride]!, { kind: entry.kind, limit: options.limit }), earlier };
+        });
+      } catch (error) {
+        warning = `Semantic search unavailable (${errorMessage(error)}): keyword (FTS) results only.`;
+        warnOnce('embed', warning);
+      }
     }
+    return entries.map((entry) => ({ board: this.keywordMatches(entry.text, { kind: entry.kind, limit: options.limit }, warning), earlier: [] }));
+  }
+
+  private semanticMatches(query: Float32Array, options: { kind?: Kind; limit?: number; excludeImported?: boolean }): SimilarResult {
+    const distances = this.knn(query, options.kind);
+    const { centering } = this.info;
+    const similarities = centering
+      ? this.centeredSimilarities(query, [...distances.keys()], centering)
+      : new Map([...distances].map(([rid, distance]) => [rid, 1 - distance]));
     const rows = this.candidates(similarities.keys());
     const matches = [...similarities.entries()]
       .map(([rid, similarity]) => ({ row: rows.get(rid)!, similarity: round4(similarity) }))
       .filter(({ row }) => !(options.excludeImported && row.external_ref))
       .sort((a, b) => b.similarity - a.similarity || a.row.rid - b.row.rid)
-      .slice(0, limit)
+      .slice(0, options.limit ?? 5)
       .map(({ row, similarity }): SimilarMatch => ({ ...ref(row), similarity, match: this.classify(similarity) }));
     const best = matches[0]?.match;
     const verdict: SimilarVerdict = best === 'duplicate' ? 'duplicate' : best === 'related' ? 'related' : 'new';
     return { semantic: true, verdict, matches };
+  }
+
+  private keywordMatches(text: string, options: { kind?: Kind; limit?: number; excludeImported?: boolean }, warning: string | undefined): SimilarResult {
+    const ranks = this.ftsRanks(text, options.kind);
+    const rows = this.candidates(ranks.keys());
+    const matches = [...ranks.keys()]
+      .map((rid) => rows.get(rid)!)
+      .filter((row) => !(options.excludeImported && row.external_ref))
+      .slice(0, options.limit ?? 5)
+      .map((row): SimilarMatch => ({ ...ref(row), similarity: null, match: null }));
+    return { semantic: false, warning, verdict: 'unknown', matches };
   }
 
   /** Hybrid search: FTS top 50 (bm25) + KNN top 50 fused by reciprocal rank fusion. */

@@ -1,14 +1,16 @@
 import { z } from 'zod';
 import { OverseerError } from './errors.js';
 
+/** `<field path>: <problem>` per issue of a failed parse. */
+export function issueTexts(error: z.ZodError): string[] {
+  return error.issues.map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : 'input'}: ${issue.message}`);
+}
+
 /** Validates `raw` against `schema`; INVALID_INPUT listing every issue otherwise. */
 export function parseInput<S extends z.ZodType>(schema: S, raw: unknown): z.infer<S> {
   const result = schema.safeParse(raw);
   if (result.success) return result.data;
-  const message = result.error.issues
-    .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : 'input'}: ${issue.message}`)
-    .join('; ');
-  throw new OverseerError('INVALID_INPUT', message);
+  throw new OverseerError('INVALID_INPUT', issueTexts(result.error).join('; '));
 }
 
 export const KINDS = ['requirement', 'epic', 'story', 'task', 'bug'] as const;

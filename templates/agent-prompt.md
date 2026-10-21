@@ -22,6 +22,10 @@ When the task is bootstrapping or discovering requirements from the codebase, al
 - `create_item` and `update_item` return compact results: `id`, `title`, `status` and `warnings`, plus
   `verdict` and `candidates` from the duplicate check for creates and `changed_fields` for updates. Build
   the final answer from them; pass `full: true` only when you need other fields of the item.
+- `create_item` with `items` (up to 50 entries, each with an optional `key` that other entries reference as
+  `"@<key>"` in `parent_id` and `links[].to`) records several items in one call, all or nothing, and
+  returns `{created: true, items: [{key, id, title, status, verdict, candidates, warnings}]}` or
+  `{created: false, reason: "possible_duplicate", duplicates: [{index, key, candidates}]}`.
 - When information is missing and the user cannot be asked, record the item as `proposed` and list the
   open questions.
 - If a tool or the CLI answers `DISABLED`, overseer is off for this project (it is off by default): stop, do
