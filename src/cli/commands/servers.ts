@@ -28,6 +28,6 @@ export function registerServerCommands(program: Command, rt: CliRuntime): void {
     .description('run the MCP server over stdio')
     .action(async (_options: unknown, command: Command) => {
       const { project } = command.optsWithGlobals<GlobalOptions>();
-      await runStdio(project !== undefined ? { projectOverride: project } : {});
+      await runStdio({ env: rt.env, embedder: rt.embedder, ...(project !== undefined ? { projectOverride: project } : {}) });
     });
 }
