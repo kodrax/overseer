@@ -17,6 +17,7 @@ function formatImport(result: ImportResult): string {
     `created: ${result.created.length}${result.created.length > 0 ? `  ${result.created.join(', ')}` : ''}`,
     `updated: ${result.updated.length}${result.updated.length > 0 ? `  ${result.updated.join(', ')}` : ''}`,
     `unchanged: ${result.unchanged.length}`,
+    ...(result.deleted.length > 0 ? [`deleted: ${result.deleted.length}  ${result.deleted.join(', ')}`] : []),
     ...result.warnings.map((warning) => `warning: ${warning}`),
   ];
   for (const duplicate of result.possible_duplicates) {
@@ -98,7 +99,7 @@ export function registerProjectCommands(program: Command, rt: CliRuntime): void 
   program
     .command('import')
     .description(
-      'import GitHub/GitLab issues from a file or stdin (-): a JSON array of ImportItem, or a raw GitHub list_issues / GitLab list_work_items or get_work_item MCP response',
+      'import GitHub/GitLab issues from a file or stdin (-): a JSON array of ImportItem, or a raw GitHub list_issues / GitLab list_work_items or get_work_item MCP response; an object form may add "deleted": [external_id, ...] to delete the items of removed issues',
     )
     .argument('<file>', 'JSON file, or - for stdin')
     .requiredOption('--source <source>', `issue source: ${IMPORT_SOURCES.join(' | ')}`)

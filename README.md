@@ -219,7 +219,7 @@ overseer export                             # writes docs/overseer/
 | `delete <id>` | delete an item without children, with its links; a tombstone keeps its ID, kind, title, external refs, time and actor (see [Data model](#data-model)) |
 | `report <kind>` | `summary`, `coverage`, `board`, `drift`, `lint`, `traceability` |
 | `export [--out] [--only] [--since]` | write Markdown/JSON reports into the project |
-| `import <file\|-> --source github\|gitlab --repo <repo>` | import issues from a JSON array of ImportItems or a raw GitHub/GitLab MCP response |
+| `import <file\|-> --source github\|gitlab --repo <repo>` | import issues from a JSON array of ImportItems or a raw GitHub/GitLab MCP response, optionally with `deleted` issues |
 | `pr draft <id> [--type <type>]` | pull request title and body for a task or bug (see below) |
 | `pr opened [<id>] --url <url>` | record an opened pull request: the item becomes review with `delivered_in` and `code_refs` (see below) |
 | `worktree start <id> [--type] [--slug] [--base] [--no-setup]` | create or reuse the git worktree and branch of a task or bug and set a backlog or ready item in_progress (see [Worktrees](#worktrees)) |
@@ -428,7 +428,7 @@ The page updates live when an agent or the CLI writes to the database, deletions
 | `delete_item` | delete an item without children; `destructiveHint: true` |
 | `report` | the six reports, as Markdown plus data |
 | `export_report` | write `docs/overseer/` |
-| `import_items` | idempotent GitHub/GitLab issue import (`items` or a raw MCP `payload`) |
+| `import_items` | idempotent GitHub/GitLab issue import (`items` or a raw MCP `payload`, optional `deleted`) |
 | `open_board` | start the web board and return its URL |
 
 ## Data model
@@ -510,23 +510,27 @@ Cancelled implementing items are ignored: they neither count as work nor keep a 
 The `overseer-import` skill reads issues through the GitHub or GitLab MCP server configured in your harness, so overseer itself stores no tokens. It fetches every page and passes each raw answer to `import_items` (`payload`) or `overseer import -`; overseer does the field mapping.
 
 - **Re-running is safe**: re-imports update titles, descriptions, labels, the assignee, the milestone and the issue URL. An issue without `body` keeps its stored description; `"body": ""` clears it. Status changes only when the remote open/closed state changes, and local data (priority, links, acceptance criteria, comments) stays.
+- **Closed issues**: a closed issue makes the item `done` (requirements `implemented`); a GitHub issue closed as not planned or duplicate (`state_reason` / `stateReason`) makes it `cancelled`.
+- **Deleted issues**: `deleted: ["<external_id>", ...]` next to `items` or `payload` deletes the item of each listed issue as `overseer delete` does (tombstone kept, delete event via `import:<source>`) and lists the item IDs in `deleted`. An item with children is kept, and an issue without an item is skipped, each with a warning. `items` may be empty when `deleted` is given.
+- **Connected repositories**: when `sync connections` holds a connection for the import's host and repository (case-insensitive), each imported item gets or refreshes its remote ref for that connection (issue ID, URL, state, sync time). Without one, nothing else changes.
 - **One-way**: nothing is pushed back to GitHub or GitLab.
 - **Setup**: [`templates/skills/overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md) is a per-harness guide (Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor, OMP, OpenCode) with a source for each snippet. GitHub: the official server, read-only for import or with issue write access plus label and project reads. GitLab: [zereight/gitlab-mcp](https://github.com/zereight/gitlab-mcp) (`npx -y @zereight/mcp-gitlab`, read-only switch for import) or GitLab's built-in server.
 
 `import_items` takes the issues in one of two fields, never both:
 
-- `items`: ImportItems (`external_id`, `url`, `title`, `state`, optional `body`, `labels`, `type_hint`, `assignees`, `milestone`, `created_at`, `updated_at`, `parent_external_id`).
+- `items`: ImportItems (`external_id`, `url`, `title`, `state`, optional `body`, `state_reason`, `labels`, `type_hint`, `assignees`, `milestone`, `created_at`, `updated_at`, `parent_external_id`).
 - `payload`: a raw MCP response, as an object or as the tool's JSON text. overseer maps it:
-  - GitHub `list_issues` (`{"issues": [...]}`, or an array of REST issues): `external_id` is `<repo>#<number>`; issue type Bug, Feature or Task becomes `bug`, `story` or `task`; pull requests are skipped and named in `warnings`.
+  - GitHub `list_issues` (`{"issues": [...]}`, or an array of REST issues): `external_id` is `<repo>#<number>`; issue type Bug, Feature or Task becomes `bug`, `story` or `task`; `state_reason` (or GraphQL `stateReason`) is kept; pull requests are skipped and named in `warnings`.
   - GitLab `list_work_items` (`{"items": [...], "pageInfo": {...}}`), `get_work_item` (one work item) or an array of work items: `external_id` is `group/project#<iid>`; type Epic, Task, Incident or Requirement becomes `epic`, `task`, `bug` or `requirement`; type Issue gets no type hint; state `opened`/`OPEN` becomes `open`; the hierarchy parent becomes `parent_external_id`. List results carry no description, so they leave stored descriptions alone; import `get_work_item` for the bodies.
   - Any other shape fails with `INVALID_INPUT` naming the accepted formats, and nothing is imported.
 
-The CLI accepts both and detects the format: a JSON array of ImportItems (or `{"items": [...]}`) as before, or a saved MCP response.
+The CLI accepts both and detects the format: a JSON array of ImportItems (or `{"items": [...]}`) as before, or a saved MCP response. An object adds `"deleted": [...]` next to `items` or `issues`, or holds it alone.
 
 ```sh
 echo '[{"external_id":"acme/demo#7","url":"https://github.com/acme/demo/issues/7","title":"Login fails on Safari","state":"open","labels":["bug"]}]' \
   | overseer import - --source github --repo acme/demo
 overseer import list_issues.json --source github --repo acme/demo
+echo '{"deleted":["acme/demo#7"]}' | overseer import - --source github --repo acme/demo
 ```
 
 ## Configuration
