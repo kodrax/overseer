@@ -106,4 +106,26 @@ Run for one connection when the user asks to sync, or to sync every connection i
    created and updated items, each conflict (`item_id`, `field`, `local`, `remote`, `snapshot`; left
    untouched on both sides) and the warnings.
 
+3. With the same listing file, run `overseer sync plan <connection> <listing> --json` → `push`, `ack`,
+   `conflicts`, `warnings`. Report `conflicts` and `warnings`; push nothing for a conflict field.
+4. Run each `push` op with the connection's MCP tools, setting only the op's `fields` from its
+   `issue` (`body` is the description). Labels only: never set an issue type.
+   - **GitHub** — `issue_write` with `method: create` (`title`, `body`, `labels`, `assignees`,
+     `milestone`) for `create`; `method: update` with `issue_number` from `external_ref`
+     (`owner/repo#<number>`) for `update`, with `state: closed` for `close` and `state: open` for
+     `reopen`. A create whose `issue.state` is `closed` needs a second `update` call to close it.
+   - **GitLab** — `create_issue` (`title`, `description`, `labels`, `milestone_id`) for `create`;
+     `update_issue` with `issue_iid` from `external_ref` for `update`, with `state_event: close` or
+     `reopen` for `close` and `reopen` (and for a closed `create`).
+   From each successful answer note `{"seqs": [<op seq>], "item_id", "external_id": "<repository>#<number>",
+   "url", "state": "open"|"closed", "fields": <op fields>}`. A failed call adds no result: list it in
+   your reply with its error; its outbox entry stays pending for the next sync.
+5. Save the results array and run `overseer sync confirm <connection> <results> --json`: it links each
+   item to its issue, snapshots the pushed values and acknowledges the seqs. `INVALID_INPUT` writes
+   nothing and names every bad result: fix and rerun.
+6. When `ack` is not empty, run `overseer sync outbox ack <seq...> --json` with its seqs (nothing to push
+   for them).
+7. Repeat for every connection: an item keeps one issue per connection. Finish with
+   `overseer sync status --json`.
+
 <!-- managed-by: overseer-cli -->

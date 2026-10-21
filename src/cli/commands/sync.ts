@@ -3,6 +3,7 @@ import { CONNECTION_HOSTS, type Connection, type SourceOfTruth, type SyncStatus 
 import { type ConnectionMapping, MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES } from '../../core/mappings.js';
 import { detectRemotes } from '../../core/remotes.js';
 import { IMPORT_SOURCES } from '../../core/schema.js';
+import { confirmSync } from '../../core/sync-confirm.js';
 import { planSync, type SyncPlan } from '../../core/sync-plan.js';
 import { pullSync, type SyncPullResult } from '../../core/sync-pull.js';
 import { bundleKeys, inspectTracking, type TrackingSetup } from '../../core/tracking.js';
@@ -105,14 +106,22 @@ array of GitHub issues, or a GitLab list_work_items response ({"items": [...], "
 response or array of work items. Join the pages into one array to plan against every issue. Nothing is written.
 `;
 
+const CONFIRM_HELP = `
+Each result is one push op of sync plan as the MCP server answered it:
+  [{"seqs": [12], "item_id": "TASK-0001", "external_id": "owner/repo#34", "url": "https://…", "state": "open",
+    "fields": ["title", "body", "labels", "state", "assignee", "milestone"]}]
+"fields" (optional) is the plan op's fields; the snapshot gets the item's values for them. Any invalid result gives
+INVALID_INPUT and nothing is written.
+`;
+
 /** A conflict value in the text plan: JSON, cut to 60 characters. */
 function planValue(value: unknown): string {
   const text = JSON.stringify(value);
   return text.length > 60 ? `${text.slice(0, 59)}…` : text;
 }
 
-/** Counts line, then a table per non-empty part and a `warning:` line per warning. */
-function formatPlan(connectionId: number, { push, pull, conflicts, warnings }: SyncPlan): string {
+/** Counts line, then a table per non-empty part, an `ack:` line with the seqs to acknowledge and a `warning:` line per warning. */
+function formatPlan(connectionId: number, { push, pull, conflicts, ack, warnings }: SyncPlan): string {
   const parts = [`Sync plan for connection ${connectionId}: ${push.length} push, ${pull.length} pull, ${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'}.`];
   if (push.length > 0) {
     parts.push(`\nPush:\n${table(['Op', 'Item', 'Issue', 'Seq', 'Fields'], push.map((op) => [op.op, op.item_id, op.external_ref, op.seq, op.fields.join(', ')]))}`);
@@ -128,6 +137,7 @@ function formatPlan(connectionId: number, { push, pull, conflicts, warnings }: S
       )}`,
     );
   }
+  if (ack.length > 0) parts.push(`\nack: ${ack.join(', ')} (nothing to push; acknowledge with sync outbox ack)`);
   if (warnings.length > 0) parts.push(`\n${warnings.map((warning) => `warning: ${warning}`).join('\n')}`);
   return parts.join('\n');
 }
@@ -420,6 +430,29 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
         const connection = service.connections.require(connectionId);
         const pulled = pullSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Listing'), 'Listing'), rt.ctx);
         rt.emit(options.json, pulled, (value) => formatPull(connection.id, value));
+      });
+    });
+
+  sync
+    .command('confirm')
+    .description(
+      "record the pushes run for a connection's sync plan from a JSON array of results in a file or stdin (-): remote ref, snapshot of the pushed fields, outbox ack; all or nothing, no network",
+    )
+    .argument('<connection>', 'connection id (see sync connections)')
+    .argument('<file>', 'JSON results file, or - for stdin')
+    .option('--json', 'print JSON')
+    .addHelpText('after', CONFIRM_HELP)
+    .action(async (connectionId: string, file: string, options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', async (service) => {
+        // An unknown connection gives NOT_FOUND before the file is read.
+        const connection = service.connections.require(connectionId);
+        const confirmation = confirmSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Results'), 'Results'));
+        rt.emit(options.json, confirmation, ({ confirmed, acked }) =>
+          [
+            ...confirmed.map((push) => `${push.item_id}: ${push.external_id} (${push.state}) ${push.url}`),
+            `Confirmed ${confirmed.length} push${confirmed.length === 1 ? '' : 'es'} on connection ${connection.id}; acknowledged outbox ${acked.join(', ')}.`,
+          ].join('\n'),
+        );
       });
     });
 }

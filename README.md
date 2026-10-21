@@ -242,6 +242,7 @@ overseer export                             # writes docs/overseer/
 | `sync outbox ack <seq...>` | remove outbox entries once their push is confirmed, all or nothing |
 | `sync plan <connection> <file\|->` | the push, pull and conflict operations that would sync a connection, from a raw MCP listing of its issues; writes nothing (see [Sync plan](#sync-plan)) |
 | `sync pull <connection> <file\|->` | apply the pull operations of `sync plan`: create items for new issues and apply remote changes without a pending local change; conflicts are left untouched (see [Sync pull](#sync-pull)) |
+| `sync confirm <connection> <file\|->` | record the pushes run for a plan: remote ref, snapshot of the pushed values, outbox ack; all or nothing (see [Sync confirm](#sync-confirm)) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -438,7 +439,7 @@ These commands read and write only the project database: they make no GitHub or 
 
 ### Sync plan
 
-`overseer sync plan <connection> <file|-> --json` works out what a sync of one connection would do, from its pending outbox entries, its remote refs with their last synced snapshot, its mapping and a listing of its issues fetched through the connection's MCP server. It prints `{"push": [...], "pull": [...], "conflicts": [...], "warnings": [...]}`; without `--json`, a counts line, one table per non-empty part and a `warning:` line per warning. [`sync pull`](#sync-pull) applies its pull operations; later sync steps (pushing the operations, resolving conflicts) take this format as input.
+`overseer sync plan <connection> <file|-> --json` works out what a sync of one connection would do, from its pending outbox entries, its remote refs with their last synced snapshot, its mapping and a listing of its issues fetched through the connection's MCP server. It prints `{"push": [...], "pull": [...], "conflicts": [...], "ack": [...], "warnings": [...]}`; without `--json`, a counts line, one table per non-empty part, an `ack:` line and a `warning:` line per warning. [`sync pull`](#sync-pull) applies its pull operations and [`sync confirm`](#sync-confirm) records its pushes; later sync steps (resolving conflicts) take this format as input.
 
 - **Listing**: the raw MCP answer, as for `import`: a GitHub `list_issues` response (`{"issues": [...]}`) or an array of GitHub issues; a GitLab `list_work_items` response (`{"items": [...], "pageInfo": {...}}`), a `get_work_item` response or an array of work items. Join the pages into one array: an issue missing from the listing is neither pulled nor checked for conflicts. Pull requests are skipped with a warning. A listing from the other host (a GitLab answer for a GitHub connection) or an unknown format gives `INVALID_INPUT`; an unknown connection gives `NOT_FOUND` before the file is read.
 - **Read only, deterministic**: it writes nothing (no outbox entry is acknowledged, no remote ref or item changes, no history) and makes no network call. The same database and listing give byte-for-byte the same output, whatever order the listing has: push operations and conflicts by item ID, pull operations by issue (repository, then number). An issue listed twice uses the entry updated last, with a warning.
@@ -462,7 +463,7 @@ These commands read and write only the project database: they make no GitHub or 
 
 - A pending `create` whose item already has a remote ref on the connection (a push not acknowledged yet) updates every synced field of that issue; it never opens a second one.
 - A `delete` closes the deleted item's issue: `fields: ["state"]`, `issue` with the listing's values and `state: "closed"`, or the tombstone's title and `null` body and labels when the listing lacks the issue.
-- An entry that changes nothing on the issue (only unsynced fields, values the issue already has, a deleted item without an issue on the connection or with a closed one) gives a warning naming its `seq`, so it can be acknowledged.
+- An entry that changes nothing on the issue (only unsynced fields, values the issue already has, a deleted item without an issue on the connection or with a closed one, an item gone since) needs no remote call: its `seq` is in `ack` (ascending), to acknowledge with `sync outbox ack`. It gives no warning.
 
 **Pull** operations, one per listed issue to apply to the board: `{"op", "external_ref", "url", "item_id", "fields", "issue"}`.
 
@@ -485,6 +486,17 @@ It has no MCP tool; `sync plan --help` lists the accepted listings.
 - **Idempotent**: the same listing applied again changes nothing and records nothing. An unknown connection gives `NOT_FOUND` before the file is read; a listing of the other host or an unknown format gives `INVALID_INPUT` and writes nothing.
 
 The `overseer-sync` skill's **Sync** step fetches every page of the listing through the connection's MCP server and runs `sync pull` before pushing. It has no MCP tool; `sync pull --help` lists the accepted listings.
+
+### Sync confirm
+
+`overseer sync confirm <connection> <file|-> --json` records the pushes the agent ran through the connection's MCP server for a `sync plan`. The input is a JSON array with one result per push op: `{"seqs": [<seq>, …], "item_id", "external_id": "<repository>#<number>", "url", "state": "open"|"closed", "fields": [...]}` (`state` is case-insensitive, `opened` counts as `open`; `fields` is optional). It prints `{"connection_id", "confirmed": [{"item_id", "external_id", "url", "state", "fields"}], "acked": [<seq>, …]}`; without `--json`, one line per result and a summary line.
+
+- **All or nothing**: every result is checked first. A seq that is not pending on the connection, listed twice or of another item, an unknown item, an `external_id` of another repository or already linked to another item there, or a malformed result gives `INVALID_INPUT` naming every problem, and nothing is written. An unknown connection gives `NOT_FOUND` before the file is read.
+- **Remote ref**: the item's ref on the connection is created or updated (issue ID, URL, state, sync time). An item without an `external_ref` also gets `external_ref` (`<host>:<repository>#<number>`) and `external_url`, as an import would set. Issue references (`acme/demo#7`, `gitlab:acme/app#3`, the URL) resolve through either, so an item pushed to a GitHub and a GitLab connection is found by both.
+- **Snapshot**: the snapshot gets the pushed values of `fields`, other fields keep their earlier snapshot value. The values are recomputed from the item and the connection's mapping rather than taken from the input: a seq still pending means the item has not changed since the plan, so they are the plan's `issue`; `state` is the result's. Pass the plan op's `fields`; when omitted, every synced field for an item not linked yet (or a pending create), else the fields the entries' changes touch.
+- **Outbox**: every listed seq is acknowledged. The close of a deleted item has no remote ref left: it only acknowledges.
+
+A failed MCP call has no result: leave it out and its entry stays pending for the next sync. It has no MCP tool.
 
 ### Web board
 
