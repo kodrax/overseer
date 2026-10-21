@@ -3,9 +3,10 @@
 //   node scripts/measure-capture.mjs --out <prefix> [--replays N] [--live] [--live-runs N] [--model M]
 //
 // 1. Replay: a fixed 20-item dictation (requirements, stories, tasks with parent and implements links) recorded the way
-//    the `overseer` skill prescribes (find_similar, then create_item, per item), through the built CLI, in a temp project
-//    seeded with 300 generated items. Counts the overseer calls and times every CLI call (p50/p95 per command), plus a
-//    lookup of each new item with `show --context` (REQ-0254: one call per item).
+//    the `overseer` skill prescribes (one `create_item {items}` batch with keys and `@<key>` links, one resend with
+//    `allow_duplicate` on flagged entries), through the built CLI, in a temp project seeded with 300 generated items.
+//    Counts the overseer calls and times every CLI call (p50/p95 per command), plus a lookup of each new item with
+//    `show --context` (REQ-0254: one call per item).
 // 2. Tokens: the skill, the subagent prompt and the references capture loads, and the MCP tool definitions.
 // 3. --live: the same dictation, sent N times (default 3) to `omp -p --mode json` in a throwaway git repository that has
 //    the current skills installed at project scope and the same 300 seeded items. Turned on with `overseer enable`,
@@ -257,10 +258,10 @@ function cleanEnv(extra = {}) {
   return env;
 }
 
-/** One overseer CLI call from `cwd`, timed from spawn to exit. */
-function cli(args, cwd, env) {
+/** One overseer CLI call from `cwd`, timed from spawn to exit; `input` goes to stdin. */
+function cli(args, cwd, env, input) {
   const start = performance.now();
-  const result = spawnSync(process.execPath, [CLI, ...args], { cwd, env, encoding: 'utf8', maxBuffer: 1 << 28 });
+  const result = spawnSync(process.execPath, [CLI, ...args], { cwd, env, input, encoding: 'utf8', maxBuffer: 1 << 28 });
   const ms = performance.now() - start;
   if (result.status !== 0) throw new Error(`overseer ${args.join(' ')} failed (${result.status}): ${result.stderr || result.stdout}`);
   return { ms, json: JSON.parse(result.stdout) };
@@ -332,51 +333,45 @@ async function seedRegistry(client) {
 // ---------------------------------------------------------------------------------------------------------------------
 // 1. Deterministic replay
 
-function addArgs(item, ids) {
-  const args = ['add', item.kind, '--title', item.title, '--description', item.description];
+/** One `create_item {items}` entry: dictation keys become batch keys, references to them `@<key>`. */
+function batchEntry(item, epicId) {
+  const ref = (key) => (key === 'epic' ? epicId : `@${key}`);
+  const entry = { key: item.key, kind: item.kind, title: item.title, description: item.description, source: SOURCE };
   if (item.kind === 'requirement') {
-    args.push('--type', item.req_type, '--priority', item.priority, '--status', 'approved', '--verification', 'test');
-    if (item.nfr_category) args.push('--nfr-category', item.nfr_category);
-    if (item.fit) args.push('--fit', item.fit);
+    Object.assign(entry, { req_type: item.req_type, priority: item.priority, status: 'approved', verification_method: 'test' });
+    if (item.nfr_category) entry.nfr_category = item.nfr_category;
+    if (item.fit) entry.fit_criterion = item.fit;
   }
-  for (const criterion of item.ac ?? []) args.push('--ac', criterion);
-  if (item.parent) args.push('--parent', ids.get(item.parent));
-  for (const ref of item.implements ?? []) args.push('--implements', ids.get(ref));
-  args.push('--source', SOURCE, '--json');
-  return args;
+  if (item.ac) entry.acceptance_criteria = item.ac;
+  if (item.parent) entry.parent_id = ref(item.parent);
+  if (item.implements) entry.links = item.implements.map((key) => ({ rel: 'implements', to: ref(key) }));
+  return entry;
 }
 
-/** Records the dictation with the skill's steps: per item find_similar (`similar`), then create_item (`add`). */
+/**
+ * Records the dictation with the skill's capture steps (TASK-0045): one `create_item {items}` call with keys and
+ * `@<key>` links (`add --batch -`); if it answers `possible_duplicate`, one resend with `allow_duplicate: true` on each
+ * flagged entry (the dictation is new work, so the entries are kept rather than replaced by links).
+ */
 function replayOnce(project, env, epicId) {
-  const ids = new Map([['epic', epicId]]);
   const calls = [];
-  for (const item of DICTATION) {
-    const similar = cli(['similar', `${item.title}. ${item.description}`, '--kind', item.kind, '--json'], project, env);
-    const top = similar.json.matches?.[0];
-    calls.push({
-      step: 'capture',
-      command: 'similar',
-      item: item.key,
-      ms: similar.ms,
-      verdict: similar.json.verdict,
-      semantic: similar.json.semantic,
-      ...(top ? { top_match: { id: top.id, title: top.title, similarity: top.similarity } } : {}),
-    });
-    let add = cli(addArgs(item, ids), project, env);
-    calls.push({ step: 'capture', command: 'add', item: item.key, ms: add.ms, created: add.json.created, verdict: add.json.verdict });
-    if (!add.json.created) {
-      // Skill step 5 (c): create anyway after showing the candidates.
-      add = cli([...addArgs(item, ids), '--allow-duplicate'], project, env);
-      calls.push({ step: 'capture', command: 'add', item: item.key, ms: add.ms, created: add.json.created, verdict: add.json.verdict, retry: true });
-    }
-    if (!add.json.id) throw new Error(`add ${item.key} returned no id: ${JSON.stringify(add.json)}`);
-    ids.set(item.key, add.json.id);
+  const items = DICTATION.map((item) => batchEntry(item, epicId));
+  let add = cli(['add', '--batch', '-', '--json'], project, env, JSON.stringify({ items }));
+  calls.push({ step: 'capture', command: 'add --batch', items: items.length, ms: add.ms, created: add.json.created, flagged: add.json.duplicates?.map((entry) => ({ key: entry.key, candidates: entry.candidates?.map((candidate) => candidate.id ?? `@${candidate.key}`) })) });
+  if (!add.json.created) {
+    const flagged = new Set(add.json.duplicates.map((entry) => entry.index));
+    const resend = items.map((entry, index) => (flagged.has(index) ? { ...entry, allow_duplicate: true } : entry));
+    add = cli(['add', '--batch', '-', '--json'], project, env, JSON.stringify({ items: resend }));
+    calls.push({ step: 'capture', command: 'add --batch', items: items.length, ms: add.ms, created: add.json.created, retry: true, allow_duplicate: flagged.size });
   }
+  if (!add.json.created) throw new Error(`batch resend not created: ${JSON.stringify(add.json)}`);
+  const ids = new Map(add.json.items.map((entry) => [entry.key, entry.id]));
+  const verdicts = add.json.items.map((entry) => entry.verdict);
   for (const item of DICTATION) {
     const show = cli(['show', ids.get(item.key), '--context', '--json'], project, env);
     calls.push({ step: 'lookup', command: 'show --context', item: item.key, ms: show.ms });
   }
-  return { ids: Object.fromEntries(DICTATION.map((item) => [item.key, ids.get(item.key)])), calls };
+  return { ids: Object.fromEntries(DICTATION.map((item) => [item.key, ids.get(item.key)])), verdicts, calls };
 }
 
 async function measureReplay(replays) {
@@ -408,13 +403,14 @@ async function measureReplay(replays) {
 
     const all = runs.flatMap((run) => run.calls);
     const byCommand = {};
-    for (const command of ['similar', 'add', 'show --context']) byCommand[command] = stats(all.filter((call) => call.command === command).map((call) => call.ms));
+    for (const command of ['add --batch', 'show --context']) byCommand[command] = stats(all.filter((call) => call.command === command).map((call) => call.ms));
     const verdicts = {};
-    for (const call of all.filter((entry) => entry.command === 'similar')) verdicts[call.verdict] = (verdicts[call.verdict] ?? 0) + 1;
+    for (const verdict of runs.flatMap((run) => run.verdicts)) verdicts[verdict] = (verdicts[verdict] ?? 0) + 1;
     const capturePerReplay = runs.map((run) => run.calls.filter((call) => call.step === 'capture').length);
     return {
       seed: { items: ids.size, seconds: Math.round(seedSeconds * 10) / 10, epic: epicId, registry_after_last_replay: total },
-      semantic: { similar_calls: all.filter((call) => call.command === 'similar').length, semantic_true: all.filter((call) => call.semantic === true).length, warmup_semantic: warmup.json.semantic === true },
+      // The batch answer has no `semantic` flag; the untimed warm-up `similar` call shows whether the embedder answered.
+      semantic: { similar_calls: 1, semantic_true: warmup.json.semantic === true ? 1 : 0, warmup_semantic: warmup.json.semantic === true },
       capture_calls_per_replay: capturePerReplay,
       lookup_calls_per_item: 1,
       similar_verdicts: verdicts,
@@ -770,11 +766,75 @@ function commitInfo() {
 const fmt = (value) => (value === null || value === undefined ? 'n/a' : typeof value === 'number' ? value.toLocaleString('en-US') : String(value));
 const avg = (values) => Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
 
-function markdown(data, command) {
+/** Mean of a live-run measure (`pick(run)`), or null without live runs. */
+const liveMean = (data, pick) => (data.live ? avg(data.live.runs.map(pick)) : null);
+const liveMax = (data, pick) => (data.live ? Math.max(...data.live.runs.map(pick)) : null);
+
+/** Rows of `| Measure | Baseline | This run | Change |` against the committed baseline. */
+function comparisonRows(data, baseline) {
+  const change = (before, after) => {
+    if (typeof before !== 'number' || typeof after !== 'number') return '—';
+    const diff = Math.round((after - before) * 10) / 10;
+    return `${diff > 0 ? '+' : ''}${fmt(diff)}${before ? ` (${diff > 0 ? '+' : ''}${Math.round((diff / before) * 100)} %)` : ''}`;
+  };
+  const row = (label, before, after) => `| ${label} | ${fmt(before)} | ${fmt(after)} | ${change(before, after)} |`;
+  const both = (label, pick) => row(label, pick(baseline), pick(data));
+  const rows = [
+    both('overseer requests to record the 20 items, replay', (d) => d.replay.capture_calls_per_replay[0]),
+    both('overseer requests to record the 20 items, live mean', (d) => liveMean(d, (run) => run.overseer_requests)),
+    both('agent tool calls reaching overseer, live mean', (d) => liveMean(d, (run) => run.overseer_tool_calls)),
+    both('agent tool calls in total, live mean', (d) => liveMean(d, (run) => run.total_tool_calls)),
+    both('codebase reads, live max', (d) => liveMax(d, (run) => run.codebase_reads)),
+    both('skill reads + tool doc reads, live mean', (d) => liveMean(d, (run) => run.skill_reads + run.tool_doc_reads)),
+    both('input tokens, live mean', (d) => liveMean(d, (run) => run.tokens.prompt_total)),
+    both('output tokens, live mean', (d) => liveMean(d, (run) => run.tokens.output)),
+    both('cost USD (per 1,000 runs), live mean', (d) => liveMean(d, (run) => run.tokens.cost_usd * 1000)),
+    both('wall time s, live mean', (d) => liveMean(d, (run) => run.wall_s)),
+  ];
+  const commands = [...new Set([...Object.keys(baseline.replay.latency), ...Object.keys(data.replay.latency)])];
+  for (const command of commands) {
+    for (const key of ['p50_ms', 'p95_ms']) {
+      rows.push(both(`CLI \`${command}\` ${key.replace('_ms', '')} ms${data.replay.latency[command] ? '' : ' (not in the new flow)'}${baseline.replay.latency[command] ? '' : ' (new in this flow)'}`, (d) => d.replay.latency[command]?.[key] ?? null));
+    }
+  }
+  for (const [index, file] of data.tokens.rows.entries()) {
+    const before = baseline.tokens.rows.find((entry) => entry.path === file.path || entry.name === file.name);
+    rows.push(row(`tokens (claude-v5): ${file.name}`, before?.['claude-v5'] ?? null, file['claude-v5']));
+    if (index === CAPTURE_FILES.length - 1) {
+      rows.push(both('**tokens (claude-v5): skill + subagent prompt + references**', (d) => d.tokens.total_skill_prompt_references['claude-v5']));
+    }
+  }
+  rows.push(both('**tokens (claude-v5): all, with tool definitions**', (d) => d.tokens.total_with_tool_definitions['claude-v5']));
+  rows.push(both('tokens (o200k_base): skill + subagent prompt + references', (d) => d.tokens.total_skill_prompt_references.o200k_base));
+  return rows;
+}
+
+/** One row per REQ-0254 fit criterion element: target, measured value, met or not. */
+function verdictRows(data) {
+  const { replay, live } = data;
+  const yes = (ok) => (ok ? '**met**' : '**not met**');
+  const capture = Math.max(...replay.capture_calls_per_replay);
+  const liveRequests = liveMax(data, (run) => run.overseer_requests);
+  const liveCalls = liveMax(data, (run) => run.overseer_tool_calls);
+  const reads = liveMax(data, (run) => run.codebase_reads);
+  const checked = Object.values(replay.similar_verdicts).reduce((sum, n) => sum + n, 0);
+  const expectedChecks = DICTATION.length * replay.runs.length;
+  const slowest = Object.entries(replay.latency).sort((a, b) => b[1].p95_ms - a[1].p95_ms)[0];
+  const rows = [
+    { element: '≤ 3 overseer calls to record a 20-item dictation with its links', measured: `replay ${capture} per replay; live max ${fmt(liveRequests)} requests, ${fmt(liveCalls)} agent tool calls reaching overseer`, ok: capture <= 3 && (live ? liveRequests <= 3 && liveCalls <= 3 : true) },
+    { element: 'duplicate check ran for every item (REQ-0254 AC)', measured: `replay ${checked}/${expectedChecks} entries with a verdict (inside \`create_item {items}\`)`, ok: checked === expectedChecks },
+    { element: 'no codebase reads while recording', measured: live ? `live max ${reads}` : 'live not run', ok: live ? reads === 0 : false },
+    { element: 'fetching one item with parent, links and children takes 1 call', measured: `${replay.lookup_calls_per_item} call (\`show --context\` / \`get_item {context: true}\`) for each of the 20 items`, ok: replay.lookup_calls_per_item === 1 },
+    { element: `every CLI call < 1 s at p95 on a ${data.seed_size}-item registry`, measured: Object.entries(replay.latency).map(([command, stat]) => `\`${command}\` ${stat.p95_ms} ms`).join(', '), ok: slowest[1].p95_ms < 1000 },
+  ];
+  return { rows: rows.map((row) => `| ${row.element} | ${row.measured} | ${yes(row.ok)} |`), met: rows.every((row) => row.ok), failed: rows.filter((row) => !row.ok).map((row) => row.element) };
+}
+
+function markdown(data, command, baseline) {
   const { replay, tokens, live } = data;
   const lines = [];
-  lines.push(`# Capture baseline (${data.label})`, '');
-  lines.push(`Measured by \`scripts/measure-capture.mjs\` for REQ-0254 (TASK-0056). TASK-0047 repeats it after TASK-0045/TASK-0046 and compares.`, '');
+  lines.push(`# Capture measurement (${data.label})`, '');
+  lines.push(`Measured by \`scripts/measure-capture.mjs\` for REQ-0254: the baseline by TASK-0056, the repeat after TASK-0045/TASK-0046 by TASK-0047.`, '');
   lines.push('| | |', '|---|---|');
   lines.push(`| Date | ${data.date} |`);
   const base = data.commit.merge_base_origin_main && data.commit.merge_base_origin_main !== data.commit.sha ? ` (merge base with origin/main: \`${data.commit.merge_base_origin_main}\`)` : '';
@@ -795,9 +855,18 @@ function markdown(data, command) {
   lines.push(`| calls to fetch one item with parent, links, children | 1 | ${replay.lookup_calls_per_item} (\`show --context\`) | — |`);
   for (const [command, stat] of Object.entries(replay.latency)) lines.push(`| CLI \`${command}\` p95, ${data.seed_size}-item registry | < 1000 ms | ${stat.p95_ms} ms | — |`);
   lines.push('');
+  const verdict = verdictRows(data);
+  lines.push('### Verdict', '');
+  lines.push('| Fit criterion element | Measured | Verdict |', '|---|---|---|', ...verdict.rows, '');
+  lines.push(verdict.met ? 'Every element of the fit criterion is met.' : `Not met: ${verdict.failed.join('; ')}.`, '');
+  if (baseline) {
+    lines.push('## Against the baseline', '');
+    lines.push(`Baseline: \`${data.baseline}\` (${baseline.date}, commit \`${baseline.commit.sha.slice(0, 12)}\`, the per-item flow: \`find_similar\` then \`create_item\` per item). Same machine, registry, dictation, prompt, token counter and file set; the replay follows each commit's skill.`, '');
+    lines.push('| Measure | Baseline | This run | Change |', '|---|---|---|---|', ...comparisonRows(data, baseline), '');
+  }
 
   lines.push('## Replay: CLI latency', '');
-  lines.push(`${data.replays} replays of the 20-item dictation, each on a fresh copy of the seeded registry; every call is a new \`node dist/cli.js\` process. Seeding ${replay.seed.items} items took ${replay.seed.seconds} s. Duplicate-check verdicts: ${Object.entries(replay.similar_verdicts).map(([verdict, n]) => `${verdict} ${n}`).join(', ')}. Semantic results: ${replay.semantic.semantic_true}/${replay.semantic.similar_calls}.`, '');
+  lines.push(`${data.replays} replays of the 20-item dictation, each on a fresh copy of the seeded registry; every call is a new \`node dist/cli.js\` process. Seeding ${replay.seed.items} items took ${replay.seed.seconds} s. Duplicate-check verdicts of the created entries: ${Object.entries(replay.similar_verdicts).map(([verdict, n]) => `${verdict} ${n}`).join(', ')}. Embedder answered the warm-up \`similar\`: ${replay.semantic.warmup_semantic ? 'yes' : 'no'}. Resends with \`allow_duplicate\`: ${replay.runs.map((run) => run.calls.find((call) => call.retry)?.allow_duplicate ?? 0).join(', ')} entries per replay.`, '');
   lines.push('| Command | Calls | p50 ms | p95 ms | min ms | max ms | mean ms |', '|---|---|---|---|---|---|---|');
   for (const [command, stat] of [...Object.entries(replay.latency), ['all', replay.all_calls]]) {
     lines.push(`| \`${command}\` | ${stat.n} | ${stat.p50_ms} | ${stat.p95_ms} | ${stat.min_ms} | ${stat.max_ms} | ${stat.mean_ms} |`);
@@ -829,7 +898,7 @@ function markdown(data, command) {
   lines.push('## Method', '');
   lines.push(`- **Registry**: ${data.seed_size} generated items in a fixed order (10 epics; per epic 6 requirements, 6 stories with the epic as parent and an implements link, 14 tasks under the stories, 3 bugs), created with \`create_item\` through \`node dist/cli.js mcp\` in a temp git repository.`);
   lines.push(`- **Dictation**: 20 fixed items (6 requirements, 6 stories under the seeded Payments epic, 8 tasks under the stories; 14 parent and 12 implements links). Live prompt below.`);
-  lines.push('- **Replay**: the steps of `templates/skills/overseer/SKILL.md` and `templates/agent-prompt.md` ("Always run `find_similar` before creating an item", then `create_item` with `parent_id` and `links`), in dictation order, as CLI calls: `overseer similar "<title>. <description>" --kind <kind> --json`, then `overseer add <kind> … --parent … --implements … --json` (retried with `--allow-duplicate` if it reports a possible duplicate, skill step 5 c). Then `overseer show <id> --context --json` per new item. One untimed warm-up call first.');
+  lines.push('- **Replay**: the capture steps of `templates/skills/overseer/SKILL.md` and `templates/agent-prompt.md` (TASK-0045) as CLI calls: one `overseer add --batch - --json` with the 20 entries as `{items}` (dictation keys as `key`, `parent_id: "@<key>"`, `links: [{rel: implements, to: "@<key>"}]`, the seeded epic by ID); if it answers `possible_duplicate`, one resend with `allow_duplicate: true` on each listed entry (the dictation is new work, so the entries are kept). No `find_similar` first: the batch runs the duplicate check per entry. Then `overseer show <id> --context --json` per new item. One untimed warm-up `similar` call first. The baseline\'s per-item replay (`similar` then `add` per item) is not kept in the script; its numbers stay as committed in `docs/measurements/capture-baseline.{json,md}` and can be reproduced from its commit.');
   lines.push('- **Latency**: wall time from spawn to exit of each `node dist/cli.js` process, run from the project root; p50/p95 by nearest rank over all replays.');
   const embedderMethod = data.embedder.cached_before_run
     ? `the CLI's default, ${MODEL} (q8 ONNX via transformers.js), loaded from the local model cache (\`${data.embedder.cache_dir}\`)`
@@ -840,10 +909,10 @@ function markdown(data, command) {
   lines.push('- **overseer requests**: what overseer itself received. The `overseer` on `PATH` is a shim: `overseer mcp` runs behind a small proxy that logs every JSON-RPC line it receives with a timestamp (MCP `tools/call` requests by tool), and every other `overseer` command is logged with a timestamp (GNU `date`). An agent can send many requests from one tool call (a loop in an eval cell), so requests and agent tool calls are both reported.');
   lines.push('- **Agent tool call classes**: reaching overseer = MCP tool calls (`write xd://mcp__overseer_<tool>` in omp, `mcp__overseer_<tool>` elsewhere), shell commands running `overseer`, and code-running calls (eval) whose code names `mcp__overseer_*` or during which overseer received a request (each main-agent call\'s time window comes from the arrival times of its `tool_execution_start`/`tool_execution_end` events; subagent calls are classified by their arguments only); codebase reads = `read`/`grep`/`glob`/`find`/`lsp` on files and shell commands such as `cat`, `ls`, `grep`, `git`; skill reads = `skill://` and `.omp/skills|agents` files; tool doc reads = `read xd://mcp__overseer_<tool>` (schema lookups); subagents = `task`; other = the rest.');
   lines.push('');
-  lines.push('### Repeat (TASK-0047)', '');
+  lines.push('### Repeat', '');
   lines.push('On the same machine, with the model cached (`overseer models pull`), omp logged in with the same default model, from a clean checkout of the commit to compare:', '');
   lines.push('```sh', 'npm ci', 'npm run measure:capture -- --live --out docs/measurements/capture-<label>', '```', '');
-  lines.push('Compare `capture_calls_per_replay`, `latency`, `tokens` and each live run\'s `overseer_requests`, `overseer_tool_calls`, `codebase_reads`, `total_tool_calls`, `tokens` and `registry` in the JSON with this baseline.', '');
+  lines.push('Any label other than `baseline` gets the "Against the baseline" table from `docs/measurements/capture-baseline.json`. The JSON keeps every sample: `capture_calls_per_replay`, `latency`, `tokens` and each live run\'s `overseer_requests`, `overseer_tool_calls`, `codebase_reads`, `total_tool_calls`, `tokens` and `registry`.', '');
   if (live) lines.push('### Live prompt', '', '```text', live.runs[0].prompt, '```', '');
   return lines.join('\n');
 }
@@ -895,12 +964,15 @@ async function main() {
     tokens,
     live,
   };
+  const baselinePath = join(ROOT, 'docs', 'measurements', 'capture-baseline.json');
+  const baseline = data.label !== 'baseline' && existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, 'utf8')) : null;
+  if (baseline) data.baseline = relative(ROOT, baselinePath);
   const command = `npm run measure:capture -- ${process.argv.slice(2).join(' ')}`;
   data.command = command;
   const out = resolve(options.out);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(`${out}.json`, `${JSON.stringify(data, null, 2)}\n`);
-  writeFileSync(`${out}.md`, markdown(data, command));
+  writeFileSync(`${out}.md`, markdown(data, command, baseline));
   console.error(`wrote ${relative(process.cwd(), out)}.json and .md`);
 }
 
