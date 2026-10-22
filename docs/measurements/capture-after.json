@@ -1,0 +1,1021 @@
+{
+  "label": "after",
+  "date": "2026-10-21T21:23:30.413Z",
+  "commit": {
+    "sha": "f3bb0ea72d77aca87f6a7a76d371d6e5f8db1618",
+    "merge_base_origin_main": "f3bb0ea72d77aca87f6a7a76d371d6e5f8db1618",
+    "dirty_paths": [
+      "scripts/measure-capture.mjs"
+    ]
+  },
+  "machine": {
+    "os": "linux 7.2.7-1-default x64",
+    "cpu": "AMD Ryzen 7 9800X3D 8-Core Processor (16 threads)",
+    "memory_gb": 60,
+    "node": "v24.18.1",
+    "load_start": [
+      4.04,
+      2.26,
+      1.45
+    ],
+    "load_end": [
+      3.53,
+      3.96,
+      2.39
+    ]
+  },
+  "embedder": {
+    "label": "Xenova/multilingual-e5-small (local cache, semantic results 1/1)",
+    "model": "Xenova/multilingual-e5-small",
+    "cached_before_run": true,
+    "cache_dir": "/home/ignacio/.cache/overseer/models"
+  },
+  "omp_version": "omp/18.12.3",
+  "seed_size": 300,
+  "replays": 3,
+  "fit_criterion": "Recording a dictated batch of up to 20 items with their links takes at most 3 overseer calls and no codebase reads; fetching one item with its parent, links and children takes 1 call; every CLI call finishes under 1 s at p95 on a 300-item registry.",
+  "replay": {
+    "seed": {
+      "items": 300,
+      "seconds": 8.1,
+      "epic": "EPIC-0005",
+      "registry_after_last_replay": 320
+    },
+    "semantic": {
+      "similar_calls": 1,
+      "semantic_true": 1,
+      "warmup_semantic": true
+    },
+    "capture_calls_per_replay": [
+      2,
+      2,
+      2
+    ],
+    "lookup_calls_per_item": 1,
+    "similar_verdicts": {
+      "related": 54,
+      "duplicate": 3,
+      "new": 3
+    },
+    "latency": {
+      "add --batch": {
+        "n": 6,
+        "p50_ms": 813,
+        "p95_ms": 891,
+        "min_ms": 791,
+        "max_ms": 891,
+        "mean_ms": 828
+      },
+      "show --context": {
+        "n": 60,
+        "p50_ms": 139,
+        "p95_ms": 146,
+        "min_ms": 133,
+        "max_ms": 150,
+        "mean_ms": 139
+      }
+    },
+    "all_calls": {
+      "n": 66,
+      "p50_ms": 139,
+      "p95_ms": 813,
+      "min_ms": 133,
+      "max_ms": 891,
+      "mean_ms": 202
+    },
+    "runs": [
+      {
+        "replay": 1,
+        "ids": {
+          "R1": "REQ-0061",
+          "R2": "REQ-0062",
+          "R3": "REQ-0063",
+          "R4": "REQ-0064",
+          "R5": "REQ-0065",
+          "R6": "REQ-0066",
+          "S1": "US-0061",
+          "S2": "US-0062",
+          "S3": "US-0063",
+          "S4": "US-0064",
+          "S5": "US-0065",
+          "S6": "US-0066",
+          "T1": "TASK-0141",
+          "T2": "TASK-0142",
+          "T3": "TASK-0143",
+          "T4": "TASK-0144",
+          "T5": "TASK-0145",
+          "T6": "TASK-0146",
+          "T7": "TASK-0147",
+          "T8": "TASK-0148"
+        },
+        "verdicts": [
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "duplicate",
+          "related",
+          "related",
+          "related",
+          "related",
+          "new",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related"
+        ],
+        "calls": [
+          {
+            "step": "capture",
+            "command": "add --batch",
+            "items": 20,
+            "ms": 790.8599809999996,
+            "created": false,
+            "flagged": [
+              {
+                "key": "S2",
+                "candidates": [
+                  "@S1",
+                  "US-0026",
+                  "US-0022",
+                  "US-0038",
+                  "US-0025"
+                ]
+              }
+            ]
+          },
+          {
+            "step": "capture",
+            "command": "add --batch",
+            "items": 20,
+            "ms": 812.6946370000005,
+            "created": true,
+            "retry": true,
+            "allow_duplicate": 1
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R1",
+            "ms": 141.82487700000092
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R2",
+            "ms": 137.66663999999946
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R3",
+            "ms": 135.77170900000056
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R4",
+            "ms": 147.8867140000002
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R5",
+            "ms": 150.00805200000104
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R6",
+            "ms": 144.59223399999973
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S1",
+            "ms": 139.61511100000098
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S2",
+            "ms": 135.8586180000002
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S3",
+            "ms": 140.52379699999983
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S4",
+            "ms": 139.53761200000008
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S5",
+            "ms": 137.529301999999
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S6",
+            "ms": 133.88311799999974
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T1",
+            "ms": 142.18796099999963
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T2",
+            "ms": 135.60433199999898
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T3",
+            "ms": 142.76650199999858
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T4",
+            "ms": 141.7678569999989
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T5",
+            "ms": 138.84736200000043
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T6",
+            "ms": 139.89029599999958
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T7",
+            "ms": 134.09165500000017
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T8",
+            "ms": 133.51564399999916
+          }
+        ]
+      },
+      {
+        "replay": 2,
+        "ids": {
+          "R1": "REQ-0061",
+          "R2": "REQ-0062",
+          "R3": "REQ-0063",
+          "R4": "REQ-0064",
+          "R5": "REQ-0065",
+          "R6": "REQ-0066",
+          "S1": "US-0061",
+          "S2": "US-0062",
+          "S3": "US-0063",
+          "S4": "US-0064",
+          "S5": "US-0065",
+          "S6": "US-0066",
+          "T1": "TASK-0141",
+          "T2": "TASK-0142",
+          "T3": "TASK-0143",
+          "T4": "TASK-0144",
+          "T5": "TASK-0145",
+          "T6": "TASK-0146",
+          "T7": "TASK-0147",
+          "T8": "TASK-0148"
+        },
+        "verdicts": [
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "duplicate",
+          "related",
+          "related",
+          "related",
+          "related",
+          "new",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related"
+        ],
+        "calls": [
+          {
+            "step": "capture",
+            "command": "add --batch",
+            "items": 20,
+            "ms": 828.0738110000002,
+            "created": false,
+            "flagged": [
+              {
+                "key": "S2",
+                "candidates": [
+                  "@S1",
+                  "US-0026",
+                  "US-0022",
+                  "US-0038",
+                  "US-0025"
+                ]
+              }
+            ]
+          },
+          {
+            "step": "capture",
+            "command": "add --batch",
+            "items": 20,
+            "ms": 812.6163980000001,
+            "created": true,
+            "retry": true,
+            "allow_duplicate": 1
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R1",
+            "ms": 142.13427200000115
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R2",
+            "ms": 137.37673499999983
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R3",
+            "ms": 135.77044999999998
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R4",
+            "ms": 134.32109199999832
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R5",
+            "ms": 138.8939819999996
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R6",
+            "ms": 142.0374039999988
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S1",
+            "ms": 137.97834599999987
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S2",
+            "ms": 139.0264590000006
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S3",
+            "ms": 137.61819099999957
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S4",
+            "ms": 149.3879909999996
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S5",
+            "ms": 142.72771300000022
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S6",
+            "ms": 142.18597099999897
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T1",
+            "ms": 135.47873400000026
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T2",
+            "ms": 139.37540400000216
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T3",
+            "ms": 137.52690200000143
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T4",
+            "ms": 145.77245599999878
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T5",
+            "ms": 136.2334719999999
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T6",
+            "ms": 136.7123649999994
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T7",
+            "ms": 138.99958999999944
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T8",
+            "ms": 139.60917999999947
+          }
+        ]
+      },
+      {
+        "replay": 3,
+        "ids": {
+          "R1": "REQ-0061",
+          "R2": "REQ-0062",
+          "R3": "REQ-0063",
+          "R4": "REQ-0064",
+          "R5": "REQ-0065",
+          "R6": "REQ-0066",
+          "S1": "US-0061",
+          "S2": "US-0062",
+          "S3": "US-0063",
+          "S4": "US-0064",
+          "S5": "US-0065",
+          "S6": "US-0066",
+          "T1": "TASK-0141",
+          "T2": "TASK-0142",
+          "T3": "TASK-0143",
+          "T4": "TASK-0144",
+          "T5": "TASK-0145",
+          "T6": "TASK-0146",
+          "T7": "TASK-0147",
+          "T8": "TASK-0148"
+        },
+        "verdicts": [
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "duplicate",
+          "related",
+          "related",
+          "related",
+          "related",
+          "new",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related",
+          "related"
+        ],
+        "calls": [
+          {
+            "step": "capture",
+            "command": "add --batch",
+            "items": 20,
+            "ms": 831.5635680000014,
+            "created": false,
+            "flagged": [
+              {
+                "key": "S2",
+                "candidates": [
+                  "@S1",
+                  "US-0026",
+                  "US-0022",
+                  "US-0038",
+                  "US-0025"
+                ]
+              }
+            ]
+          },
+          {
+            "step": "capture",
+            "command": "add --batch",
+            "items": 20,
+            "ms": 891.2764820000011,
+            "created": true,
+            "retry": true,
+            "allow_duplicate": 1
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R1",
+            "ms": 143.37720400000035
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R2",
+            "ms": 142.5253359999988
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R3",
+            "ms": 140.87718099999984
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R4",
+            "ms": 138.61719600000288
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R5",
+            "ms": 139.3994840000014
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "R6",
+            "ms": 141.3616030000012
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S1",
+            "ms": 137.8994870000024
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S2",
+            "ms": 134.41239099999802
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S3",
+            "ms": 138.49651799999992
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S4",
+            "ms": 137.74759900000208
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S5",
+            "ms": 133.10597099999723
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "S6",
+            "ms": 139.6779000000024
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T1",
+            "ms": 134.62067699999898
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T2",
+            "ms": 136.20300299999872
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T3",
+            "ms": 139.16736700000183
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T4",
+            "ms": 137.65979999999763
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T5",
+            "ms": 139.27790599999935
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T6",
+            "ms": 133.74013099999866
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T7",
+            "ms": 136.90029299999878
+          },
+          {
+            "step": "lookup",
+            "command": "show --context",
+            "item": "T8",
+            "ms": 133.3214279999993
+          }
+        ]
+      }
+    ],
+    "tools": [
+      "find_similar",
+      "check_coverage",
+      "create_item",
+      "update_item",
+      "get_item",
+      "list_items",
+      "search",
+      "link_items",
+      "delete_item",
+      "report",
+      "export_report",
+      "import_items",
+      "open_board"
+    ]
+  },
+  "tokens": {
+    "rows": [
+      {
+        "name": "skill",
+        "path": "templates/skills/overseer/SKILL.md",
+        "loaded": "read when the agent records items",
+        "chars": 6551,
+        "approx_chars_div_4": 1638,
+        "o200k_base": 1725,
+        "claude-v5": 2465
+      },
+      {
+        "name": "subagent prompt",
+        "path": "templates/agent-prompt.md",
+        "loaded": "system prompt of the overseer subagent",
+        "chars": 1736,
+        "approx_chars_div_4": 434,
+        "o200k_base": 428,
+        "claude-v5": 641
+      },
+      {
+        "name": "reference: ears.md",
+        "path": "templates/skills/overseer/references/ears.md",
+        "loaded": "Capture a requirement, step 1",
+        "chars": 2844,
+        "approx_chars_div_4": 711,
+        "o200k_base": 692,
+        "claude-v5": 1124
+      },
+      {
+        "name": "reference: nfr-iso25010.md",
+        "path": "templates/skills/overseer/references/nfr-iso25010.md",
+        "loaded": "Capture a requirement, step 2 (non-functional)",
+        "chars": 2481,
+        "approx_chars_div_4": 621,
+        "o200k_base": 593,
+        "claude-v5": 958
+      },
+      {
+        "name": "reference: fields.md",
+        "path": "templates/skills/overseer/references/fields.md",
+        "loaded": "field dictionary the skill points to",
+        "chars": 2163,
+        "approx_chars_div_4": 541,
+        "o200k_base": 627,
+        "claude-v5": 907
+      },
+      {
+        "name": "MCP tool definitions",
+        "path": "(tools/list of overseer mcp, JSON)",
+        "loaded": "by the harness in every session",
+        "chars": 21011,
+        "approx_chars_div_4": 5253,
+        "o200k_base": 5073,
+        "claude-v5": 8247
+      }
+    ],
+    "total_skill_prompt_references": {
+      "chars": 15775,
+      "approx_chars_div_4": 3945,
+      "o200k_base": 4065,
+      "claude-v5": 6095
+    },
+    "total_with_tool_definitions": {
+      "chars": 36786,
+      "approx_chars_div_4": 9198,
+      "o200k_base": 9138,
+      "claude-v5": 14342
+    }
+  },
+  "live": {
+    "models": [
+      "anthropic/claude-opus-5-5"
+    ],
+    "runs": [
+      {
+        "run": 1,
+        "exit_code": 0,
+        "wall_s": 54.1,
+        "models": [
+          "anthropic/claude-opus-5-5"
+        ],
+        "subagents": 0,
+        "overseer_requests": 2,
+        "overseer_requests_by_tool": {
+          "create_item": 2
+        },
+        "overseer_tool_calls": 2,
+        "overseer_tool_calls_by_tool": {
+          "create_item": 2
+        },
+        "timing_check": {
+          "calls_by_arguments": 2,
+          "with_request_in_window": 2
+        },
+        "codebase_reads": 0,
+        "skill_reads": 1,
+        "tool_doc_reads": 1,
+        "subagent_calls": 0,
+        "other_calls": 0,
+        "total_tool_calls": 4,
+        "tokens": {
+          "input": 10,
+          "output": 6953,
+          "cache_read": 57202,
+          "cache_write": 31188,
+          "cost_usd": 0.4,
+          "assistant_messages": 4,
+          "prompt_total": 88400
+        },
+        "registry": {
+          "items_created": 20,
+          "by_kind": {
+            "requirement": 6,
+            "task": 8,
+            "story": 6
+          },
+          "with_parent": 14,
+          "implements_links": 12
+        },
+        "calls": [
+          {
+            "who": "main",
+            "name": "read",
+            "category": "skill_read",
+            "requests_during": 0,
+            "args": "skill://overseer"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "create_item",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "create_item",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_create_item"
+          }
+        ],
+        "prompt": "Record this dictation in overseer. I dictated the requirements, so they are approved.\n\nRequirements:\nR1 (must): When a customer buys a gift card, the shop shall email the gift card code to the recipient within 5 minutes. Acceptance: Given a paid gift card order, when 5 minutes pass, then the recipient has an email with the code.\nR2 (must): When a customer enters a valid gift card code at checkout, the shop shall subtract the card balance from the order total. Acceptance: Given a card with 30 EUR and an order of 50 EUR, when the code is applied, then 20 EUR remain to pay.\nR3 (should): When a gift card balance reaches zero, the shop shall mark the card as used and reject further redemptions. Acceptance: Given a card with balance 0, when its code is entered, then checkout rejects it as used.\nR4 (must; non-functional, security; target: at most one valid code per 10^12 random guesses): The shop shall generate gift card codes of 16 random characters that cannot be guessed. Acceptance: Given 1000 generated codes, when checked, then all are 16 characters from a 32-symbol alphabet and unique.\nR5 (should): When a gift card is 30 days from its expiry date, the shop shall remind the recipient by email. Acceptance: Given a card expiring in 30 days, when the daily job runs, then the recipient gets one reminder email.\nR6 (should; non-functional, performance efficiency; target: p95 < 500 ms at 50 requests per second): When a customer checks a gift card balance, the shop shall answer within 500 ms. Acceptance: Given 50 requests per second, when balances are checked for 10 minutes, then p95 latency is below 500 ms.\n\nUser stories, all under the existing epic EPIC-0005 (Payments):\nS1 (implements R1): As a customer I want to buy a gift card for a friend so that I can give a present.\nS2 (implements R2 and R3): As a customer I want to pay with a gift card at checkout so that I can use my present.\nS3 (implements R6): As a customer I want to check my gift card balance so that I know how much is left.\nS4 (implements R5): As a gift card recipient I want a reminder before my card expires so that I do not lose the money.\nS5 (implements R3): As a store manager I want to see sold and redeemed gift cards so that I can reconcile revenue.\nS6 (implements R4): As a store manager I want to block a stolen gift card so that nobody can use it.\n\nTasks:\nT1 (story S1): Create the gift card product type. Add a gift card product type with amounts of 25, 50 and 100 EUR.\nT2 (story S1, implements R1): Send the gift card email. Send the recipient an email with the gift card code after payment.\nT3 (story S2): Add the gift card field to checkout. Add a gift card code field to the order review step of checkout.\nT4 (story S2, implements R2): Apply the gift card balance to the order. Subtract the gift card balance from the order total and store the remaining balance.\nT5 (story S3, implements R6): Build the gift card balance page. Page where a customer enters a code and sees the remaining balance.\nT6 (story S4, implements R5): Schedule the gift card expiry reminder job. Daily job that emails recipients whose card expires in 30 days.\nT7 (story S5): Add the gift card report to the admin dashboard. Report of gift cards sold, redeemed and outstanding per month.\nT8 (story S6, implements R4): Generate secure gift card codes. Generate 16-character codes from a cryptographic random source and reject collisions."
+      },
+      {
+        "run": 2,
+        "exit_code": 0,
+        "wall_s": 51.8,
+        "models": [
+          "anthropic/claude-opus-5-5"
+        ],
+        "subagents": 0,
+        "overseer_requests": 2,
+        "overseer_requests_by_tool": {
+          "create_item": 2
+        },
+        "overseer_tool_calls": 2,
+        "overseer_tool_calls_by_tool": {
+          "create_item": 2
+        },
+        "timing_check": {
+          "calls_by_arguments": 2,
+          "with_request_in_window": 2
+        },
+        "codebase_reads": 0,
+        "skill_reads": 1,
+        "tool_doc_reads": 1,
+        "subagent_calls": 0,
+        "other_calls": 0,
+        "total_tool_calls": 4,
+        "tokens": {
+          "input": 10,
+          "output": 6947,
+          "cache_read": 69149,
+          "cache_write": 19132,
+          "cost_usd": 0.3059,
+          "assistant_messages": 4,
+          "prompt_total": 88291
+        },
+        "registry": {
+          "items_created": 20,
+          "by_kind": {
+            "requirement": 6,
+            "task": 8,
+            "story": 6
+          },
+          "with_parent": 14,
+          "implements_links": 12
+        },
+        "calls": [
+          {
+            "who": "main",
+            "name": "read",
+            "category": "skill_read",
+            "requests_during": 0,
+            "args": "skill://overseer"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "create_item",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "create_item",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_create_item"
+          }
+        ],
+        "prompt": "Record this dictation in overseer. I dictated the requirements, so they are approved.\n\nRequirements:\nR1 (must): When a customer buys a gift card, the shop shall email the gift card code to the recipient within 5 minutes. Acceptance: Given a paid gift card order, when 5 minutes pass, then the recipient has an email with the code.\nR2 (must): When a customer enters a valid gift card code at checkout, the shop shall subtract the card balance from the order total. Acceptance: Given a card with 30 EUR and an order of 50 EUR, when the code is applied, then 20 EUR remain to pay.\nR3 (should): When a gift card balance reaches zero, the shop shall mark the card as used and reject further redemptions. Acceptance: Given a card with balance 0, when its code is entered, then checkout rejects it as used.\nR4 (must; non-functional, security; target: at most one valid code per 10^12 random guesses): The shop shall generate gift card codes of 16 random characters that cannot be guessed. Acceptance: Given 1000 generated codes, when checked, then all are 16 characters from a 32-symbol alphabet and unique.\nR5 (should): When a gift card is 30 days from its expiry date, the shop shall remind the recipient by email. Acceptance: Given a card expiring in 30 days, when the daily job runs, then the recipient gets one reminder email.\nR6 (should; non-functional, performance efficiency; target: p95 < 500 ms at 50 requests per second): When a customer checks a gift card balance, the shop shall answer within 500 ms. Acceptance: Given 50 requests per second, when balances are checked for 10 minutes, then p95 latency is below 500 ms.\n\nUser stories, all under the existing epic EPIC-0005 (Payments):\nS1 (implements R1): As a customer I want to buy a gift card for a friend so that I can give a present.\nS2 (implements R2 and R3): As a customer I want to pay with a gift card at checkout so that I can use my present.\nS3 (implements R6): As a customer I want to check my gift card balance so that I know how much is left.\nS4 (implements R5): As a gift card recipient I want a reminder before my card expires so that I do not lose the money.\nS5 (implements R3): As a store manager I want to see sold and redeemed gift cards so that I can reconcile revenue.\nS6 (implements R4): As a store manager I want to block a stolen gift card so that nobody can use it.\n\nTasks:\nT1 (story S1): Create the gift card product type. Add a gift card product type with amounts of 25, 50 and 100 EUR.\nT2 (story S1, implements R1): Send the gift card email. Send the recipient an email with the gift card code after payment.\nT3 (story S2): Add the gift card field to checkout. Add a gift card code field to the order review step of checkout.\nT4 (story S2, implements R2): Apply the gift card balance to the order. Subtract the gift card balance from the order total and store the remaining balance.\nT5 (story S3, implements R6): Build the gift card balance page. Page where a customer enters a code and sees the remaining balance.\nT6 (story S4, implements R5): Schedule the gift card expiry reminder job. Daily job that emails recipients whose card expires in 30 days.\nT7 (story S5): Add the gift card report to the admin dashboard. Report of gift cards sold, redeemed and outstanding per month.\nT8 (story S6, implements R4): Generate secure gift card codes. Generate 16-character codes from a cryptographic random source and reject collisions."
+      },
+      {
+        "run": 3,
+        "exit_code": 0,
+        "wall_s": 58.3,
+        "models": [
+          "anthropic/claude-opus-5-5"
+        ],
+        "subagents": 0,
+        "overseer_requests": 3,
+        "overseer_requests_by_tool": {
+          "create_item": 2,
+          "update_item": 1
+        },
+        "overseer_tool_calls": 3,
+        "overseer_tool_calls_by_tool": {
+          "create_item": 2,
+          "update_item": 1
+        },
+        "timing_check": {
+          "calls_by_arguments": 3,
+          "with_request_in_window": 3
+        },
+        "codebase_reads": 0,
+        "skill_reads": 1,
+        "tool_doc_reads": 1,
+        "subagent_calls": 0,
+        "other_calls": 0,
+        "total_tool_calls": 5,
+        "tokens": {
+          "input": 12,
+          "output": 7502,
+          "cache_read": 99860,
+          "cache_write": 19249,
+          "cost_usd": 0.3241,
+          "assistant_messages": 5,
+          "prompt_total": 119121
+        },
+        "registry": {
+          "items_created": 20,
+          "by_kind": {
+            "requirement": 6,
+            "task": 8,
+            "story": 6
+          },
+          "with_parent": 14,
+          "implements_links": 12
+        },
+        "calls": [
+          {
+            "who": "main",
+            "name": "read",
+            "category": "skill_read",
+            "requests_during": 0,
+            "args": "skill://overseer"
+          },
+          {
+            "who": "main",
+            "name": "read",
+            "category": "tool_docs",
+            "requests_during": 0,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "create_item",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "create_item",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_create_item"
+          },
+          {
+            "who": "main",
+            "name": "write",
+            "category": "overseer",
+            "tool": "update_item",
+            "requests_during": 1,
+            "args": "xd://mcp__overseer_update_item"
+          }
+        ],
+        "prompt": "Record this dictation in overseer. I dictated the requirements, so they are approved.\n\nRequirements:\nR1 (must): When a customer buys a gift card, the shop shall email the gift card code to the recipient within 5 minutes. Acceptance: Given a paid gift card order, when 5 minutes pass, then the recipient has an email with the code.\nR2 (must): When a customer enters a valid gift card code at checkout, the shop shall subtract the card balance from the order total. Acceptance: Given a card with 30 EUR and an order of 50 EUR, when the code is applied, then 20 EUR remain to pay.\nR3 (should): When a gift card balance reaches zero, the shop shall mark the card as used and reject further redemptions. Acceptance: Given a card with balance 0, when its code is entered, then checkout rejects it as used.\nR4 (must; non-functional, security; target: at most one valid code per 10^12 random guesses): The shop shall generate gift card codes of 16 random characters that cannot be guessed. Acceptance: Given 1000 generated codes, when checked, then all are 16 characters from a 32-symbol alphabet and unique.\nR5 (should): When a gift card is 30 days from its expiry date, the shop shall remind the recipient by email. Acceptance: Given a card expiring in 30 days, when the daily job runs, then the recipient gets one reminder email.\nR6 (should; non-functional, performance efficiency; target: p95 < 500 ms at 50 requests per second): When a customer checks a gift card balance, the shop shall answer within 500 ms. Acceptance: Given 50 requests per second, when balances are checked for 10 minutes, then p95 latency is below 500 ms.\n\nUser stories, all under the existing epic EPIC-0005 (Payments):\nS1 (implements R1): As a customer I want to buy a gift card for a friend so that I can give a present.\nS2 (implements R2 and R3): As a customer I want to pay with a gift card at checkout so that I can use my present.\nS3 (implements R6): As a customer I want to check my gift card balance so that I know how much is left.\nS4 (implements R5): As a gift card recipient I want a reminder before my card expires so that I do not lose the money.\nS5 (implements R3): As a store manager I want to see sold and redeemed gift cards so that I can reconcile revenue.\nS6 (implements R4): As a store manager I want to block a stolen gift card so that nobody can use it.\n\nTasks:\nT1 (story S1): Create the gift card product type. Add a gift card product type with amounts of 25, 50 and 100 EUR.\nT2 (story S1, implements R1): Send the gift card email. Send the recipient an email with the gift card code after payment.\nT3 (story S2): Add the gift card field to checkout. Add a gift card code field to the order review step of checkout.\nT4 (story S2, implements R2): Apply the gift card balance to the order. Subtract the gift card balance from the order total and store the remaining balance.\nT5 (story S3, implements R6): Build the gift card balance page. Page where a customer enters a code and sees the remaining balance.\nT6 (story S4, implements R5): Schedule the gift card expiry reminder job. Daily job that emails recipients whose card expires in 30 days.\nT7 (story S5): Add the gift card report to the admin dashboard. Report of gift cards sold, redeemed and outstanding per month.\nT8 (story S6, implements R4): Generate secure gift card codes. Generate 16-character codes from a cryptographic random source and reject collisions."
+      }
+    ]
+  },
+  "baseline": "docs/measurements/capture-baseline.json",
+  "command": "npm run measure:capture -- --live --out docs/measurements/capture-after"
+}
