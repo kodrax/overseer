@@ -114,15 +114,17 @@ Each result is one push op of sync plan as the MCP server answered it:
 INVALID_INPUT and nothing is written.
 `;
 
-/** A conflict value in the text plan: JSON, cut to 60 characters. */
+/** A conflicting or overwritten value in the text plan: JSON, cut to 60 characters. */
 function planValue(value: unknown): string {
   const text = JSON.stringify(value);
   return text.length > 60 ? `${text.slice(0, 59)}…` : text;
 }
 
 /** Counts line, then a table per non-empty part, an `ack:` line with the seqs to acknowledge and a `warning:` line per warning. */
-function formatPlan(connectionId: number, { push, pull, conflicts, ack, warnings }: SyncPlan): string {
-  const parts = [`Sync plan for connection ${connectionId}: ${push.length} push, ${pull.length} pull, ${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'}.`];
+function formatPlan(connectionId: number, { push, pull, conflicts, ack, overwritten, warnings }: SyncPlan): string {
+  const parts = [
+    `Sync plan for connection ${connectionId}: ${push.length} push, ${pull.length} pull, ${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'}, ${overwritten.length} overwritten.`,
+  ];
   if (push.length > 0) {
     parts.push(`\nPush:\n${table(['Op', 'Item', 'Issue', 'Seq', 'Fields'], push.map((op) => [op.op, op.item_id, op.external_ref, op.seq, op.fields.join(', ')]))}`);
   }
@@ -134,6 +136,14 @@ function formatPlan(connectionId: number, { push, pull, conflicts, ack, warnings
       `\nConflicts:\n${table(
         ['Item', 'Issue', 'Field', 'Local', 'Remote', 'Snapshot'],
         conflicts.map((conflict) => [conflict.item_id, conflict.external_ref, conflict.field, planValue(conflict.local), planValue(conflict.remote), planValue(conflict.snapshot)]),
+      )}`,
+    );
+  }
+  if (overwritten.length > 0) {
+    parts.push(
+      `\nOverwritten:\n${table(
+        ['Item', 'Issue', 'Field', 'Winner', 'Value', 'Overwritten'],
+        overwritten.map((entry) => [entry.item_id, entry.external_ref, entry.field, entry.winner, planValue(entry.value), planValue(entry.overwritten)]),
       )}`,
     );
   }

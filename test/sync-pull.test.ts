@@ -37,8 +37,9 @@ const lastEvent = (service: OverseerService) => Number(service.db.prepare('SELEC
 
 /**
  * A GitHub connection with four imported issues and local changes since: a title edit (TASK-0001) and a conflicting
- * title edit (TASK-0003). The listing changes #1's body (pull), #2's labels and assignee (pull), #3's title
- * (conflict), closes #4 and adds #5, a sub-issue of #2. A second GitLab connection (auto-sync on) is added last.
+ * title edit (TASK-0002). The listing changes #1's body (pull), #2's labels and assignee (pull), #3's title
+ * (conflict, resolved by the source of truth), closes #4 and adds #5, a sub-issue of #2. A second GitLab connection
+ * (auto-sync on) is added last.
  */
 async function scenario(root = tempRepo()) {
   const service = openService(root);
@@ -120,26 +121,56 @@ describe('sync pull', () => {
     expect(snapshotOf(service, 'TASK-0003').state).toBe('closed');
     expect(service.db.prepare('SELECT state FROM item_remote_refs WHERE item_id = ?').get('TASK-0003')!.state).toBe('closed');
 
-    // Nothing is left to pull; the local title edit is still to push.
+    // Nothing is left to pull; the local title edits are still to push (the board wins TASK-0002's conflict).
     const after = planSync(service, connection.id, listing);
     expect(after.pull).toEqual([]);
-    expect(after.push.map((op) => `${op.op} ${op.item_id} ${op.fields.join(',')}`)).toEqual(['update TASK-0001 title']);
+    expect(after.push.map((op) => `${op.op} ${op.item_id} ${op.fields.join(',')}`)).toEqual(['update TASK-0001 title', 'update TASK-0002 title']);
     service.close();
   });
 
-  it('leaves conflicting fields untouched and reports them (AC2)', async () => {
+  it('leaves a conflicting field the board wins untouched, for the push to overwrite (AC2)', async () => {
     const { service, connection, listing } = await scenario();
     const plan = planSync(service, connection.id, listing);
     const before = lastEvent(service);
     const result = pullSync(service, connection.id, listing, ctx);
-    expect(result.conflicts).toEqual(plan.conflicts);
-    expect(result.conflicts).toEqual([
-      expect.objectContaining({ item_id: 'TASK-0002', external_ref: 'acme/demo#3', field: 'title', local: 'Rename the settings page', remote: 'Rename settings screen', snapshot: 'Rename settings' }),
+    expect(result.conflicts).toEqual([]);
+    expect(plan.overwritten).toEqual([
+      { item_id: 'TASK-0002', external_ref: 'acme/demo#3', field: 'title', winner: 'local', value: 'Rename the settings page', overwritten: 'Rename settings screen' },
     ]);
     expect(service.getItem('TASK-0002').item.title).toBe('Rename the settings page');
     expect(snapshotOf(service, 'TASK-0002').title).toBe('Rename settings');
     expect(eventsOf(service, 'TASK-0002', before)).toEqual([]);
-    expect(planSync(service, connection.id, listing).conflicts).toEqual(plan.conflicts);
+    expect(planSync(service, connection.id, listing).overwritten).toEqual(plan.overwritten);
+    service.close();
+  });
+
+  it('overwrites a conflicting local field with the issue value when the connection is the source of truth (TASK-0053 AC1)', async () => {
+    const { service, connection, listing } = await scenario();
+    service.connections.setSourceOfTruth(connection.id);
+    const seq = service.outbox.list(connection.id).find((entry) => entry.item_id === 'TASK-0002')!.seq;
+    const plan = planSync(service, connection.id, listing);
+    expect(plan.ack).toContain(seq);
+    expect(plan.push.some((op) => op.item_id === 'TASK-0002')).toBe(false);
+    expect(plan.overwritten).toEqual([
+      { item_id: 'TASK-0002', external_ref: 'acme/demo#3', field: 'title', winner: 'remote', value: 'Rename settings screen', overwritten: 'Rename the settings page' },
+    ]);
+    const before = lastEvent(service);
+
+    const result = pullSync(service, connection.id, listing, ctx);
+    expect(result.conflicts).toEqual([]);
+    expect(result.updated).toContainEqual({ item_id: 'TASK-0002', external_ref: 'acme/demo#3', fields: ['title'] });
+    expect(service.getItem('TASK-0002').item.title).toBe('Rename settings screen');
+    expect(snapshotOf(service, 'TASK-0002').title).toBe('Rename settings screen');
+    expect(eventsOf(service, 'TASK-0002', before)).toEqual([
+      { via: 'sync:github', action: 'update', field: 'title', old_value: 'Rename the settings page', new_value: 'Rename settings screen' },
+    ]);
+
+    // Applied: nothing left to pull or push for TASK-0002, and its pending entry is still only to acknowledge.
+    const after = planSync(service, connection.id, listing);
+    expect(after.pull).toEqual([]);
+    expect(after.overwritten).toEqual([]);
+    expect(after.push.some((op) => op.item_id === 'TASK-0002')).toBe(false);
+    expect(after.ack).toContain(seq);
     service.close();
   });
 
@@ -165,7 +196,7 @@ describe('sync pull', () => {
     const again = pullSync(service, connection.id, listing, ctx);
     expect(again.created).toEqual([]);
     expect(again.updated).toEqual([]);
-    expect(again.conflicts).toHaveLength(1);
+    expect(again.conflicts).toEqual([]);
     expect(dump(service)).toEqual(before);
     service.close();
   });
@@ -223,19 +254,18 @@ describe('sync pull CLI', () => {
     expect(Object.keys(result)).toEqual(['created', 'updated', 'conflicts', 'warnings']);
     expect(result.created).toEqual([{ item_id: 'BUG-0001', external_ref: 'acme/demo#5' }]);
     expect(result.updated.map((entry) => entry.item_id)).toEqual(['TASK-0001', 'US-0001', 'TASK-0003']);
-    expect(result.conflicts.map((conflict) => `${conflict.item_id} ${conflict.field}`)).toEqual(['TASK-0002 title']);
+    expect(result.conflicts).toEqual([]);
 
     const second = await cli(root, ['sync', 'pull', '1', '-'], JSON.stringify(listing));
     expect(second.code).toBe(0);
-    expect(second.out).toMatch(/^Sync pull for connection 1: 0 created, 0 updated, 1 conflict left untouched\.\n\nConflicts:\nItem +Issue +Field +Local +Remote +Snapshot\n/);
-    expect(second.out).toMatch(/\nTASK-0002 +acme\/demo#3 +title +"Rename the settings page" +"Rename settings screen" +"Rename settings"\n/);
+    expect(second.out).toMatch(/^Sync pull for connection 1: 0 created, 0 updated, 0 conflicts left untouched\.\n(?!\nConflicts:)/);
   });
 
   it('prints created and updated items as a table, and NOT_FOUND for an unknown connection', async () => {
     const { service, listing, root } = await scenario();
     service.close();
     const text = await cli(root, ['sync', 'pull', '1', '-'], JSON.stringify(listing));
-    expect(text.out).toMatch(/^Sync pull for connection 1: 1 created, 3 updated, 1 conflict left untouched\.\n\nOp +Issue +Item +Fields\n-[- ]+\ncreate +acme\/demo#5 +BUG-0001 +-\nupdate +acme\/demo#1 +TASK-0001 +body\n/);
+    expect(text.out).toMatch(/^Sync pull for connection 1: 1 created, 3 updated, 0 conflicts left untouched\.\n\nOp +Issue +Item +Fields\n-[- ]+\ncreate +acme\/demo#5 +BUG-0001 +-\nupdate +acme\/demo#1 +TASK-0001 +body\n/);
     const unknown = await cli(root, ['sync', 'pull', '9', 'missing.json', '--json']);
     expect(unknown.code).toBe(1);
     expect(JSON.parse(unknown.out).error).toEqual({ code: 'NOT_FOUND', message: 'No connection with id 9.' });

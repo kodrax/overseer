@@ -113,7 +113,8 @@ function applyUpdate(service: OverseerService, connectionId: number, host: Impor
 /**
  * Applies the pull operations of a connection's sync plan (the same computation as `sync plan`) in one transaction:
  * a pull create creates the item as import does, with its remote ref and snapshot; a pull update applies only its
- * planned fields (fields with a pending local change are not planned) and refreshes their snapshot. Conflicts are left
+ * planned fields (fields with a pending local change are not planned, unless this connection is the source of truth
+ * and overwrites them) and refreshes their snapshot. Conflicts are left
  * untouched and returned. Events are recorded via `sync:<host>`; the outbox skips this connection and queues the
  * others. Applying the same listing again changes nothing.
  */
