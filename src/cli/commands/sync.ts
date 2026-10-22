@@ -4,6 +4,7 @@ import { type ConnectionMapping, MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES } from
 import { detectRemotes } from '../../core/remotes.js';
 import { IMPORT_SOURCES } from '../../core/schema.js';
 import { planSync, type SyncPlan } from '../../core/sync-plan.js';
+import { pullSync, type SyncPullResult } from '../../core/sync-pull.js';
 import { bundleKeys, inspectTracking, type TrackingSetup } from '../../core/tracking.js';
 import { assertProjectEnabled } from '../../core/user-config.js';
 import { fields, table } from '../format.js';
@@ -118,6 +119,35 @@ function formatPlan(connectionId: number, { push, pull, conflicts, warnings }: S
   }
   if (pull.length > 0) {
     parts.push(`\nPull:\n${table(['Op', 'Issue', 'Item', 'Fields'], pull.map((op) => [op.op, op.external_ref, op.item_id, op.fields.join(', ')]))}`);
+  }
+  if (conflicts.length > 0) {
+    parts.push(
+      `\nConflicts:\n${table(
+        ['Item', 'Issue', 'Field', 'Local', 'Remote', 'Snapshot'],
+        conflicts.map((conflict) => [conflict.item_id, conflict.external_ref, conflict.field, planValue(conflict.local), planValue(conflict.remote), planValue(conflict.snapshot)]),
+      )}`,
+    );
+  }
+  if (warnings.length > 0) parts.push(`\n${warnings.map((warning) => `warning: ${warning}`).join('\n')}`);
+  return parts.join('\n');
+}
+
+const PULL_HELP = `
+The listing is the raw answer of the connection's MCP server, as for sync plan; join every page into one array.
+Only the plan's pull operations are applied, in one transaction, with events via sync:<host>; the changes are queued
+in the outbox of the other connections, not this one. Applying the same listing again changes nothing.
+`;
+
+/** Counts line, then a table of created and updated items, the conflicts left untouched and a `warning:` line per warning. */
+function formatPull(connectionId: number, { created, updated, conflicts, warnings }: SyncPullResult): string {
+  const parts = [`Sync pull for connection ${connectionId}: ${created.length} created, ${updated.length} updated, ${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'} left untouched.`];
+  if (created.length + updated.length > 0) {
+    parts.push(
+      `\n${table(
+        ['Op', 'Issue', 'Item', 'Fields'],
+        [...created.map((entry) => ['create', entry.external_ref, entry.item_id, '-']), ...updated.map((entry) => ['update', entry.external_ref, entry.item_id, entry.fields.join(', ')])],
+      )}`,
+    );
   }
   if (conflicts.length > 0) {
     parts.push(
@@ -372,6 +402,24 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
         const connection = service.connections.require(connectionId);
         const plan = planSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Listing'), 'Listing'));
         rt.emit(options.json, plan, (value) => formatPlan(connection.id, value));
+      });
+    });
+
+  sync
+    .command('pull')
+    .description(
+      "apply the pull operations of a connection's sync plan (the same computation as sync plan) from a raw MCP listing of its issues in a file or stdin (-): create items for new issues, apply remote changes without a pending local change, leave conflicts untouched; no network",
+    )
+    .argument('<connection>', 'connection id (see sync connections)')
+    .argument('<file>', 'JSON listing file, or - for stdin')
+    .option('--json', 'print JSON')
+    .addHelpText('after', PULL_HELP)
+    .action(async (connectionId: string, file: string, options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', async (service) => {
+        // An unknown connection gives NOT_FOUND before the file is read.
+        const connection = service.connections.require(connectionId);
+        const pulled = pullSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Listing'), 'Listing'), rt.ctx);
+        rt.emit(options.json, pulled, (value) => formatPull(connection.id, value));
       });
     });
 }

@@ -6,7 +6,8 @@ import { normalizeRepositoryPath } from './remotes.js';
 import { type Ctx, IMPORT_SOURCES, type ImportSource, type Item, KINDS, type Kind, PARENT_KINDS, parseInput } from './schema.js';
 import type { OverseerService } from './service.js';
 
-const DESCRIPTION_MAX = 20000;
+/** Longest item description an issue body fills; a longer body is cut with a warning. */
+export const DESCRIPTION_MAX = 20000;
 
 export const importItemSchema = z.object({
   external_id: z.string().trim().min(1).max(500),
@@ -76,7 +77,8 @@ export function importKind(item: Pick<ImportItem, 'type_hint' | 'labels'>): Kind
   return 'task';
 }
 
-function openStatus(kind: Kind, labels: readonly string[]): string {
+/** Status of an item whose issue is open: approved requirements, open epics, else in_progress for an in-progress label or backlog. */
+export function openStatus(kind: Kind, labels: readonly string[]): string {
   if (kind === 'requirement') return 'approved';
   if (kind === 'epic') return 'open';
   return labels.some((label) => /in progress|doing|wip/i.test(label)) ? 'in_progress' : 'backlog';
@@ -86,7 +88,7 @@ function openStatus(kind: Kind, labels: readonly string[]): string {
 const CANCELLING_REASONS = ['not_planned', 'duplicate'];
 
 /** Requirements become implemented; other kinds done, or cancelled for a GitHub issue closed as not planned or duplicate. */
-function closedStatus(kind: Kind, source: ImportSource, reason: string | null | undefined): string {
+export function closedStatus(kind: Kind, source: ImportSource, reason: string | null | undefined): string {
   if (kind === 'requirement') return 'implemented';
   return source === 'github' && CANCELLING_REASONS.includes((reason ?? '').toLowerCase()) ? 'cancelled' : 'done';
 }
@@ -348,7 +350,7 @@ export function issueFieldsOf(remote: ImportItem): Omit<IssueFields, 'body'> & {
  * time and the snapshot of its synced fields (a field the listing lacks keeps its earlier snapshot value). An issue
  * already linked to another item there keeps that link, with a warning.
  */
-function writeRemoteRefs(db: Database, connectionId: number, synced: readonly { id: string; remote: ImportItem }[], now: string, warnings: string[]): void {
+export function writeRemoteRefs(db: Database, connectionId: number, synced: readonly { id: string; remote: ImportItem }[], now: string, warnings: string[]): void {
   const holder = db.prepare('SELECT item_id FROM item_remote_refs WHERE connection_id = ? AND external_ref = ? AND item_id <> ?');
   const previous = db.prepare('SELECT synced_fields FROM item_remote_refs WHERE item_id = ? AND connection_id = ?');
   const upsert = db.prepare(
@@ -414,6 +416,84 @@ function deleteRemoved(
   }
 }
 
+/** The warning for an issue body longer than an item description holds, or null. */
+export function descriptionCutWarning(id: string, remote: Pick<ImportItem, 'body' | 'url'>): string | null {
+  const length = (remote.body ?? '').length;
+  return length > DESCRIPTION_MAX ? `${id}: description cut to ${DESCRIPTION_MAX} of ${length} characters; full text at ${remote.url}` : null;
+}
+
+/**
+ * Creates the item of an issue no item has (import and sync pull): kind from the issue type or labels, status from the
+ * state (and an in-progress label), the issue's title, body, labels as tags, first assignee, milestone and URL, and
+ * external_ref `<source>:<external_id>`. Returns the new ID; a body cut to DESCRIPTION_MAX adds a warning.
+ */
+export function insertImportedItem(service: OverseerService, remote: ImportItem, source: ImportSource, ctx: Ctx, now: string, warnings: string[]): string {
+  const labels = remote.labels ?? [];
+  const kind = importKind(remote);
+  const status = remote.state === 'closed' ? closedStatus(kind, source, remote.state_reason) : openStatus(kind, labels);
+  const id = service.insertItem(
+    {
+      kind,
+      title: remote.title,
+      description: (remote.body ?? '').slice(0, DESCRIPTION_MAX),
+      status,
+      req_type: kind === 'requirement' ? (labels.some((label) => /nfr|non-functional|performance|security/i.test(label)) ? 'non_functional' : 'functional') : null,
+      asked_by: null,
+      source: remote.url,
+      recorded_via: ctx.via,
+      tags: labels,
+      assignee: remote.assignees?.[0] ?? null,
+      milestone: remote.milestone ?? null,
+      external_ref: `${source}:${remote.external_id}`,
+      external_url: remote.url,
+      external_state: remote.state,
+      external_synced_at: now,
+      delivered_at: status === 'done' || status === 'implemented' ? now : null,
+      created_at: remoteTime(remote.created_at, now),
+      updated_at: now,
+      status_changed_at: now,
+    },
+    ctx,
+    [],
+    'import',
+  );
+  const warning = descriptionCutWarning(id, remote);
+  if (warning) warnings.push(warning);
+  return id;
+}
+
+/**
+ * Sets the parent of the item of `remote` to the item of its parent issue, both found by their `<source>:` external_ref.
+ * A parent issue without an item, a parent of a kind the child cannot have, or another local parent leaves the parent
+ * as it is, with a warning. Returns the child's ID when its parent was set, else null.
+ */
+export function linkImportedParent(service: OverseerService, source: ImportSource, remote: ImportItem, ctx: Ctx, now: string, warnings: string[]): string | null {
+  if (!remote.parent_external_id) return null;
+  const db = service.db;
+  const child = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(`${source}:${remote.external_id}`);
+  const parent = db.prepare('SELECT id, kind FROM items WHERE external_ref = ?').get(`${source}:${remote.parent_external_id}`);
+  if (!child) return null;
+  const childId = String(child.id);
+  const childKind = child.kind as Kind;
+  if (!parent) {
+    warnings.push(`${childId}: parent ${remote.parent_external_id} is not imported; parent left unset.`);
+    return null;
+  }
+  const parentId = String(parent.id);
+  if (!PARENT_KINDS[childKind].includes(parent.kind as Kind)) {
+    warnings.push(`${childId}: a ${childKind} cannot have a ${String(parent.kind)} parent (${parentId}); parent left unset.`);
+    return null;
+  }
+  if (child.parent_id === parentId) return null;
+  if (child.parent_id !== null) {
+    warnings.push(`${childId}: keeps its local parent ${String(child.parent_id)} (remote parent ${parentId} ignored).`);
+    return null;
+  }
+  db.prepare('UPDATE items SET parent_id = ?, updated_at = ? WHERE id = ?').run(parentId, now, childId);
+  service.addEvent(childId, ctx, now, 'update', 'parent_id', null, parentId);
+  return childId;
+}
+
 /** Id of the connection whose repository the import comes from (same host and repository), if any. */
 function importConnectionId(db: Database, source: ImportSource, repo: string): number | undefined {
   const row = db.prepare('SELECT id FROM connections WHERE host = ? AND lower(repository) = lower(?)').get(source, normalizeRepositoryPath(repo.trim()));
@@ -452,46 +532,15 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
         continue;
       }
       seen.add(externalRef);
-      const labels = remote.labels ?? [];
       const description = (remote.body ?? '').slice(0, DESCRIPTION_MAX);
       const cutWarning = (id: string): void => {
-        const length = (remote.body ?? '').length;
-        if (length > DESCRIPTION_MAX) result.warnings.push(`${id}: description cut to ${DESCRIPTION_MAX} of ${length} characters; full text at ${remote.url}`);
+        const warning = descriptionCutWarning(id, remote);
+        if (warning) result.warnings.push(warning);
       };
       const existing = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(externalRef);
       if (!existing) {
-        const kind = importKind(remote);
-        const status = remote.state === 'closed' ? closedStatus(kind, source, remote.state_reason) : openStatus(kind, labels);
-        const createdAt = remoteTime(remote.created_at, now);
-        const id = service.insertItem(
-          {
-            kind,
-            title: remote.title,
-            description,
-            status,
-            req_type:
-              kind === 'requirement' ? (labels.some((label) => /nfr|non-functional|performance|security/i.test(label)) ? 'non_functional' : 'functional') : null,
-            asked_by: null,
-            source: remote.url,
-            recorded_via: importCtx.via,
-            tags: labels,
-            assignee: remote.assignees?.[0] ?? null,
-            milestone: remote.milestone ?? null,
-            external_ref: externalRef,
-            external_url: remote.url,
-            external_state: remote.state,
-            external_synced_at: now,
-            delivered_at: status === 'done' || status === 'implemented' ? now : null,
-            created_at: createdAt,
-            updated_at: now,
-            status_changed_at: now,
-          },
-          importCtx,
-          [],
-          'import',
-        );
+        const id = insertImportedItem(service, remote, source, importCtx, now, result.warnings);
         result.created.push(id);
-        cutWarning(id);
         createdIds.push(id);
         synced.push({ id, remote });
         continue;
@@ -503,7 +552,7 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
         title: remote.title,
         // A missing body keeps the stored description; an explicit "" or null clears it.
         ...(remote.body === undefined ? {} : { description }),
-        tags: labels,
+        tags: remote.labels ?? [],
         assignee: remote.assignees?.[0] ?? null,
         milestone: remote.milestone ?? null,
         external_url: remote.url,
@@ -554,28 +603,8 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
 
     // Parents are resolved after all upserts so a parent may appear anywhere in the batch (or a previous import).
     for (const remote of input.items) {
-      if (!remote.parent_external_id) continue;
-      const child = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(refOf(remote.external_id));
-      const parent = db.prepare('SELECT id, kind FROM items WHERE external_ref = ?').get(refOf(remote.parent_external_id));
-      if (!child) continue;
-      const childId = String(child.id);
-      const childKind = child.kind as Kind;
-      if (!parent) {
-        result.warnings.push(`${childId}: parent ${remote.parent_external_id} is not imported; parent left unset.`);
-        continue;
-      }
-      const parentId = String(parent.id);
-      if (!PARENT_KINDS[childKind].includes(parent.kind as Kind)) {
-        result.warnings.push(`${childId}: a ${childKind} cannot have a ${String(parent.kind)} parent (${parentId}); parent left unset.`);
-        continue;
-      }
-      if (child.parent_id === parentId) continue;
-      if (child.parent_id !== null) {
-        result.warnings.push(`${childId}: keeps its local parent ${String(child.parent_id)} (remote parent ${parentId} ignored).`);
-        continue;
-      }
-      db.prepare('UPDATE items SET parent_id = ?, updated_at = ? WHERE id = ?').run(parentId, now, childId);
-      service.addEvent(childId, importCtx, now, 'update', 'parent_id', null, parentId);
+      const childId = linkImportedParent(service, source, remote, importCtx, now, result.warnings);
+      if (childId === null) continue;
       const unchangedIndex = result.unchanged.indexOf(childId);
       if (unchangedIndex >= 0) {
         result.unchanged.splice(unchangedIndex, 1);

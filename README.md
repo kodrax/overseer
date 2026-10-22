@@ -241,6 +241,7 @@ overseer export                             # writes docs/overseer/
 | `sync outbox [<connection>]` | local item changes waiting to be pushed, per connection with auto-sync on (see [Outbox](#outbox)) |
 | `sync outbox ack <seq...>` | remove outbox entries once their push is confirmed, all or nothing |
 | `sync plan <connection> <file\|->` | the push, pull and conflict operations that would sync a connection, from a raw MCP listing of its issues; writes nothing (see [Sync plan](#sync-plan)) |
+| `sync pull <connection> <file\|->` | apply the pull operations of `sync plan`: create items for new issues and apply remote changes without a pending local change; conflicts are left untouched (see [Sync pull](#sync-pull)) |
 | `board [--port] [--no-open]` | serve the web board |
 | `mcp` | run the MCP server over stdio (harnesses start it) |
 | `models pull` | download the embedding model |
@@ -437,7 +438,7 @@ These commands read and write only the project database: they make no GitHub or 
 
 ### Sync plan
 
-`overseer sync plan <connection> <file|-> --json` works out what a sync of one connection would do, from its pending outbox entries, its remote refs with their last synced snapshot, its mapping and a listing of its issues fetched through the connection's MCP server. It prints `{"push": [...], "pull": [...], "conflicts": [...], "warnings": [...]}`; without `--json`, a counts line, one table per non-empty part and a `warning:` line per warning. Later sync steps (pushing the operations, resolving conflicts) take this format as input.
+`overseer sync plan <connection> <file|-> --json` works out what a sync of one connection would do, from its pending outbox entries, its remote refs with their last synced snapshot, its mapping and a listing of its issues fetched through the connection's MCP server. It prints `{"push": [...], "pull": [...], "conflicts": [...], "warnings": [...]}`; without `--json`, a counts line, one table per non-empty part and a `warning:` line per warning. [`sync pull`](#sync-pull) applies its pull operations; later sync steps (pushing the operations, resolving conflicts) take this format as input.
 
 - **Listing**: the raw MCP answer, as for `import`: a GitHub `list_issues` response (`{"issues": [...]}`) or an array of GitHub issues; a GitLab `list_work_items` response (`{"items": [...], "pageInfo": {...}}`), a `get_work_item` response or an array of work items. Join the pages into one array: an issue missing from the listing is neither pulled nor checked for conflicts. Pull requests are skipped with a warning. A listing from the other host (a GitLab answer for a GitHub connection) or an unknown format gives `INVALID_INPUT`; an unknown connection gives `NOT_FOUND` before the file is read.
 - **Read only, deterministic**: it writes nothing (no outbox entry is acknowledged, no remote ref or item changes, no history) and makes no network call. The same database and listing give byte-for-byte the same output, whatever order the listing has: push operations and conflicts by item ID, pull operations by issue (repository, then number). An issue listed twice uses the entry updated last, with a warning.
@@ -472,6 +473,18 @@ These commands read and write only the project database: they make no GitHub or 
 **Conflicts**: `{"item_id", "seq", "external_ref", "url", "field", "local", "remote", "snapshot"}`, one per field changed both locally (pending in the outbox) and remotely (the listing differs from the snapshot) to different values. `local` is the value the push would send, `remote` the listing's and `snapshot` the value of the last sync. Neither the push nor the pull touches that field; the plan does not resolve it. When both sides now hold the same value, there is no conflict and nothing to send.
 
 It has no MCP tool; `sync plan --help` lists the accepted listings.
+
+### Sync pull
+
+`overseer sync pull <connection> <file|-> --json` applies the pull operations of [`sync plan`](#sync-plan) for the same listing (the plan is computed by the same code), in one transaction. It prints `{"created": [{"item_id", "external_ref"}], "updated": [{"item_id", "external_ref", "fields"}], "conflicts": [...], "warnings": [...]}`; without `--json`, a counts line, a table of created and updated items, the conflicts table and a `warning:` line per warning.
+
+- **Create**: an issue no item has becomes an item as `import` creates it: kind from the issue type or labels, status from the state (and an in-progress label), title, body, labels as tags, first assignee, milestone, `external_ref` `<host>:<owner/repo#N>`, and its parent when the listing names a parent issue that has an item. Its remote ref on the connection gets the snapshot of every listed field.
+- **Update**: only the planned `fields` change, so a field the item changed locally since the last sync (pending in the outbox) keeps its local value: `title`, `body` → description, `labels` → tags, `assignee`, `milestone`; `state` closes the item (`done`, `implemented` for a requirement, `cancelled` for a GitHub issue closed as not planned or duplicate) or reopens it (`backlog`, `in_progress` with an in-progress label, `approved` for a requirement, `open` for an epic) only when its status is on the other side. The snapshot of the applied fields is refreshed; the others keep theirs.
+- **Conflicts**: the plan's conflicts are returned unchanged; neither the item nor the snapshot of those fields is touched.
+- **History and outbox**: each change is an event via `sync:<host>` (`sync:github`, `sync:gitlab`). The outbox skips the pulled connection, which already holds the change, and queues it for every other connection with auto-sync on, as `import` does.
+- **Idempotent**: the same listing applied again changes nothing and records nothing. An unknown connection gives `NOT_FOUND` before the file is read; a listing of the other host or an unknown format gives `INVALID_INPUT` and writes nothing.
+
+The `overseer-sync` skill's **Sync** step fetches every page of the listing through the connection's MCP server and runs `sync pull` before pushing. It has no MCP tool; `sync pull --help` lists the accepted listings.
 
 ### Web board
 
