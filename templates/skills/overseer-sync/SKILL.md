@@ -21,7 +21,7 @@ them; only pass them to overseer unchanged.**
 3. Offer the rest as a list (`host hostname/repository (remotes)`). For each `host: "unknown"` entry
    (GitHub Enterprise, `git.example.com`) ask whether it is GitHub, GitLab or neither; drop the
    ones that are neither.
-4. Ask which ones to connect. Connect only those the user confirms; none confirmed → step 4.
+4. Ask which ones to connect. Connect only those the user confirms; none confirmed → step 5.
 
 ## 2. Check the MCP tools
 
@@ -65,9 +65,28 @@ skill folder next to this one), ask the user to authenticate, and stop: connect 
 6. `overseer sync mapping <id> --json` → list the local values still `null` as unmapped and leave them
    unmapped.
 
-## 4. Finish
+## 4. Choose the source of truth
 
-`overseer sync status --json` → show each connection with its auto-sync flag, last sync and pending
-outbox entries.
+The source of truth is where synced fields come from when the board and a repository disagree.
+
+1. `overseer sync connections --json` → the options are `board` plus only these connected
+   repositories (`host hostname/repository`, id). Never offer a host or repository that is not connected.
+2. Recommend one:
+   - the board has no items: `overseer list --all --json` gives `"total": 0`;
+   - a connected repository has open issues: ask its MCP server for open issues (GitHub `list_issues`
+     with state `OPEN`; GitLab `list_issues` or `list_work_items` with state `opened`), one page is
+     enough; any result counts.
+   Both true → recommend that repository (the team already tracks work there). Otherwise recommend the
+   board. Say why.
+3. Ask the user to choose, then `overseer sync source-of-truth set <connection id>|board --json`.
+   `NOT_FOUND`: the id is not a connection; offer the list again.
+4. Tell the user they can change it later with the same command, `overseer sync source-of-truth set
+   <connection id>|board`. Changing it stores only the setting: connections, issue references and
+   mappings stay, and no issue is re-created.
+
+## 5. Finish
+
+`overseer sync status --json` → show each connection with its auto-sync flag, last sync, pending
+outbox entries and the source of truth.
 
 <!-- managed-by: overseer-cli -->

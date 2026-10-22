@@ -311,7 +311,8 @@ The `overseer-sync` skill connects the project to its GitHub or GitLab repositor
 2. Checks that the session has the host's MCP tools; if not, it shows your harness's setup from [`overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md) and stops.
 3. Connects only the repositories you confirm (`sync connection add`, auto-sync on).
 4. Fetches the repository's labels, issue types, milestones and boards through the MCP server, summarises them with `sync inspect`, proposes a kind, status and priority mapping from those existing names, and stores it with `sync mapping import` once you confirm. Values without a matching name stay unmapped and are listed; no label is created.
-5. Ends with `sync status`.
+5. Asks for the [source of truth](#source-of-truth), offering the board plus only the connected repositories. It recommends a repository that has open issues while the board has no items (`overseer list --all --json` total `0`), otherwise the board, and stores your choice with `sync source-of-truth set <connection id>|board`. You can change it later with the same command; no issue is re-created.
+6. Ends with `sync status`.
 
 ### Repository remotes
 
