@@ -108,7 +108,7 @@ describe('sync plan', () => {
     const { service, connection, listing } = await scenario();
     const seq = (id: string) => seqOf(service, id);
     const plan = planSync(service, connection.id, listing);
-    expect(Object.keys(plan)).toEqual(['push', 'pull', 'conflicts', 'warnings']);
+    expect(Object.keys(plan)).toEqual(['push', 'pull', 'conflicts', 'ack', 'warnings']);
 
     expect(plan.push).toEqual([
       // done maps to the closed state; the mapped kind and priority become labels.
@@ -219,7 +219,7 @@ describe('sync plan', () => {
     service.close();
   });
 
-  it('skips unchanged fields, matching values and fields that are not synced, naming the seq to acknowledge', async () => {
+  it('lists unchanged fields, matching values and fields that are not synced in ack, not as warnings', async () => {
     const service = openService();
     const connection = service.connections.add({ host: 'github', repository: 'acme/demo' });
     service.mappings.replace(connection.id, { status: { done: 'closed' } });
@@ -237,17 +237,12 @@ describe('sync plan', () => {
     expect(plan.push).toEqual([]);
     expect(plan.conflicts).toEqual([]);
     expect(plan.pull).toEqual([expect.objectContaining({ op: 'update', item_id: 'TASK-0001', fields: ['title'] })]);
-    expect(plan.warnings).toEqual([
-      `TASK-0001: nothing to push to connection 1 (acme/demo#1 already matches); outbox seq ${seq('TASK-0001')} can be acknowledged.`,
-      `TASK-0002: nothing to push to connection 1 (acme/demo#2 already matches); outbox seq ${seq('TASK-0002')} can be acknowledged.`,
-      `TASK-0003: nothing to push to connection 1 (acme/demo#3 already matches); outbox seq ${seq('TASK-0003')} can be acknowledged.`,
-    ]);
+    expect(plan.ack).toEqual([seq('TASK-0001'), seq('TASK-0002'), seq('TASK-0003')].sort((a, b) => a - b));
+    expect(plan.warnings).toEqual([]);
 
     service.outbox.ack(service.outbox.list().map((entry) => entry.seq));
     await service.updateItem({ id: 'TASK-0002', component: 'ci' }, ctx);
-    expect(planSync(service, connection.id, [issue(2, 'Fix the build')]).warnings).toEqual([
-      `TASK-0002: nothing to push to connection 1 (component not synced); outbox seq ${seq('TASK-0002')} can be acknowledged.`,
-    ]);
+    expect(planSync(service, connection.id, [issue(2, 'Fix the build')])).toMatchObject({ push: [], ack: [seq('TASK-0002')], warnings: [] });
     service.close();
   });
 
@@ -267,10 +262,8 @@ describe('sync plan', () => {
       push: [],
       pull: [],
       conflicts: [],
-      warnings: [
-        `TASK-0001: nothing to push to connection 1 (deleted locally, acme/demo#1 is already closed); outbox seq ${closed!.seq} can be acknowledged.`,
-        `TASK-0002: nothing to push to connection 1 (deleted locally, linked to no issue there); outbox seq ${never!.seq} can be acknowledged.`,
-      ],
+      ack: [closed!.seq, never!.seq],
+      warnings: [],
     });
     // Missing from the listing: the close keeps the tombstone's title and leaves the other fields alone.
     expect(planSync(service, connection.id, []).push).toEqual([
@@ -295,6 +288,7 @@ describe('sync plan', () => {
       push: [],
       pull: [],
       conflicts: [],
+      ack: [],
       warnings: ['acme/demo#1: imported as TASK-0001 but not linked to it in connection 1; import the issue again to link it.'],
     });
     service.close();

@@ -98,6 +98,23 @@ describe('skill templates', () => {
     expect(text).not.toMatch(/sync connection set/);
   });
 
+  it('overseer-sync pushes the plan through the host MCP tools, confirms the results and acknowledges ack (TASK-0022)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const sync = text.slice(text.indexOf('## Sync'));
+    const order = [
+      'overseer sync plan <connection> <listing> --json',
+      '`issue_write`',
+      '`create_issue`',
+      'overseer sync confirm <connection> <results> --json',
+      'overseer sync outbox ack <seq...> --json',
+    ].map((step) => sync.indexOf(step));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(sync).toMatch(/Labels only: never set an issue type/);
+    expect(sync).toMatch(/A failed call adds no result: list it in\s+your reply[^]*stays pending/);
+    expect(sync).toMatch(/`update_issue`[^]*`state_event: close`/);
+  });
+
   it('the overseer skill and the subagent prompt point to overseer-sync for connecting and syncing', () => {
     expect(readFileSync(join(skillsDir, 'overseer', 'SKILL.md'), 'utf8')).toMatch(/Connecting or syncing[^]*`overseer-sync` skill/);
     const prompt = readFileSync(join(templates, 'agent-prompt.md'), 'utf8');

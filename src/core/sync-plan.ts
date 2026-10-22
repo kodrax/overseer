@@ -80,6 +80,8 @@ export interface SyncPlan {
   push: PushOp[];
   pull: PullOp[];
   conflicts: SyncConflict[];
+  /** Seqs of outbox entries that need no remote call (nothing to send), to acknowledge as they are; ascending. */
+  ack: number[];
   warnings: string[];
 }
 
@@ -118,7 +120,7 @@ export interface SyncPlanInput {
 }
 
 /** Issue fields each local item field shows up in; other item fields are not synced. */
-const REMOTE_FIELDS: Record<string, readonly SyncedField[]> = {
+export const REMOTE_FIELDS: Record<string, readonly SyncedField[]> = {
   title: ['title'],
   description: ['body'],
   tags: ['labels'],
@@ -154,7 +156,7 @@ function compareExternalIds(a: string, b: string): number {
  * label (an earlier kind, priority or status) are dropped. Without a state in the mapping, delivered and closed
  * statuses close the issue. Returns the dimensions whose value is unmapped too.
  */
-function targetIssue(item: Item, mapping: SyncPlanInput['mapping']): { issue: IssueFields; unmapped: MappingDimension[] } {
+export function targetIssue(item: Item, mapping: SyncPlanInput['mapping']): { issue: IssueFields; unmapped: MappingDimension[] } {
   const mappedLabels = new Set(
     MAPPING_DIMENSIONS.flatMap((dimension) =>
       Object.values(mapping[dimension]).filter((remote): remote is string => remote !== null && (dimension !== 'status' || mappedState(remote) === undefined)),
@@ -223,20 +225,20 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
   const localChanges = new Map<string, Set<SyncedField>>();
   /** Items per unmapped dimension and local value. */
   const unmapped = new Map<string, string[]>();
-  const nothingToPush = (entry: OutboxEntry, reason: string) =>
-    warnings.push(`${entry.item_id}: nothing to push to connection ${connection} (${reason}); outbox seq ${entry.seq} can be acknowledged.`);
+  /** Outbox entries with nothing to send: deleted items without an open issue, gone items, issues that already match. */
+  const ack: number[] = [];
 
   for (const entry of [...input.outbox].sort((a, b) => compareIds(a.item_id, b.item_id))) {
     if (entry.operation === 'delete') {
       const ref = input.tombstones.get(entry.item_id)?.ref;
       if (!ref) {
-        nothingToPush(entry, 'deleted locally, linked to no issue there');
+        ack.push(entry.seq);
         continue;
       }
       const remote = issues.get(ref.external_ref);
       const current = remote && issueFieldsOf(remote);
       if (current?.state === 'closed') {
-        nothingToPush(entry, `deleted locally, ${ref.external_ref} is already closed`);
+        ack.push(entry.seq);
         continue;
       }
       push.push({
@@ -259,7 +261,7 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
     }
     const item = input.items.get(entry.item_id);
     if (!item) {
-      nothingToPush(entry, 'the item no longer exists');
+      ack.push(entry.seq);
       continue;
     }
     const { issue: target, unmapped: missing } = targetIssue(item, input.mapping);
@@ -303,7 +305,7 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
         const kind: PushOperation = fields.includes('state') ? (target.state === 'closed' ? 'close' : 'reopen') : 'update';
         op = { op: kind, item_id: item.id, seq: entry.seq, external_ref: ref.external_ref, url: ref.url, fields, issue: target };
       } else if (!conflicts.some((conflict) => conflict.seq === entry.seq)) {
-        nothingToPush(entry, touched.length === 0 ? `${entry.changed_fields.join(', ')} not synced` : `${ref.external_ref} already matches`);
+        ack.push(entry.seq);
       }
     }
     if (!op) continue;
@@ -344,7 +346,7 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
     if (fields.length > 0) pull.push({ op: 'update', external_ref: externalId, url: remote.url, item_id: ref.item_id, fields, issue });
   }
 
-  return { push, pull, conflicts, warnings };
+  return { push, pull, conflicts, ack: ack.sort((a, b) => a - b), warnings };
 }
 
 interface RemoteRefRow {
