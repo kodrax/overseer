@@ -56,3 +56,20 @@ Check a name and title before pushing:
 ## Development
 
 Setup, test and build commands are in the README's [Development](README.md#development) section.
+
+## Releasing
+
+overseer is published to npm as [`@kodrax/overseer`](https://www.npmjs.com/package/@kodrax/overseer). Pushing a `v*` tag runs `.github/workflows/publish.yml`, which checks that the tag is `v` plus the `package.json` version, runs `npm ci`, the typecheck, the tests and the build, and runs `npm publish`. It authenticates with npm trusted publishing (OIDC), so the repository holds no npm token, and npm adds provenance automatically.
+
+### One-time setup
+
+1. An owner of the `kodrax` npm organization, with two-factor authentication on, publishes 0.1.0 by hand from a clean checkout of the `v0.1.0` tag: `npm ci && npm run build && npm publish --access public`. A trusted publisher can only be added to a package that exists.
+2. On npmjs.com, open `@kodrax/overseer` → Settings → Trusted Publisher → GitHub Actions and enter organization `kodrax`, repository `overseer`, workflow filename `publish.yml` (no environment), allowing `npm publish`.
+3. Validate the configuration within 48 hours with a publish from CI (the next release below); otherwise it expires and must be added again.
+
+### Each release
+
+1. On an up-to-date `main`, move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, update the compare links at the bottom and commit (`docs: changelog for X.Y.Z`).
+2. Bump the version: `npm version patch`, `npm version minor` or `npm version major`. It needs a clean working tree, updates `package.json` and `package-lock.json`, commits and creates the `vX.Y.Z` tag.
+3. Push the commit and the tag: `git push --follow-tags`.
+4. Watch the Publish workflow in GitHub Actions. A tag that does not match `package.json` fails before anything is published; fix the version, delete the tag (`git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`) and tag again.
