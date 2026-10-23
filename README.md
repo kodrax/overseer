@@ -32,12 +32,10 @@ flowchart LR
 
 ## Install
 
-The package is not published on npm yet. Install it from a checkout of this repository:
+Install the package globally from npm:
 
 ```sh
-npm install
-npm run build
-npm link            # puts `overseer` on your PATH (or: npm install -g .)
+npm install -g @kodrax/overseer
 
 overseer install    # choose your harnesses, wire them up, download the model
 overseer doctor     # check runtime, model, project and harness setup
@@ -67,7 +65,7 @@ A harness counts as installed when its CLI is on `PATH`. A config folder alone d
 - `--dry-run` prints every planned file write and command and changes nothing.
 - `--skip-model` skips the model download; run `overseer models pull` later.
 
-User-scope MCP registrations run your `node` binary and this checkout's `dist/cli.js` by absolute path. Harnesses launched from a desktop app often don't get your shell's `PATH`, so a plain `overseer` command might not be found; absolute paths avoid that. The catch: if you move the checkout or remove that Node version, run `overseer install` again. `overseer doctor` reports `FAIL` when those paths are gone.
+User-scope MCP registrations run your `node` binary and the installed package's `dist/cli.js` by absolute path. Harnesses launched from a desktop app often don't get your shell's `PATH`, so a plain `overseer` command might not be found; absolute paths avoid that. The catch: if the package moves (for example a reinstall under another Node version) or that Node version is removed, run `overseer install` again. `overseer doctor` reports `FAIL` when those paths are gone.
 
 ## Where the files go
 
@@ -687,7 +685,7 @@ Environment variables:
 overseer uninstall                    # every harness overseer is installed for (user scope)
 overseer uninstall --targets codex    # only one harness
 overseer uninstall --scope project    # the project-scope files of the current project
-npm rm -g overseer-cli                # remove the command itself
+npm rm -g @kodrax/overseer            # remove the command itself
 ```
 
 - **Removed**: the subagent files, skill folders and MCP entries overseer created, plus any folders that end up empty.
@@ -696,11 +694,15 @@ npm rm -g overseer-cli                # remove the command itself
 
 ## Development
 
+To build from a checkout of this repository:
+
 ```sh
 npm install
+npm link                  # after `npm run build`: puts this checkout's `overseer` on your PATH (or: npm install -g .)
 npm run typecheck
 npm test                  # vitest; a deterministic hash embedder, no model download; SPA tests in jsdom
 npm run build             # tsdown → dist/cli.js, vite → dist/web/
+node scripts/smoke-pack.mjs   # after build: pack, install the tarball in a temp prefix and HOME, run --version, install, doctor, mcp, board
 npm run dev:web           # SPA dev server; proxies /api to `overseer board` on 4477
 OVERSEER_REAL_MODEL=1 npx vitest run test/real-model.test.ts   # duplicate detection with the real model
 npm run calibrate         # suggested similarity thresholds; regenerates src/core/reference-means.ts
