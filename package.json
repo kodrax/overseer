@@ -1,7 +1,29 @@
 {
-  "name": "overseer-cli",
+  "name": "@kodrax/overseer",
   "version": "0.1.0",
   "description": "Cross-harness requirements registry and Agile board for coding agents: MCP server, CLI and local web board backed by SQLite with local embeddings.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "requirements",
+    "agile",
+    "board",
+    "backlog",
+    "coding-agents",
+    "claude-code",
+    "cli",
+    "sqlite",
+    "embeddings"
+  ],
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/kodrax/overseer#readme",
+  "bugs": {
+    "url": "https://github.com/kodrax/overseer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kodrax/overseer.git"
+  },
   "type": "module",
   "bin": {
     "overseer": "dist/cli.js"
@@ -13,6 +35,9 @@
   "engines": {
     "node": ">=22.18.0"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown && vite build",
     "postbuild": "node scripts/ensure-build.mjs --record",
@@ -21,7 +46,8 @@
     "calibrate": "OVERSEER_CALIBRATE=1 vitest run test/calibrate.test.ts",
     "measure:capture": "node scripts/measure-capture.mjs",
     "dev:web": "vite",
-    "prepare": "node scripts/install-hooks.mjs"
+    "prepare": "node scripts/install-hooks.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.4",
