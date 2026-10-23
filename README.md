@@ -701,6 +701,7 @@ npm install
 npm run typecheck
 npm test                  # vitest; a deterministic hash embedder, no model download; SPA tests in jsdom
 npm run build             # tsdown → dist/cli.js, vite → dist/web/
+node scripts/smoke-pack.mjs   # after build: pack, install the tarball in a temp prefix and HOME, run --version, install, doctor, mcp, board
 npm run dev:web           # SPA dev server; proxies /api to `overseer board` on 4477
 OVERSEER_REAL_MODEL=1 npx vitest run test/real-model.test.ts   # duplicate detection with the real model
 npm run calibrate         # suggested similarity thresholds; regenerates src/core/reference-means.ts
