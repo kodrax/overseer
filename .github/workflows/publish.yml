@@ -1,0 +1,50 @@
+name: Publish
+
+# Publishes @kodrax/overseer to npm when a version tag (v1.2.3) is pushed.
+# Authentication is npm trusted publishing (OIDC): no npm token or secret.
+# The trusted publisher on npmjs.com names this file, so keep it as publish.yml.
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    # Trusted publishing needs a GitHub-hosted runner.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # No dependency cache: a release builds from a clean npm ci.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Check the tag matches package.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match package.json version $version (expected tag v$version)."
+            exit 1
+          fi
+          echo "Publishing $version from tag $TAG."
+      - name: Ensure npm 11.5.1 or later (trusted publishing)
+        run: |
+          if ! node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)' "$(npm --version)"; then
+            npm install --global npm@^11.5.1
+          fi
+          npm --version
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm publish
