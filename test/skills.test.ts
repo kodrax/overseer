@@ -74,7 +74,8 @@ describe('skill templates', () => {
       'overseer sync connection add --host github|gitlab --repo <repository> --mcp-server <server> --json',
       'overseer sync inspect <bundle> --source github|gitlab --json',
       'overseer sync mapping import <id> <file> --json',
-      '## 4. Source of truth',
+      'overseer sync start <id> <file> --json',
+      '## 5. Source of truth',
       'overseer sync status --json',
     ].map((command) => text.indexOf(command));
     expect(order.every((at) => at >= 0)).toBe(true);
@@ -87,9 +88,51 @@ describe('skill templates', () => {
     expect(text).toMatch(/ask the user to authenticate, and stop/);
     expect(readFileSync(join(skillsDir, 'overseer-sync', '../overseer-import/references/integrations.md'), 'utf8').length).toBeGreaterThan(0);
     // Source of truth (TASK-0066): derived from sync start, never asked for or set.
-    const source = text.slice(text.indexOf('## 4. Source of truth'), text.indexOf('## 5. Finish'));
+    const source = text.slice(text.indexOf('## 5. Source of truth'), text.indexOf('## 6. Finish'));
     expect(source).toMatch(/the board until sync starts on a connection while the board is the source of truth, then\s+that connection until it is removed/);
     expect(text).not.toMatch(/source-of-truth set|Choose the source of truth|Ask the user to choose/);
+  });
+
+  it('overseer-sync starts sync after connect and mapping from the full listing and says which case applied (TASK-0067 AC1)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const start = text.slice(text.indexOf('## 4. Start sync'), text.indexOf('## 5. Source of truth'));
+    const order = [
+      text.indexOf('overseer sync connection add'),
+      text.indexOf('overseer sync mapping import <id> <file> --json'),
+      text.indexOf('## 4. Start sync'),
+      text.indexOf('`list_issues` (`state: all`)', text.indexOf('## 4. Start sync')),
+      text.indexOf('overseer sync start <id> <file> --json'),
+    ];
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(start).toMatch(/after its mapping \(so the seeded issues get its labels\)/);
+    expect(start).toMatch(/through the connection's\s+`mcp_server`/);
+    expect(start).toMatch(/GitLab `list_work_items` \(all states\)/);
+    expect(start).toMatch(/until the last page and join the pages' issues/);
+    expect(start).toMatch(/Tell the user which case applied, from `from`/);
+    expect(start).toMatch(/`board` — the repository had no issues, so the board seeds it: `queued` creates, by kind/);
+    expect(start).toMatch(/`repository` — the repository's issues came to the board: `created` new items and `linked`/);
+    expect(start).toMatch(/before the start are never pushed/);
+    expect(start).toMatch(/`CONFLICT` means sync already started on this connection: go straight to \[Sync\]\(#sync\)/);
+  });
+
+  it('overseer-sync explains the source-of-truth rule instead of asking for it (TASK-0067 AC2)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const source = text.slice(text.indexOf('## 5. Source of truth'), text.indexOf('## 6. Finish'));
+    expect(source).toMatch(/Nobody\s+chooses it: it is the board until sync starts/);
+    expect(source).toMatch(/never ask them to choose/);
+    expect(text).not.toMatch(/which (tracker|one) is the source of truth\?|source-of-truth set|Ask the user (to choose|which)/i);
+  });
+
+  it('overseer-sync runs the normal sync steps after seeding an empty repository (TASK-0067 AC3)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const start = text.slice(text.indexOf('## 4. Start sync'), text.indexOf('## 5. Source of truth'));
+    expect(start).toMatch(/Continue straight into \[Sync\]\(#sync\) steps 3–7 with the same listing \(plan → pushes\s+through the MCP server → confirm → outbox ack → status\), so the queued creates become issues/);
+    expect(start).toMatch(/closed item's new issue is closed/);
+    const sync = text.slice(text.indexOf('\n## Sync'));
+    const steps = ['overseer sync plan <connection> <listing> --json', 'overseer sync confirm <connection> <results> --json', 'overseer sync status --json'].map((s) => sync.indexOf(s));
+    expect(steps.every((at) => at >= 0)).toBe(true);
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps);
   });
 
   it('overseer-sync asks for the MCP server and stores it on the connection (TASK-0030 AC1)', () => {

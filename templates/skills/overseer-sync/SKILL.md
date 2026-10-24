@@ -41,7 +41,7 @@ The same prefix tells which servers this session has: the `<server>` part of the
 3. Offer the rest as a list (`host hostname/repository (remotes)`). For each `host: "unknown"` entry
    (GitHub Enterprise, `git.example.com`) ask whether it is GitHub, GitLab or neither; drop the
    ones that are neither.
-4. Ask which ones to connect. Connect only those the user confirms; none confirmed → step 5.
+4. Ask which ones to connect. Connect only those the user confirms; none confirmed → step 6.
 
 ## 2. Choose the MCP server
 
@@ -91,13 +91,33 @@ For each confirmed repository:
 6. `overseer sync mapping <id> --json` → list the local values still `null` as unmapped and leave them
    unmapped.
 
-## 4. Source of truth
+## 4. Start sync
+
+Once per connection, after its mapping (so the seeded issues get its labels):
+
+1. Fetch the listing: every issue of the repository, open and closed, through the connection's
+   `mcp_server` — GitHub `list_issues` (`state: all`), GitLab `list_work_items` (all states). Follow the
+   pagination (`after` / `endCursor`) until the last page and join the pages' issues into one array,
+   raw answers unchanged, as in [Sync](#sync) step 1. Save it to a temporary file.
+2. `overseer sync start <id> <file> --json` → `from`, `queued`, `by_kind`, `created`, `linked`,
+   `warnings`. `CONFLICT` means sync already started on this connection: go straight to [Sync](#sync).
+3. Tell the user which case applied, from `from`:
+   - `board` — the repository had no issues, so the board seeds it: `queued` creates, by kind from
+     `by_kind`. Continue straight into [Sync](#sync) steps 3–7 with the same listing (plan → pushes
+     through the MCP server → confirm → outbox ack → status), so the queued creates become issues (a
+     closed item's new issue is closed).
+   - `repository` — the repository's issues came to the board: `created` new items and `linked` existing
+     ones. The items already on the board before the start are never pushed to this repository.
+   Report the `warnings`.
+
+## 5. Source of truth
 
 The source of truth is where synced fields come from when the board and a repository disagree. Nobody
 chooses it: it is the board until sync starts on a connection while the board is the source of truth, then
-that connection until it is removed (`overseer sync source-of-truth --json` shows it and why).
+that connection until it is removed (`overseer sync source-of-truth --json` shows it and why). Tell the
+user which one it is now; never ask them to choose.
 
-## 5. Finish
+## 6. Finish
 
 `overseer sync status --json` → show each connection with its auto-sync flag, last sync, pending
 outbox entries and the source of truth.
