@@ -25,6 +25,7 @@ export interface SyncStart {
  * - Otherwise, in one transaction: every item of every kind and status without a remote ref on the connection gets
  *   one pending `create` outbox entry there (whatever the auto-sync flag; an earlier pending update or status entry
  *   of such an item becomes the create, since the push sends the whole item), and `sync_started_at` is set.
+ * - Once started, the connection becomes the source of truth when the board is; otherwise it stays as it is.
  */
 export function startSync(service: OverseerService, connectionId: number | string, payload: unknown): SyncStart {
   const db = service.db;
@@ -65,6 +66,7 @@ export function startSync(service: OverseerService, connectionId: number | strin
       byKind[item.kind] += 1;
     }
     db.prepare('UPDATE connections SET sync_started_at = ? WHERE id = ?').run(now, connection.id);
+    service.connections.claimSourceOfTruth(connection.id);
     return {
       connection: service.connections.require(connection.id),
       started_at: now,

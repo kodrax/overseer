@@ -74,8 +74,7 @@ describe('skill templates', () => {
       'overseer sync connection add --host github|gitlab --repo <repository> --json',
       'overseer sync inspect <bundle> --source github|gitlab --json',
       'overseer sync mapping import <id> <file> --json',
-      '## 4. Choose the source of truth',
-      'overseer sync source-of-truth set <connection id>|board --json',
+      '## 4. Source of truth',
       'overseer sync status --json',
     ].map((command) => text.indexOf(command));
     expect(order.every((at) => at >= 0)).toBe(true);
@@ -87,12 +86,10 @@ describe('skill templates', () => {
     expect(text).toContain('`../overseer-import/references/integrations.md`');
     expect(text).toMatch(/ask the user to authenticate, and stop/);
     expect(readFileSync(join(skillsDir, 'overseer-sync', '../overseer-import/references/integrations.md'), 'utf8').length).toBeGreaterThan(0);
-    // Source of truth (TASK-0052): board plus connected repositories only, recommendation, change later.
-    const source = text.slice(text.indexOf('## 4. Choose the source of truth'), text.indexOf('## 5. Finish'));
-    expect(source).toMatch(/`board` plus only these connected\s+repositories/);
-    expect(source).toContain('`overseer list --all --json` gives `"total": 0`');
-    expect(source).toMatch(/open issues[^]*Both true → recommend that repository[^]*Otherwise recommend the\s+board/);
-    expect(source).toMatch(/change it later with the same command[^]*no issue is re-created/);
+    // Source of truth (TASK-0066): derived from sync start, never asked for or set.
+    const source = text.slice(text.indexOf('## 4. Source of truth'), text.indexOf('## 5. Finish'));
+    expect(source).toMatch(/the board until sync starts on a connection while the board is the source of truth, then\s+that connection until it is removed/);
+    expect(text).not.toMatch(/source-of-truth set|Choose the source of truth|Ask the user to choose/);
     // MCP server choice (TASK-0030) and label creation (TASK-0028) are not part of this flow.
     expect(text).not.toContain('--mcp-server');
     expect(text).not.toMatch(/sync connection set/);

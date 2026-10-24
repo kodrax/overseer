@@ -146,7 +146,7 @@ describe('sync pull', () => {
 
   it('overwrites a conflicting local field with the issue value when the connection is the source of truth (TASK-0053 AC1)', async () => {
     const { service, connection, listing } = await scenario();
-    service.connections.setSourceOfTruth(connection.id);
+    service.connections.claimSourceOfTruth(connection.id);
     const seq = service.outbox.list(connection.id).find((entry) => entry.item_id === 'TASK-0002')!.seq;
     const plan = planSync(service, connection.id, listing);
     expect(plan.ack).toContain(seq);

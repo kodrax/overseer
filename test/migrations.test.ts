@@ -7,7 +7,7 @@ import { ctx, openService } from './helpers/service.js';
 import { tempRepo } from './helpers/tmp.js';
 
 const V1_TABLES = ['meta', 'counters', 'items', 'links', 'events', 'items_fts', 'item_embeddings', 'sqlite_sequence'];
-const V2_TABLES = ['connections', 'item_remote_refs', 'connection_mappings', 'sync_outbox', 'tombstones', 'sync_settings'];
+const SYNC_TABLES = ['connections', 'item_remote_refs', 'connection_mappings', 'sync_outbox', 'tombstones', 'sync_source_of_truth'];
 const T = '2026-10-01T10:00:00-03:00';
 
 /** A schema_version 1 database as the previous release created it, filled with items, links, events and an external_ref. */
@@ -73,8 +73,8 @@ describe('migrations', () => {
     v1.close();
 
     const { db } = openDatabase(root, { create: false })!;
-    expect(SCHEMA_VERSION).toBe(3);
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
+    expect(SCHEMA_VERSION).toBe(4);
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '4' });
     const after = snapshot(db, V1_TABLES);
     expect(after).toEqual(before);
     expect(before.events).toHaveLength(5);
@@ -83,7 +83,7 @@ describe('migrations', () => {
     expect(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'events_item'").get()).toEqual({
       sql: 'CREATE INDEX events_item ON events(item_id, seq)',
     });
-    for (const table of V2_TABLES) {
+    for (const table of SYNC_TABLES) {
       expect(db.prepare(`SELECT count(*) AS n FROM ${table}`).get(), table).toEqual({ n: 0 });
     }
     expect(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'events_new'").get()).toBeUndefined();
@@ -95,7 +95,7 @@ describe('migrations', () => {
     db.close();
   });
 
-  it('migrates a version-2 database to version 3, adding sync_started_at null to existing connections', () => {
+  it('migrates a version-2 database to the current version, adding sync_started_at null to existing connections', () => {
     const root = tempRepo();
     createV1Database(root);
     const v2 = new DatabaseSync(databaseFile(root));
@@ -107,17 +107,59 @@ describe('migrations', () => {
     v2.close();
 
     const { db } = openDatabase(root, { create: false })!;
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '4' });
     expect(db.prepare('SELECT id, repository, sync_started_at FROM connections').all()).toEqual([{ id: 1, repository: 'acme/app', sync_started_at: null }]);
     db.close();
   });
 
+  /** A schema_version 3 database with two connections and a manual source-of-truth choice of connection 2. */
+  function createV3Database(root: string, startedAt: [string | null, string | null]): void {
+    createV1Database(root);
+    const v3 = new DatabaseSync(databaseFile(root));
+    v3.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE');
+    MIGRATIONS[1]!(v3, { root, now: T });
+    MIGRATIONS[2]!(v3, { root, now: T });
+    const insert = v3.prepare("INSERT INTO connections(host, repository, sync_started_at, created_at) VALUES ('github', ?, ?, ?)");
+    insert.run('acme/app', startedAt[0], T);
+    insert.run('acme/other', startedAt[1], T);
+    v3.exec(`UPDATE meta SET value = '3' WHERE key = 'schema_version';
+      INSERT INTO sync_settings(id, source_of_truth) VALUES (1, '2');
+      COMMIT`);
+    v3.close();
+  }
+
+  it('ignores a stored manual source-of-truth choice on upgrade: the board without a started sync (TASK-0066 AC6)', () => {
+    const root = tempRepo();
+    createV3Database(root, [null, null]);
+    const service = openService(root);
+    expect(service.info().schema_version).toBe(4);
+    expect(service.db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'sync_settings'").get()).toBeUndefined();
+    expect(service.connections.sourceOfTruth()).toMatchObject({ source_of_truth: 'board', host: null, repository: null });
+    expect(service.connections.status().source_of_truth).toBe('board');
+    service.close();
+  });
+
+  it('ignores a stored manual source-of-truth choice on upgrade: the connection whose sync started first (TASK-0066 AC6)', () => {
+    const root = tempRepo();
+    // Connection 1 started at 13:00Z, after connection 2 (12:30Z); compared as instants, not as text.
+    createV3Database(root, ['2026-10-20T10:00:00-03:00', '2026-10-20T12:30:00Z']);
+    const service = openService(root);
+    expect(service.connections.sourceOfTruth()).toMatchObject({ source_of_truth: 2, host: 'github', repository: 'acme/other' });
+    service.close();
+
+    const other = tempRepo();
+    createV3Database(other, ['2026-10-20T12:00:00Z', '2026-10-20T12:30:00Z']);
+    const reopened = openService(other);
+    expect(reopened.connections.sourceOfTruth()).toMatchObject({ source_of_truth: 1, host: 'github', repository: 'acme/app' });
+    reopened.close();
+  });
+
   it('runs every migration for a new project', () => {
     const service = openService();
-    expect(service.info().schema_version).toBe(3);
+    expect(service.info().schema_version).toBe(4);
     const { db } = openDatabase(service.root, { create: false })!;
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
-    for (const table of V2_TABLES) {
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '4' });
+    for (const table of SYNC_TABLES) {
       expect(db.prepare('SELECT 1 FROM sqlite_master WHERE name = ?').get(table), table).toBeDefined();
     }
     db.close();
@@ -166,14 +208,12 @@ describe('migrations', () => {
     run(`INSERT INTO tombstones(item_id, kind, title, external_refs, deleted_at, actor)
          VALUES ('TASK-0007', 'task', 'Gone', '[]', '${T}', 'tester')`);
 
-    run('INSERT INTO sync_settings(id) VALUES (1)');
-    expect(db.prepare('SELECT source_of_truth FROM sync_settings').get()).toEqual({ source_of_truth: 'board' });
-    run("UPDATE sync_settings SET source_of_truth = '1'");
-    expect(() => run("UPDATE sync_settings SET source_of_truth = 'github'")).toThrow(/CHECK/);
-    expect(() => run('INSERT INTO sync_settings(id) VALUES (2)')).toThrow(/CHECK/);
+    run('INSERT INTO sync_source_of_truth(id, connection_id) VALUES (1, 1)');
+    expect(() => run('INSERT INTO sync_source_of_truth(id, connection_id) VALUES (2, 1)')).toThrow(/CHECK/);
+    expect(() => run('UPDATE sync_source_of_truth SET connection_id = 9')).toThrow(/FOREIGN KEY/);
 
     run('DELETE FROM connections WHERE id = 1');
-    for (const table of ['item_remote_refs', 'connection_mappings', 'sync_outbox']) {
+    for (const table of ['item_remote_refs', 'connection_mappings', 'sync_outbox', 'sync_source_of_truth']) {
       expect(db.prepare(`SELECT count(*) AS n FROM ${table}`).get(), table).toEqual({ n: 0 });
     }
     db.close();
