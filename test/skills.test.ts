@@ -116,6 +116,66 @@ describe('skill templates', () => {
     expect(start).toMatch(/`CONFLICT` means sync already started on this connection: go straight to \[Sync\]\(#sync\)/);
   });
 
+  const mappingSection = () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    return text.slice(text.indexOf('## 3. Connect and map'), text.indexOf('## 4. Start sync')).replace(/\s+/g, ' ');
+  };
+
+  it('overseer-sync proposes a label with name and colour for each unmapped kind, status and priority, labels only (TASK-0028 AC1)', () => {
+    const map = mappingSection();
+    expect(map).toMatch(/5\. Propose a label for each kind, status and priority value still unmapped/);
+    expect(map).toMatch(/a name in the repository's existing label style/);
+    expect(map).toContain('else `kind: <kind>`, `status: <status>` and `priority: <priority>` (`kind: task`, `status: in progress`, `priority: must`');
+    expect(map).toMatch(/a colour as 6 hex digits/);
+    expect(map).toMatch(/Labels only: never propose or create an issue type\./);
+    expect(map).toMatch(/Show the full proposal/);
+  });
+
+  it('overseer-sync creates only confirmed labels through MCP, then imports the mapping (TASK-0028 AC2)', () => {
+    const map = mappingSection();
+    expect(map).toMatch(/ask the user to confirm all of it, a subset, or none/);
+    expect(map).toMatch(/Create only the new labels the user confirmed: nothing is created without that confirmation\./);
+    expect(map).toContain("Use the connection's server: GitHub `label_write` with `method: create` (`owner`, `repo`, `name`, `color` without `#`); GitLab `create_label` (`project_id`, `name`, `color` with a leading `#`)");
+    expect(map).toMatch(/7\. Only then save the mapping: the confirmed pairs of step 4 plus each label created or already there/);
+    const order = [
+      'overseer sync inspect <bundle>',
+      '4. Propose a mapping',
+      '5. Propose a label',
+      'ask the user to confirm',
+      '`label_write`',
+      'overseer sync mapping import <id> <file> --json',
+      'overseer sync mapping <id> --json',
+    ].map((needle) => map.indexOf(needle));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // The tools the skill names are documented, with their permissions.
+    const guide = readFileSync(join(skillsDir, 'overseer-import', 'references', 'integrations.md'), 'utf8');
+    expect(guide).toContain('`X-MCP-Tools: get_label,list_label,label_write,projects_get,projects_list`');
+    expect(guide).toMatch(/`create_label`[^]*GITLAB_PERMISSION_MODE=modify/);
+    expect(guide.match(/^### Creating labels$/gm)).toHaveLength(2);
+  });
+
+  it('overseer-sync says when the server cannot create labels and leaves those values unmapped (TASK-0028 AC3)', () => {
+    const map = mappingSection();
+    expect(map).toMatch(/When the server has no such tool \(GitLab's built-in server has none;[^)]*\), say it cannot create labels, create none and leave those values unmapped\./);
+    expect(map).toMatch(/A failed call \(permission denied, …\): report its error and leave that value unmapped/);
+    expect(map).toMatch(/list the local values still `null` as unmapped and leave them unmapped/);
+    const guide = readFileSync(join(skillsDir, 'overseer-import', 'references', 'integrations.md'), 'utf8');
+    expect(guide.slice(guide.indexOf('## GitLab: built-in server'))).toMatch(/No label-creation tool: the server's only label tool is `search_labels`/);
+  });
+
+  it('overseer-sync maps, new labels included, before it starts sync (TASK-0028)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const order = [
+      text.indexOf('`label_write` with `method: create`'),
+      text.indexOf('overseer sync mapping import <id> <file> --json'),
+      text.indexOf('## 4. Start sync'),
+      text.indexOf('overseer sync start <id> <file> --json'),
+    ];
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
   it('overseer-sync explains the source-of-truth rule instead of asking for it (TASK-0067 AC2)', () => {
     const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
     const source = text.slice(text.indexOf('## 5. Source of truth'), text.indexOf('## 6. Finish'));
