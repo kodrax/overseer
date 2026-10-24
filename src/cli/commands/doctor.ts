@@ -143,8 +143,14 @@ function targetChecks(rt: CliRuntime, root: string | undefined): { lines: CheckL
     for (const target of TARGET_IDS) {
       const prefix = `${target} (project) `;
       const own = projectLines.filter((line) => line.label.startsWith(prefix));
+      // Presence comes from the harness's own files: a shared skills folder (.agents/skills) is read by several
+      // harnesses, so its line never marks one of them as installed (BUG-0013).
+      const shared = TARGETS[target].layout(project).sharedSkills;
       const present = own.some(
-        (line) => !line.label.endsWith(' schema') && (line.status !== 'WARN' || !/^(not installed|missing or unmanaged|no )|not registered|cannot verify/.test(line.detail)),
+        (line) =>
+          !line.label.endsWith(' schema') &&
+          !(shared && line.label.endsWith(' skills')) &&
+          (line.status !== 'WARN' || !/^(not installed|missing or unmanaged|no )|not registered|cannot verify/.test(line.detail)),
       );
       if (present) {
         inProject.add(target);
