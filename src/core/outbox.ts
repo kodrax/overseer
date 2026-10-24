@@ -1,4 +1,4 @@
-import type { Connections } from './connections.js';
+import type { ConnectionHost, Connections } from './connections.js';
 import { type Database, nowIso, tx } from './db.js';
 import { OverseerError } from './errors.js';
 import type { EventAction } from './schema.js';
@@ -30,6 +30,18 @@ interface OutboxRow {
   operation: OutboxOperation;
   changed_fields: string;
   created_at: string;
+}
+
+/** A connection a write queued outbox entries for while its sync runs: the `sync_pending` of write results. */
+export interface SyncPending {
+  connection_id: number;
+  host: ConnectionHost;
+  repository: string;
+}
+
+/** Write results carry `sync_pending` only when the write left a connection's sync pending. */
+export interface SyncPendingResult {
+  sync_pending?: SyncPending[];
 }
 
 function toEntry(row: OutboxRow): OutboxEntry {
@@ -85,9 +97,10 @@ export class SyncOutbox {
   /**
    * Records one history event of `itemId` for every connection with auto-sync on except `origin` (the connection
    * whose remote changes the write applies). A delete from `origin` drops its pending entry for the item: the issue is
-   * already gone there. Runs in the caller's transaction.
+   * already gone there. Adds the seq of each entry it queues (or merges into) to `queued`. Runs in the caller's
+   * transaction.
    */
-  record(itemId: string, action: EventAction, field: string | null, origin?: number): void {
+  record(itemId: string, action: EventAction, field: string | null, origin?: number, queued?: Set<number>): void {
     const change = changeOf(action, field);
     if (!change) return;
     const targets = this.db.prepare('SELECT id FROM connections WHERE auto_sync = 1 ORDER BY id').all() as { id: number }[];
@@ -103,9 +116,10 @@ export class SyncOutbox {
       const merged = this.merge(pending ? toEntry(pending) : undefined, change);
       if (pending) this.db.prepare('DELETE FROM sync_outbox WHERE seq = ?').run(pending.seq);
       if (!merged) continue;
-      this.db
+      const inserted = this.db
         .prepare('INSERT INTO sync_outbox(connection_id, item_id, operation, changed_fields, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(connectionId, itemId, merged.operation, JSON.stringify(merged.changed_fields), nowIso());
+      queued?.add(Number(inserted.lastInsertRowid));
     }
   }
 
@@ -117,6 +131,22 @@ export class SyncOutbox {
     if (change.operation === 'create' || pending?.operation === 'create') return { operation: 'create', changed_fields: [] };
     const fields = [...new Set([...(pending?.changed_fields ?? []), change.field!])];
     return { operation: fields.length === 1 && fields[0] === 'status' ? 'status' : 'update', changed_fields: fields };
+  }
+
+  /**
+   * The connections whose sync a write left pending: those holding an entry the write queued (`queued`, its seqs; an
+   * entry a later change of the same write removed no longer counts) while auto-sync is on and sync has started, by id.
+   */
+  syncPending(queued: ReadonlySet<number>): SyncPending[] {
+    if (queued.size === 0) return [];
+    return (
+      this.db
+        .prepare(
+          `SELECT DISTINCT c.id, c.host, c.repository FROM sync_outbox o JOIN connections c ON c.id = o.connection_id
+           WHERE o.seq IN (SELECT value FROM json_each(?)) AND c.auto_sync = 1 AND c.sync_started_at IS NOT NULL ORDER BY c.id`,
+        )
+        .all(JSON.stringify([...queued])) as { id: number; host: ConnectionHost; repository: string }[]
+    ).map((row) => ({ connection_id: Number(row.id), host: row.host, repository: row.repository }));
   }
 
   /** Pending entries by seq, of one connection (NOT_FOUND when unknown) or of all. */

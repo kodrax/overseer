@@ -252,6 +252,8 @@ Every command except `mcp`, `board` and `models pull` accepts `--json`. Errors g
 
 `add --json` and `create_item` return a compact result for agents: `{"created": true, "id", "title", "status", "verdict", "candidates": [{"id", "title", "similarity", "match"}], "warnings"}`. `verdict` and `candidates` come from the duplicate check and use `find_similar`'s values (`duplicate`, `related`, `new`, or `unknown` when only keyword search is available). A likely duplicate gives `{"created": false, "reason": "possible_duplicate", "verdict": "duplicate", "candidates"}` and nothing is written. `update --json` and `update_item` return `{"id", "title", "status", "changed_fields", "warnings"}`. `--full` (`full: true` in MCP) returns the whole item instead: `{"created", "item", "warnings", "similar"}`, `{"created": false, "reason", "candidates"}` and `{"item", "changed_fields", "warnings"}`. The text output and the web board are not affected.
 
+Write results also say when a change waits to be pushed: see [Sync pending](#sync-pending).
+
 `overseer pr draft TASK-0058 --json` prints `{"title", "body"}` for a pull request, ready for `gh pr create --title … --body …`:
 
 - **Title**: `<type>: <summary> (<ID>)`, at most 100 characters. The type is `--type`, else the one in the current branch when it is named `<type>/<ID>-…`, else `fix` for bugs and `feat` for tasks. The summary is the item title in imperative form with a lowercase first letter (`Adds the sender` → `add the sender`).
@@ -441,6 +443,12 @@ Every item change made on this side (CLI, MCP tools, the web board, batch create
 `overseer sync outbox ack <seq...> --json` removes the given entries once their push is confirmed and prints `{"acked": [<seq>, …]}`. If any seq is not pending (never existed, already acknowledged, or replaced by a later change), it gives `NOT_FOUND` naming them and removes nothing; a seq that is not a positive integer gives `INVALID_INPUT`. `sync connection remove` deletes the connection's pending entries with it.
 
 These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
+
+### Sync pending
+
+When a write queues (or merges into) an outbox entry for a connection with auto-sync on whose [sync has started](#sync-start), its result names that connection: `"sync_pending": [{"connection_id", "host", "repository"}]`, sorted by `connection_id`. This holds for `create_item` (single and batch, compact or `full`), `update_item`, `delete_item`, `link_items` and `import_items`, and for the `--json` output of `add` (also `--batch`), `update`, `delete`, `link` / `unlink` and `import`. A batch, an import or a link gives one list for the whole write, not one per item. The field is omitted when nothing was queued for such a connection: no connection, auto-sync off, sync not started, or an update that only adds a comment.
+
+overseer itself makes no network call. The `overseer` and `overseer-ship` skills run the `overseer-sync` skill's **Sync** step for the listed connections once per user request, after its last write. When the user said not to sync, or the session lacks the host's MCP tools, they say the changes stay in the outbox; so does a failed push, and `sync status` counts them in `pending_outbox`.
 
 ### Sync start
 

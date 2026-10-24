@@ -53,6 +53,12 @@ implementing, reports/export/board, statuses, drift, lint).
 8. Surface create/update `warnings` (lint) and offer a fix; they never block.
 9. Close items with a status (`cancelled`, `rejected`, `obsolete`). `delete_item` only when the user asks.
 10. A task is one pull request; a smaller step is an acceptance criterion of the related task.
+11. A write result with `sync_pending: [{connection_id, host, repository}]` (create, update, delete, link,
+    import) means those connections have auto-sync on and the change waits in their outbox. After the
+    last write of the user's request, not after each item, run the `overseer-sync` skill's **Sync** step
+    once for each connection those results listed. If the user said not to sync, or the session lacks the
+    host's MCP tools, do not sync: say the changes stay in the outbox, pending, and `overseer sync status`
+    shows them.
 
 ## Capture
 

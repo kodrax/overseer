@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Write results (`create_item`, batch included, `update_item`, `delete_item`, `link_items`, `import_items` and their `--json` commands) carry `sync_pending: [{connection_id, host, repository}]` naming each connection with auto-sync on and a started sync that the write queued changes for, one list per write; the `overseer` and `overseer-ship` skills then run the `overseer-sync` Sync step once per request, or say the changes stay in the outbox (TASK-0023).
+
 ### Changed
 
 - `overseer sync start` accepts a repository that already has issues: its issues come to the board as an import does (items created or linked, with their remote refs), nothing is queued for the existing local items, and `sync plan` never pushes a create for an item that existed before the start (its entries go to `ack`); items created later are pushed as usual. The output adds `from`, `created`, `linked` and `warnings`.

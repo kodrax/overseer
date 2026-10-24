@@ -105,7 +105,9 @@ outbox entries and the source of truth.
 ## Sync
 
 Run for one connection when the user asks to sync, or to sync every connection in turn
-(`overseer sync connections --json`). Pull before pushing, so the push plan sees the remote changes.
+(`overseer sync connections --json`); also right after writes whose results carry `sync_pending`, for
+those connections (the `overseer` skill's rule 11). Pull before pushing, so the push plan sees the remote
+changes.
 
 1. Fetch the listing: every issue of the repository, open and closed, through the connection's
    `mcp_server` (see [MCP server](#mcp-server)) — GitHub `list_issues` (`state: all`), GitLab

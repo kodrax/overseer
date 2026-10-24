@@ -12,6 +12,12 @@ user's language, report every ID and status you change; `DISABLED` → stop). Th
 project root or from the worktree (board lookups from a worktree resolve to the main checkout). Never merge
 the pull request yourself.
 
+A write result with `sync_pending: [{connection_id, host, repository}]` → those connections have auto-sync
+on and the change waits in their outbox: after the last write of the user's request (not after each
+item), run the `overseer-sync` skill's **Sync** step once for each connection listed. If the user said not
+to sync, or the session lacks the host's MCP tools, do not sync: say the changes stay in the outbox,
+pending, and `overseer sync status` shows them.
+
 ## 1. Resolve the item
 
 - **Board ID** (`TASK-0012`, `BUG-0003`) → `get_item` with `context: true`: one call returns the parent,
@@ -44,10 +50,10 @@ the pull request yourself.
      the `overseer` skill says. Bugs also get `severity` and
      `bug_details {steps[], expected, actual, environment?}`; ask for the steps if the request lacks them.
   4. Show the new ID and its acceptance criteria to the user.
-- **Connected repositories**: `overseer sync connections --json` lists the project's connections
-  (`[{id, host, repository, mcp_server, auto_sync, …}]`). Only for a connection with `auto_sync: true`,
-  push the new item to its repository through its `mcp_server` and record the issue reference on the
-  item before step 3. No connection, or auto-sync off → skip this step; never create issues on your own.
+- **Connected repositories**: when the `create_item` result has `sync_pending`, run that Sync before
+  step 3: it creates the item's issue in each listed repository and links it to the item, so the pull
+  request closes it. No `sync_pending` (no connection, auto-sync off, sync not started) → skip; never
+  create issues on your own.
 
 ## 2. Worktree settings (first run)
 
