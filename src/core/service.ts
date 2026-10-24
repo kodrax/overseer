@@ -10,7 +10,7 @@ import { allRows, columnValue, eventValue, getRow, type ItemRow, toItem, writeFt
 import { lintItem } from './lint.js';
 import { ConnectionMappings } from './mappings.js';
 import { SCHEMA_VERSION } from './migrations.js';
-import { SyncOutbox } from './outbox.js';
+import { SyncOutbox, type SyncPendingResult } from './outbox.js';
 import { assertWritableRoot, defaultBaseBranch, isGuardedRoot } from './project.js';
 import { parseIssueReference, resolveIssueReference } from './references.js';
 import {
@@ -674,7 +674,18 @@ export class OverseerService {
     this.db
       .prepare('INSERT INTO events(item_id, at, actor, via, action, field, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(itemId, at, this.actor(ctx), ctx.via, action, field, eventValue(oldValue), eventValue(newValue));
-    this.outbox.record(itemId, action, field, ctx.origin_connection);
+    this.outbox.record(itemId, action, field, ctx.origin_connection, ctx.queued);
+  }
+
+  /** `ctx` collecting the outbox entries a write queues; a nested write (an import deleting items) adds to its caller's. */
+  private queueing(ctx: Ctx): Ctx & { queued: Set<number> } {
+    return { ...ctx, queued: ctx.queued ?? new Set() };
+  }
+
+  /** `result` plus `sync_pending` ({@link SyncOutbox.syncPending}) when the write left a connection's sync pending. */
+  private withSyncPending<T extends object>(result: T, ctx: { queued: ReadonlySet<number> }): T & SyncPendingResult {
+    const pending = this.outbox.syncPending(ctx.queued);
+    return pending.length > 0 ? { ...result, sync_pending: pending } : result;
   }
 
   private assertParent(kind: Kind, parentId: string, selfId?: string): ItemRow {
@@ -722,27 +733,31 @@ export class OverseerService {
   }
 
   /** Full create result (web board, `--full`). */
-  async createItem(raw: unknown, ctx: Ctx): Promise<CreateResult> {
-    return (await this.create(raw, ctx)).result;
+  async createItem(raw: unknown, ctx: Ctx): Promise<CreateResult & SyncPendingResult> {
+    const tracked = this.queueing(ctx);
+    return this.withSyncPending((await this.create(raw, tracked)).result, tracked);
   }
 
   /** Compact create result for agents: the `find_similar` verdict of the duplicate check and its candidates, no item. */
-  async createItemCompact(raw: unknown, ctx: Ctx): Promise<CompactCreateResult> {
-    const { result, verdict } = await this.create(raw, ctx);
+  async createItemCompact(raw: unknown, ctx: Ctx): Promise<CompactCreateResult & SyncPendingResult> {
+    const tracked = this.queueing(ctx);
+    const { result, verdict } = await this.create(raw, tracked);
     const candidates = (result.created ? result.similar : result.candidates).map(({ id, title, similarity, match }): CandidateRef => ({ id, title, similarity, match }));
     if (!result.created) return { created: false, reason: 'possible_duplicate', verdict: 'duplicate', candidates };
     const { item, warnings } = result;
-    return { created: true, id: item.id, title: item.title, status: item.status, verdict, candidates, warnings };
+    return this.withSyncPending({ created: true, id: item.id, title: item.title, status: item.status, verdict, candidates, warnings }, tracked);
   }
 
-  /** Batch create (`items`), full results: `{created:true, items:[{key, item, warnings, similar}]}`. */
-  async createBatch(raw: unknown, ctx: Ctx): Promise<BatchCreateResult> {
-    return (await createBatch(this, raw, ctx)).result;
+  /** Batch create (`items`), full results: `{created:true, items:[{key, item, warnings, similar}]}`; one `sync_pending` for the batch. */
+  async createBatch(raw: unknown, ctx: Ctx): Promise<BatchCreateResult & SyncPendingResult> {
+    const tracked = this.queueing(ctx);
+    return this.withSyncPending((await createBatch(this, raw, tracked)).result, tracked);
   }
 
-  /** Batch create (`items`), compact results: `{created:true, items:[{key, id, title, status, verdict, candidates, warnings}]}`. */
-  async createBatchCompact(raw: unknown, ctx: Ctx): Promise<CompactBatchCreateResult> {
-    return compactBatchResult(await createBatch(this, raw, ctx));
+  /** Batch create (`items`), compact results: `{created:true, items:[{key, id, title, status, verdict, candidates, warnings}]}`; one `sync_pending` for the batch. */
+  async createBatchCompact(raw: unknown, ctx: Ctx): Promise<CompactBatchCreateResult & SyncPendingResult> {
+    const tracked = this.queueing(ctx);
+    return this.withSyncPending(compactBatchResult(await createBatch(this, raw, tracked)), tracked);
   }
 
   /** `findSimilarBatch` of the semantic index, with requirement coverage on the stored matches. */
@@ -861,7 +876,7 @@ export class OverseerService {
     });
   }
 
-  async updateItem(raw: unknown, ctx: Ctx): Promise<UpdateResult> {
+  async updateItem(raw: unknown, ctx: Ctx): Promise<UpdateResult & SyncPendingResult> {
     if (raw && typeof raw === 'object' && 'kind' in raw) {
       throw new OverseerError('INVALID_INPUT', '"kind" is immutable; create a new item instead.');
     }
@@ -877,6 +892,7 @@ export class OverseerService {
       ([field, value]) => value !== undefined && !sameValue(current[field], value),
     );
     const statusChanged = status !== undefined && status !== current.status;
+    const tracked = this.queueing(ctx);
     if (changes.length > 0 || statusChanged || comment) {
       tx(this.db, () => {
         const now = nowIso();
@@ -885,7 +901,7 @@ export class OverseerService {
         for (const [field, value] of changes) {
           sets.push(`${field} = ?`);
           params.push(columnValue(value));
-          this.addEvent(row.id, ctx, now, 'update', field, current[field], value);
+          this.addEvent(row.id, tracked, now, 'update', field, current[field], value);
         }
         if (statusChanged) {
           sets.push('status = ?', 'status_changed_at = ?');
@@ -897,7 +913,7 @@ export class OverseerService {
           } else if (!delivered && current.delivered_at) {
             sets.push('delivered_at = NULL');
           }
-          this.addEvent(row.id, ctx, now, 'status', 'status', current.status, status);
+          this.addEvent(row.id, tracked, now, 'status', 'status', current.status, status);
         }
         if (sets.length > 0) {
           sets.push('updated_at = ?');
@@ -905,36 +921,41 @@ export class OverseerService {
           this.db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE id = ?`).run(...params, row.id);
         }
         if (changes.some(([field]) => TEXT_FIELDS.includes(field))) writeFts(this.db, row.rid, toItem(getRow(this.db, row.id)!));
-        if (comment) this.addEvent(row.id, ctx, now, 'comment', null, null, comment);
+        if (comment) this.addEvent(row.id, tracked, now, 'comment', null, null, comment);
       });
     }
     const item = this.itemOf(this.requireRow(row.id));
-    return {
-      item,
-      changed_fields: [...changes.map(([field]) => field), ...(statusChanged ? ['status'] : [])],
-      warnings: lintItem(item),
-    };
+    return this.withSyncPending(
+      {
+        item,
+        changed_fields: [...changes.map(([field]) => field), ...(statusChanged ? ['status'] : [])],
+        warnings: lintItem(item),
+      },
+      tracked,
+    );
   }
 
   /** Compact update result for agents: no item. */
-  async updateItemCompact(raw: unknown, ctx: Ctx): Promise<CompactUpdateResult> {
-    const { item, changed_fields, warnings } = await this.updateItem(raw, ctx);
-    return { id: item.id, title: item.title, status: item.status, changed_fields, warnings };
+  async updateItemCompact(raw: unknown, ctx: Ctx): Promise<CompactUpdateResult & SyncPendingResult> {
+    const { item, changed_fields, warnings, sync_pending } = await this.updateItem(raw, ctx);
+    return { id: item.id, title: item.title, status: item.status, changed_fields, warnings, ...(sync_pending && { sync_pending }) };
   }
 
-  link(src: string, rel: Relation, dst: string, ctx: Ctx, remove = false): LinkResult {
+  /** Adds or (`remove`) removes a link; `sync_pending` when the change was queued for a started sync. */
+  link(src: string, rel: Relation, dst: string, ctx: Ctx, remove = false): LinkResult & SyncPendingResult {
     const from = this.requireRow(src);
     const to = this.requireRow(dst);
+    const tracked = this.queueing(ctx);
     if (remove) {
       tx(this.db, () => {
         const result = this.db.prepare('DELETE FROM links WHERE src = ? AND rel = ? AND dst = ?').run(from.id, rel, to.id);
-        if (result.changes > 0) this.addEvent(from.id, ctx, nowIso(), 'unlink', rel, to.id, null);
+        if (result.changes > 0) this.addEvent(from.id, tracked, nowIso(), 'unlink', rel, to.id, null);
       });
-      return { linked: false, src: from.id, rel, dst: to.id };
+      return this.withSyncPending({ linked: false, src: from.id, rel, dst: to.id }, tracked);
     }
     this.assertLink(from, rel, to);
-    tx(this.db, () => this.insertLink(from.id, rel, to.id, ctx, nowIso()));
-    return { linked: true, src: from.id, rel, dst: to.id };
+    tx(this.db, () => this.insertLink(from.id, rel, to.id, tracked, nowIso()));
+    return this.withSyncPending({ linked: true, src: from.id, rel, dst: to.id }, tracked);
   }
 
   /**
@@ -942,8 +963,9 @@ export class OverseerService {
    * embeddings, vectors and search-index row, and its remote refs (cascade). A tombstone keeps the ID, kind, title,
    * remote refs, time and actor, and a delete event joins the history. IDs come from monotonic counters: never reused.
    */
-  deleteItem(id: string, ctx: Ctx): DeleteResult {
-    return tx(this.db, () => {
+  deleteItem(id: string, ctx: Ctx): DeleteResult & SyncPendingResult {
+    const tracked = this.queueing(ctx);
+    const result = tx(this.db, () => {
       const row = this.requireRow(id);
       const children = this.db
         .prepare(`SELECT id, kind, title, status FROM items WHERE parent_id = ? ORDER BY ${ORDER_BY_ID}`)
@@ -969,17 +991,18 @@ export class OverseerService {
         dst: string;
       }[];
       this.db.prepare('DELETE FROM links WHERE src = ? OR dst = ?').run(row.id, row.id);
-      for (const link of links) this.addEvent(link.src, ctx, now, 'unlink', link.rel, link.dst, null);
+      for (const link of links) this.addEvent(link.src, tracked, now, 'unlink', link.rel, link.dst, null);
       this.semantic.removeItem(row.rid);
       this.db.prepare('DELETE FROM items_fts WHERE rowid = ?').run(row.rid);
       this.db.prepare('DELETE FROM items WHERE rid = ?').run(row.rid);
-      const actor = this.actor(ctx);
+      const actor = this.actor(tracked);
       this.db
         .prepare('INSERT INTO tombstones(item_id, kind, title, external_refs, deleted_at, actor) VALUES (?, ?, ?, ?, ?, ?)')
         .run(row.id, row.kind, row.title, JSON.stringify(externalRefs), now, actor);
-      this.addEvent(row.id, ctx, now, 'delete', null, row.title, null);
-      return { deleted: true, id: row.id, kind: row.kind, title: row.title, external_refs: externalRefs, deleted_at: now, actor };
+      this.addEvent(row.id, tracked, now, 'delete', null, row.title, null);
+      return { deleted: true as const, id: row.id, kind: row.kind, title: row.title, external_refs: externalRefs, deleted_at: now, actor };
     });
+    return this.withSyncPending(result, tracked);
   }
 
   // ---- export / import -------------------------------------------------------------------------
@@ -988,7 +1011,9 @@ export class OverseerService {
     return exportReports(this, options);
   }
 
-  importItems(input: unknown, ctx: Ctx): Promise<ImportResult> {
-    return importItems(this, input, ctx);
+  /** Imports issues; one `sync_pending` for the whole import (the imported connection itself is never queued). */
+  async importItems(input: unknown, ctx: Ctx): Promise<ImportResult & SyncPendingResult> {
+    const tracked = this.queueing(ctx);
+    return this.withSyncPending(await importItems(this, input, tracked), tracked);
   }
 }

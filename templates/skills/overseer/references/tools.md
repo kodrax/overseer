@@ -43,5 +43,10 @@ Reads on a project without `.overseer/` return `{ initialized: false }`; the fir
   "possible_duplicate", duplicates: [{index, key, candidates}]}` (a candidate from the batch has `index`
   and `key`). Success returns `{created: true, items: [{key, id, title, status, verdict, candidates,
   warnings}]}`; `full: true` returns `items: [{key, item, warnings, similar}]`.
+- `sync_pending: [{connection_id, host, repository}]` (by `connection_id`) joins the result of
+  `create_item` (single or batch), `update_item`, `delete_item`, `link_items` and `import_items` (and their
+  `--json` commands) when the write queued a change in the outbox of a connection with auto-sync on whose
+  sync has started: one list for the whole write. Omitted when nothing was queued (no such connection, a
+  comment-only update). overseer makes no network call; sync them as SKILL.md rule 11 says.
 
 <!-- managed-by: overseer-cli -->

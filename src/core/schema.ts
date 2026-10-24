@@ -173,6 +173,8 @@ export interface Ctx {
   actor?: string;
   /** Connection whose remote changes this write applies (an import of its issues): the sync outbox skips it. */
   origin_connection?: number;
+  /** Seqs of the sync outbox entries this write queued, collected for its `sync_pending` (shared by nested writes). */
+  queued?: Set<number>;
 }
 
 const title = z.string().trim().min(1, 'title must not be empty').max(500);

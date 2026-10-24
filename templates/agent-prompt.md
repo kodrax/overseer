@@ -29,3 +29,5 @@ board with GitHub/GitLab repositories, the `overseer-sync` skill.
 1. A table of every item created or updated: `ID | Kind | Title | Status | Action`.
 2. Warnings worth acting on (lint, possible duplicates, drift).
 3. Open questions for the user.
+4. When results carried `sync_pending`: the connections synced after the writes (skill rule 11), or left
+   pending in the outbox and why.

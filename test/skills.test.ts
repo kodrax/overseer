@@ -218,6 +218,29 @@ describe('skill templates', () => {
       expect(readFileSync(installed, 'utf8')).toBe(readFileSync(join(skillsDir, 'overseer', 'references', name), 'utf8'));
     }
   });
+
+  it('the overseer and ship skills run one Sync per request for sync_pending connections, or say the changes stay in the outbox (TASK-0023)', () => {
+    const flat = (text: string) => text.replace(/\s+/g, ' ');
+    const overseer = flat(readFileSync(join(skillsDir, 'overseer', 'SKILL.md'), 'utf8'));
+    const ship = flat(readFileSync(join(skillsDir, 'overseer-ship', 'SKILL.md'), 'utf8'));
+    for (const text of [overseer, ship]) {
+      expect(text).toContain('`sync_pending: [{connection_id, host, repository}]`');
+      expect(text).toMatch(/after the last write of the user's request,? \(?not after each item\)?, run the `overseer-sync` skill's \*\*Sync\*\* step once for each connection/i);
+      expect(text).toMatch(/If the user said not to sync, or the session lacks the host's MCP tools, do not sync: say the changes stay in the outbox, pending, and `overseer sync status` shows them\./);
+    }
+    // overseer's rule names every write that reports it; ship syncs a new item before its branch, and never creates issues itself.
+    expect(overseer).toMatch(/\(create, update, delete, link, import\)/);
+    const resolve = ship.slice(ship.indexOf('## 1. Resolve the item'), ship.indexOf('## 2. '));
+    expect(resolve).toMatch(/\*\*Connected repositories\*\*: when the `create_item` result has `sync_pending`, run that Sync before step 3/);
+    expect(resolve).toMatch(/No `sync_pending` \(no connection, auto-sync off, sync not started\) → skip; never create issues on your own\./);
+    expect(resolve).not.toMatch(/push the new item to its repository/);
+    // The result shape is documented, the sync skill points back to the rule, and the subagent reports the outcome.
+    expect(flat(readFileSync(join(skillsDir, 'overseer', 'references', 'tools.md'), 'utf8'))).toMatch(/`sync_pending: \[\{connection_id, host, repository\}\]` \(by `connection_id`\)[^]*one list for the whole write/);
+    const sync = flat(readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8'));
+    expect(sync.slice(sync.indexOf(' ## Sync '), sync.indexOf(' 1. Fetch the listing'))).toMatch(/right after writes whose results carry `sync_pending`, for those connections \(the `overseer` skill's rule 11\)/);
+    expect(overseer).toMatch(/ 11\. A write result with `sync_pending/);
+    expect(flat(readFileSync(join(templates, 'agent-prompt.md'), 'utf8'))).toMatch(/When results carried `sync_pending`: the connections synced after the writes \(skill rule 11\), or left pending in the outbox and why\./);
+  });
 });
 
 describe('integrations.md and overseer sync inspect', () => {
