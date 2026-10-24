@@ -17,6 +17,8 @@ export interface Connection {
   auto_sync: boolean;
   /** The host's position reached by the last pull; null before the first one. */
   last_sync_cursor: string | null;
+  /** When `sync start` seeded the repository from the board; null until then. */
+  sync_started_at: string | null;
   created_at: string;
 }
 
@@ -68,6 +70,7 @@ interface ConnectionRow {
   mcp_server: string | null;
   auto_sync: number;
   last_sync_cursor: string | null;
+  sync_started_at: string | null;
   created_at: string;
 }
 
@@ -83,6 +86,7 @@ function toConnection(row: ConnectionRow): Connection {
     mcp_server: row.mcp_server,
     auto_sync: row.auto_sync === 1,
     last_sync_cursor: row.last_sync_cursor,
+    sync_started_at: row.sync_started_at,
     created_at: row.created_at,
   };
 }

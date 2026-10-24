@@ -62,7 +62,7 @@ function snapshot(db: DatabaseSync, tables: string[]): Record<string, unknown[]>
 const SCHEMA_VERSION_SQL = "SELECT value FROM meta WHERE key = 'schema_version'";
 
 describe('migrations', () => {
-  it('migrates a version-1 database to version 2 keeping every row and adding empty sync tables', () => {
+  it('migrates a version-1 database to the current version keeping every row and adding empty sync tables', () => {
     const root = tempRepo();
     createV1Database(root);
     const v1 = new DatabaseSync(databaseFile(root));
@@ -73,8 +73,8 @@ describe('migrations', () => {
     v1.close();
 
     const { db } = openDatabase(root, { create: false })!;
-    expect(SCHEMA_VERSION).toBe(2);
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '2' });
+    expect(SCHEMA_VERSION).toBe(3);
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
     const after = snapshot(db, V1_TABLES);
     expect(after).toEqual(before);
     expect(before.events).toHaveLength(5);
@@ -95,11 +95,28 @@ describe('migrations', () => {
     db.close();
   });
 
-  it('runs both migrations for a new project', () => {
+  it('migrates a version-2 database to version 3, adding sync_started_at null to existing connections', () => {
+    const root = tempRepo();
+    createV1Database(root);
+    const v2 = new DatabaseSync(databaseFile(root));
+    v2.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE');
+    MIGRATIONS[1]!(v2, { root, now: T });
+    v2.exec(`UPDATE meta SET value = '2' WHERE key = 'schema_version';
+      INSERT INTO connections(host, repository, mcp_server, created_at) VALUES ('github', 'acme/app', 'github', '${T}');
+      COMMIT`);
+    v2.close();
+
+    const { db } = openDatabase(root, { create: false })!;
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
+    expect(db.prepare('SELECT id, repository, sync_started_at FROM connections').all()).toEqual([{ id: 1, repository: 'acme/app', sync_started_at: null }]);
+    db.close();
+  });
+
+  it('runs every migration for a new project', () => {
     const service = openService();
-    expect(service.info().schema_version).toBe(2);
+    expect(service.info().schema_version).toBe(3);
     const { db } = openDatabase(service.root, { create: false })!;
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '2' });
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
     for (const table of V2_TABLES) {
       expect(db.prepare('SELECT 1 FROM sqlite_master WHERE name = ?').get(table), table).toBeDefined();
     }
@@ -113,10 +130,11 @@ describe('migrations', () => {
     const run = (sql: string) => db.prepare(sql).run();
 
     run(`INSERT INTO connections(host, repository, mcp_server, created_at) VALUES ('github', 'acme/app', 'github', '${T}')`);
-    expect(db.prepare('SELECT id, auto_sync, last_sync_cursor FROM connections').get()).toEqual({
+    expect(db.prepare('SELECT id, auto_sync, last_sync_cursor, sync_started_at FROM connections').get()).toEqual({
       id: 1,
       auto_sync: 1,
       last_sync_cursor: null,
+      sync_started_at: null,
     });
     expect(() => run(`INSERT INTO connections(host, repository, created_at) VALUES ('github', 'acme/app', '${T}')`)).toThrow(
       /UNIQUE/,
