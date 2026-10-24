@@ -53,12 +53,13 @@ function formatConnection(connection: Connection): string {
   ]);
 }
 
-/** `source_of_truth: board`, or the connection id with its host and repository lines. */
+/** `source_of_truth: board`, or the connection id with its host and repository lines, then why. */
 function formatSourceOfTruth(source: SourceOfTruth): string {
   return fields([
     ['source_of_truth', source.source_of_truth],
     ['host', source.host],
     ['repository', source.repository],
+    ['reason', source.reason],
   ]);
 }
 
@@ -324,24 +325,13 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
       });
     });
 
-  const sourceOfTruth = sync
+  sync
     .command('source-of-truth')
-    .description('show where synced fields win a conflict: board or a connection (local database only, no network)')
+    .description('show where synced fields win a conflict and why: the board until sync starts on a connection, then that connection (local database only, no network)')
     .option('--json', 'print JSON')
     .action(async (options: { json?: boolean }, command: Command) => {
       await rt.withService(command, 'read', (service) => {
         rt.emit(options.json, service.connections.sourceOfTruth(), formatSourceOfTruth);
-      });
-    });
-  sourceOfTruth
-    .command('set')
-    .description('make the board or a connection the source of truth; connections, remote refs and mappings stay unchanged')
-    .argument('<target>', 'board, or a connection id (see sync connections)')
-    .option('--json', 'print JSON')
-    // `--json` after `set` is parsed by `source-of-truth`, which has the same option; withService sees either.
-    .action(async (target: string, _options: { json?: boolean }, command: Command) => {
-      await rt.withService(command, 'write', (service, { json }) => {
-        rt.emit(json, service.connections.setSourceOfTruth(target), formatSourceOfTruth);
       });
     });
 

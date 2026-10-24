@@ -196,6 +196,20 @@ describe('sync start', () => {
     service.close();
   });
 
+  it('makes a connection started from a repository with issues the source of truth while the board is (TASK-0066 AC2)', async () => {
+    const { service, github } = await board();
+    expect(service.connections.sourceOfTruth().source_of_truth).toBe('board');
+    const started = startSync(service, github.id, [gh(1, 'Existing issue')], ctx);
+    expect(started.from).toBe('repository');
+    expect(service.connections.sourceOfTruth()).toEqual({
+      source_of_truth: github.id,
+      host: 'github',
+      repository: 'acme/demo',
+      reason: `Sync of connection ${github.id} (github acme/demo) started at ${started.started_at} while the board was the source of truth.`,
+    });
+    service.close();
+  });
+
   it('after a start from a repository with issues, pushes a create for a new item and nothing for a changed item that existed before, listed under ack (AC2, AC3)', async () => {
     const { service, github } = await board();
     service.connections.set(github.id, { auto_sync: true });

@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - `overseer sync start` accepts a repository that already has issues: its issues come to the board as an import does (items created or linked, with their remote refs), nothing is queued for the existing local items, and `sync plan` never pushes a create for an item that existed before the start (its entries go to `ack`); items created later are pushed as usual. The output adds `from`, `created`, `linked` and `warnings`.
+- The sync source of truth is derived instead of chosen: the board until sync starts on a connection while the board is the source of truth, then that connection until it is removed. `sync source-of-truth` shows it with a `reason`; upgrading drops a stored manual choice (TASK-0066).
+
+### Removed
+
+- `overseer sync source-of-truth set`, and the `overseer-sync` skill's question asking which source of truth to use (TASK-0066).
 
 ## [0.2.0] - 2026-10-24
 

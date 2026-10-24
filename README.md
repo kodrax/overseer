@@ -230,8 +230,7 @@ overseer export                             # writes docs/overseer/
 | `sync connection add --host github\|gitlab --repo <repo> [--mcp-server <name>]` | connect a GitHub or GitLab repository to the project, with auto-sync on |
 | `sync connection set <id> [--auto-sync on\|off] [--mcp-server <name>]` | change a connection's auto-sync flag or MCP server |
 | `sync connection remove <id>` | delete a connection with its remote refs, mappings and pending outbox rows; a removed source of truth goes back to the board |
-| `sync source-of-truth` | the source of truth: `board` or a connection with its host and repository (see [Source of truth](#source-of-truth)) |
-| `sync source-of-truth set <connection id>\|board` | change the source of truth; connections, remote refs and mappings stay unchanged |
+| `sync source-of-truth` | the source of truth and why: `board` until sync starts on a connection, then that connection with its host and repository (see [Source of truth](#source-of-truth)) |
 | `sync inspect <file\|-> --source github\|gitlab` | labels, issue types, milestones, sub-issue support and boards of a repository, from a bundle of raw MCP responses (see [Tracking setup](#tracking-setup)) |
 | `sync mapping <connection>` | a connection's kind, status and priority mapping, every local value listed and unmapped ones marked (see [Kind, status and priority mapping](#kind-status-and-priority-mapping)) |
 | `sync mapping set <connection> --dimension kind\|status\|priority --local <value> --remote <value>` | map one local value to a label, issue type or state, replacing its earlier remote value |
@@ -312,7 +311,7 @@ The `overseer-sync` skill connects the project to its GitHub or GitLab repositor
 2. Checks that the session has the host's MCP tools; if not, it shows your harness's setup from [`overseer-import/references/integrations.md`](templates/skills/overseer-import/references/integrations.md) and stops.
 3. Connects only the repositories you confirm (`sync connection add`, auto-sync on).
 4. Fetches the repository's labels, issue types, milestones and boards through the MCP server, summarises them with `sync inspect`, proposes a kind, status and priority mapping from those existing names, and stores it with `sync mapping import` once you confirm. Values without a matching name stay unmapped and are listed; no label is created.
-5. Asks for the [source of truth](#source-of-truth), offering the board plus only the connected repositories. It recommends a repository that has open issues while the board has no items (`overseer list --all --json` total `0`), otherwise the board, and stores your choice with `sync source-of-truth set <connection id>|board`. You can change it later with the same command; no issue is re-created.
+5. Tells you the [source of truth](#source-of-truth) is the board until sync starts on a connection, then that connection; it never asks you to choose one.
 6. Ends with `sync status`.
 
 ### Repository remotes
@@ -337,7 +336,7 @@ A connection is one GitHub or GitLab repository the project syncs with. `oversee
 - **MCP server**: the harness MCP server that reaches the repository (`--mcp-server`), else `null`.
 - **Auto-sync**: on for a new connection; `last_sync_cursor` is `null` until the first pull, and `sync_started_at` until [`sync start`](#sync-start).
 
-`overseer sync connections --json` lists every connection by id (`[]` when there is none; `No connections.` and a table without `--json`). `overseer sync connection set <id> --auto-sync on|off --mcp-server <name> --json` changes either field and prints the connection; give at least one. `overseer sync connection remove <id> --json` deletes the connection together with its issue references on items, its kind/status/priority mappings and its pending outbox rows, and prints `{"removed": <connection>, "remote_refs", "mappings", "outbox", "source_of_truth_reset"}` with the number of rows deleted from each. When the removed connection was the source of truth, the board becomes the source of truth in the same step: `source_of_truth_reset` is `true` and the text output adds `Source of truth reset to board.`. An unknown id gives `NOT_FOUND`.
+`overseer sync connections --json` lists every connection by id (`[]` when there is none; `No connections.` and a table without `--json`). `overseer sync connection set <id> --auto-sync on|off --mcp-server <name> --json` changes either field and prints the connection; give at least one. `overseer sync connection remove <id> --json` deletes the connection together with its issue references on items, its kind/status/priority mappings and its pending outbox rows, and prints `{"removed": <connection>, "remote_refs", "mappings", "outbox", "source_of_truth_reset"}` with the number of rows deleted from each. When the removed connection was the source of truth, the board becomes the source of truth in the same step, even when another connection has started sync: `source_of_truth_reset` is `true` and the text output adds `Source of truth reset to board.`. An unknown id gives `NOT_FOUND`.
 
 These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
 
@@ -352,11 +351,16 @@ A project without connections gets no `connection` lines, and doctor reads no ha
 
 ### Source of truth
 
-The source of truth is where synced item fields come from when the board and a connected repository disagree: the board, or one connection. `overseer sync source-of-truth --json` prints `{"source_of_truth": "board", "host": null, "repository": null}` until another one is chosen, or `{"source_of_truth": <connection id>, "host", "repository"}`; without `--json`, one `key: value` line per field that is set.
+The source of truth is where synced item fields come from when the board and a connected repository disagree: the board, or one connection. Nobody chooses it; it follows from [`sync start`](#sync-start):
 
-`overseer sync source-of-truth set <connection id>|board --json` stores the choice and prints it the same way. An unknown connection id gives `NOT_FOUND`; anything else that is not `board` or a positive integer gives `INVALID_INPUT`. Changing it stores only the setting: connections, issue references, mappings and the outbox stay as they are, so no issue is re-created.
+- **Board** until sync starts on a connection.
+- **Connection**: the first connection whose sync starts while the board is the source of truth becomes it, in the same transaction as the start. Starting sync on other connections later leaves it unchanged.
+- **Back to the board** when that connection is [removed](#repository-connections), even if another connection has started sync; the next connection whose sync starts then becomes it.
+- **Upgrade**: a choice stored by `sync source-of-truth set` (removed) is dropped when the database is upgraded; a connection whose sync already started becomes the source of truth, the earliest start first, else the board.
 
-These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
+`overseer sync source-of-truth --json` prints `{"source_of_truth": "board", "host": null, "repository": null, "reason"}` or `{"source_of_truth": <connection id>, "host", "repository", "reason"}`, where `reason` says why (`Sync of connection 1 (github acme/demo) started at <time> while the board was the source of truth.`); without `--json`, one `key: value` line per field that is set.
+
+It reads only the project database: no GitHub or GitLab call, nothing in item history. It has no MCP tool.
 
 ### Sync status
 
@@ -452,6 +456,7 @@ These commands read and write only the project database: they make no GitHub or 
 - **Then**: an item that existed before the start and has no issue on the connection is never pushed as a create: when it changes, `sync plan` lists its entry under `ack`. Items created after the start get a `create` push as usual, and items linked to an issue get updates.
 
 - **Once per connection**: the connection records `sync_started_at`. Running it again gives `CONFLICT` with the start time and changes nothing.
+- **Source of truth**: either way, when the board is the [source of truth](#source-of-truth), the connection becomes it in the same transaction; otherwise it stays.
 
 It reads only the project database and the listing given: no GitHub or GitLab call. An unknown connection gives `NOT_FOUND` before the file is read. It has no MCP tool; `sync start --help` describes the listing.
 

@@ -4,6 +4,7 @@ import { runCli } from '../src/cli/index.js';
 import { isOverseerError } from '../src/core/errors.js';
 import type { OverseerService } from '../src/core/service.js';
 import { planSync, type SyncPlan } from '../src/core/sync-plan.js';
+import { startSync } from '../src/core/sync-start.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { ctx, openService } from './helpers/service.js';
 import { tempRepo, tempUserConfig } from './helpers/tmp.js';
@@ -224,7 +225,7 @@ describe('sync plan', () => {
 
   it('resolves a conflict for the remote value when the planned connection is the source of truth, and writes no history (AC1, AC3, AC5)', async () => {
     const { service, connection, listing } = await scenario();
-    service.connections.setSourceOfTruth(connection.id);
+    service.connections.claimSourceOfTruth(connection.id);
     const seq = seqOf(service, 'TASK-0003');
     const events = service.db.prepare('SELECT count(*) AS n FROM events').get()!.n;
     const plan = planSync(service, connection.id, listing);
@@ -271,8 +272,10 @@ describe('sync plan', () => {
   it('resolves a conflict for the local value when the source of truth is another connection, as for the board (AC2, AC3)', async () => {
     const { service, connection, listing } = await scenario();
     const board = planSync(service, connection.id, listing);
+    // Sync starts on an empty GitLab repository first: it becomes the source of truth.
     const gitlab = service.connections.add({ host: 'gitlab', repository: 'acme/app' });
-    service.connections.setSourceOfTruth(gitlab.id);
+    startSync(service, gitlab.id, [], ctx);
+    expect(service.connections.sourceOfTruth().source_of_truth).toBe(gitlab.id);
     const plan = planSync(service, connection.id, listing);
     expect(plan).toEqual(board);
     expect(plan.push.find((op) => op.item_id === 'TASK-0003')).toMatchObject({ op: 'update', fields: ['title'], overwritten: { title: 'Rename settings screen' } });
