@@ -20,6 +20,19 @@ fail() {
   status=1
 }
 
+# Release pull requests: chore/release-X.Y.Z with the title 'chore: release X.Y.Z'.
+semver='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
+release_re="^chore/release-($semver)$"
+if [[ $branch =~ $release_re ]]; then
+  version=${BASH_REMATCH[1]}
+  if [[ $title == "chore: release $version" ]]; then
+    echo "Release branch '$branch' and title '$title' follow the conventions."
+    exit 0
+  fi
+  fail "Release branch '$branch' needs the title 'chore: release $version'; got '$title'."
+  exit "$status"
+fi
+
 branch_re="^($types)/((TASK|BUG)-[0-9]{4,})-[a-z0-9]+(-[a-z0-9]+)*$"
 if [[ $branch =~ $branch_re ]]; then
   branch_type=${BASH_REMATCH[1]}

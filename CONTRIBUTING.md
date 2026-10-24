@@ -43,6 +43,8 @@ If a task needs another task that is not merged yet, branch from that task's bra
 
 Dependabot and Renovate branches are exempt.
 
+Release pull requests are the one exception to the item ID: the branch is `chore/release-X.Y.Z` (SemVer, optionally with a pre-release such as `0.2.0-rc.1`) and the title is exactly `chore: release X.Y.Z` with the same version, without an item ID. See [Releasing](#releasing).
+
 ## Pull request titles
 
 `<type>: <summary> (<item-ID>)`, following [Conventional Commits](https://www.conventionalcommits.org/). The type and item ID must match the branch. An optional scope and `!` for breaking changes are allowed: `feat(cli)!: rename the --json output fields (TASK-0123)`.
@@ -63,13 +65,23 @@ overseer is published to npm as [`@kodrax/overseer`](https://www.npmjs.com/packa
 
 ### One-time setup
 
-1. An owner of the `kodrax` npm organization, with two-factor authentication on, publishes 0.1.0 by hand from a clean checkout of the `v0.1.0` tag: `npm ci && npm run build && npm publish --access public`. A trusted publisher can only be added to a package that exists.
+1. 0.1.0 was published by hand from `main` (commit `dcc4951`) on 2026-10-23 by an owner of the `kodrax` npm organization with two-factor authentication on: `npm ci && npm run build && npm publish --access public`. A trusted publisher can only be added to a package that exists.
 2. On npmjs.com, open `@kodrax/overseer` → Settings → Trusted Publisher → GitHub Actions and enter organization `kodrax`, repository `overseer`, workflow filename `publish.yml` (no environment), allowing `npm publish`.
-3. Validate the configuration within 48 hours with a publish from CI (the next release below); otherwise it expires and must be added again.
+3. Validate the configuration within 48 hours with a publish from CI (the next release below); otherwise it expires. An expired configuration can simply be deleted and added again.
 
 ### Each release
 
-1. On an up-to-date `main`, move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, update the compare links at the bottom and commit (`docs: changelog for X.Y.Z`).
-2. Bump the version: `npm version patch`, `npm version minor` or `npm version major`. It needs a clean working tree, updates `package.json` and `package-lock.json`, commits and creates the `vX.Y.Z` tag.
-3. Push the commit and the tag: `git push --follow-tags`.
-4. Watch the Publish workflow in GitHub Actions. A tag that does not match `package.json` fails before anything is published; fix the version, delete the tag (`git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`) and tag again.
+`main` is protected, so a release goes through a pull request and the tag is pushed afterwards on the merge commit.
+
+1. On an up-to-date `main` (`git switch main && git pull --ff-only`), create the branch `chore/release-X.Y.Z`.
+2. Choose the version with [SemVer](https://semver.org/) from the changes since the previous release, `git log vPREV..origin/main --oneline`: a patch release for fixes only; a minor release when there is any `feat` or, below 1.0, any breaking change; from 1.0 on, a major release for breaking changes.
+3. Bump the version without a commit or tag: `npm version X.Y.Z --no-git-tag-version`. It updates `package.json` and `package-lock.json`.
+4. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, leave `## [Unreleased]` empty and update the compare links at the bottom.
+5. Commit, push and open a pull request titled `chore: release X.Y.Z`.
+6. After the squash merge, tag the merge commit and push only the tag:
+
+   ```sh
+   git fetch origin && git tag vX.Y.Z origin/main && git push origin vX.Y.Z
+   ```
+
+7. Watch the Publish workflow in GitHub Actions. A tag that does not match `package.json` fails before anything is published; delete the tag (`git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`) and tag the right commit again.
