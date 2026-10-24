@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `overseer sync start` accepts a repository that already has issues: its issues come to the board as an import does (items created or linked, with their remote refs), nothing is queued for the existing local items, and `sync plan` never pushes a create for an item that existed before the start (its entries go to `ack`); items created later are pushed as usual. The output adds `from`, `created`, `linked` and `warnings`.
 - The sync source of truth is derived instead of chosen: the board until sync starts on a connection while the board is the source of truth, then that connection until it is removed. `sync source-of-truth` shows it with a `reason`; upgrading drops a stored manual choice (TASK-0066).
+- The `overseer-sync` skill asks which MCP server reaches each repository, offering the servers in the session or the host default (`github` / `gitlab`), stores it with `sync connection add|set --mcp-server`, and calls that server's tools with the harness's prefix in every connect and sync step.
 
 ### Removed
 
