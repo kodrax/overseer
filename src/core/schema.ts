@@ -89,7 +89,8 @@ export type CoverageState = (typeof COVERAGE_STATES)[number];
 export type ReportKind = (typeof REPORT_KINDS)[number];
 export type ExportPart = (typeof EXPORT_PARTS)[number];
 export type ImportSource = (typeof IMPORT_SOURCES)[number];
-export type EventAction = 'create' | 'update' | 'status' | 'link' | 'unlink' | 'comment' | 'import' | 'delete';
+/** `overwrite`: a sync replaced a value changed on both sides (`field`, the losing `old_value`, the winning `new_value`). */
+export type EventAction = 'create' | 'update' | 'status' | 'link' | 'unlink' | 'comment' | 'import' | 'delete' | 'overwrite';
 
 export const bugDetailsSchema = z.object({
   steps: z.array(z.string()),

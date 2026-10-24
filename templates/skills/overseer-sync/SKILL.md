@@ -138,7 +138,8 @@ changes.
    pull operations of `overseer sync plan <id> <file>`: issues no item has become items; remote changes
    to title, body, labels, state, assignee and milestone reach their items, except fields also changed
    locally since the last sync (unless this connection is the source of truth: then the issue's value
-   overwrites them). Running it again with the same listing changes nothing. Report the
+   overwrites them and the item's history records the overwritten local value). Running it again with
+   the same listing changes nothing. Report the
    created and updated items, each conflict (`item_id`, `field`, `local`, `remote`, `snapshot`; left
    untouched on both sides) and the warnings.
 
@@ -155,15 +156,18 @@ changes.
      `update_issue` with `issue_iid` from `external_ref` for `update`, with `state_event: close` or
      `reopen` for `close` and `reopen` (and for a closed `create`).
    From each successful answer note `{"seqs": [<op seq>], "item_id", "external_id": "<repository>#<number>",
-   "url", "state": "open"|"closed", "fields": <op fields>}`. A failed call adds no result: list it in
-   your reply with its error; its outbox entry stays pending for the next sync.
+   "url", "state": "open"|"closed", "fields": <op fields>}`, plus `"overwritten": <op overwritten>` as is
+   when the op has one. A failed call adds no result: list it in your reply with its error; its outbox
+   entry stays pending for the next sync.
 5. Save the results array and run `overseer sync confirm <connection> <results> --json`: it links each
-   item to its issue, snapshots the pushed values and acknowledges the seqs. `INVALID_INPUT` writes
-   nothing and names every bad result: fix and rerun.
+   item to its issue, snapshots the pushed values, records in the item's history each issue value the
+   push overwrote and acknowledges the seqs. `INVALID_INPUT` writes nothing and names every bad result:
+   fix and rerun.
 6. When `ack` is not empty, run `overseer sync outbox ack <seq...> --json` with its seqs (nothing to push
    for them).
 7. Repeat for every connection: an item keeps one issue per connection. Finish with
-   `overseer sync status --json`.
+   `overseer sync status --json` and report each connection's `overwritten` (item, field, the overwritten
+   value, the winner and when), the fields its latest pull and confirm overwrote.
 
 ### Several connections
 

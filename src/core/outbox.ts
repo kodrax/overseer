@@ -55,7 +55,10 @@ function toEntry(row: OutboxRow): OutboxEntry {
   };
 }
 
-/** The change one history event makes, as the outbox records it; null for events that change no item field (comments). */
+/**
+ * The change one history event makes, as the outbox records it; null for events that change no item field (comments,
+ * and overwrites, whose change has its own update or status event or happened on the issue).
+ */
 function changeOf(action: EventAction, field: string | null): { operation: OutboxOperation; field?: string } | null {
   switch (action) {
     case 'create':
@@ -71,6 +74,7 @@ function changeOf(action: EventAction, field: string | null): { operation: Outbo
     case 'update':
       return field === null ? null : { operation: 'update', field };
     case 'comment':
+    case 'overwrite':
       return null;
   }
 }

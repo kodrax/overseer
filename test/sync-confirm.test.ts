@@ -5,6 +5,7 @@ import { isOverseerError } from '../src/core/errors.js';
 import type { OverseerService } from '../src/core/service.js';
 import { confirmSync } from '../src/core/sync-confirm.js';
 import { planSync } from '../src/core/sync-plan.js';
+import { pullSync } from '../src/core/sync-pull.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { ctx, openService } from './helpers/service.js';
 import { tempRepo, tempUserConfig } from './helpers/tmp.js';
@@ -57,9 +58,12 @@ describe('sync confirm', () => {
     const plan = planSync(service, github.id, []);
     expect(plan.push).toEqual([expect.objectContaining({ op: 'create', item_id: 'TASK-0001' })]);
     const [op] = plan.push;
-    const result = confirmSync(service, github.id, [
-      { seqs: [op!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'OPEN' },
-    ]);
+    const result = confirmSync(
+      service,
+      github.id,
+      [{ seqs: [op!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'OPEN' }],
+      ctx,
+    );
     expect(result).toEqual({
       connection_id: github.id,
       confirmed: [
@@ -81,7 +85,7 @@ describe('sync confirm', () => {
     await service.updateItem({ id: 'TASK-0001', title: 'Ship the CSV export' }, ctx);
     const [update] = planSync(service, github.id, [listed]).push;
     expect(update).toMatchObject({ op: 'update', fields: ['title'] });
-    confirmSync(service, github.id, [{ seqs: [update!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'open', fields: update!.fields }]);
+    confirmSync(service, github.id, [{ seqs: [update!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'open', fields: update!.fields }], ctx);
     expect(refsOf(service, 'TASK-0001')[0]!.synced_fields).toEqual({ ...op!.issue, title: 'Ship the CSV export' });
     service.close();
   });
@@ -98,32 +102,71 @@ describe('sync confirm', () => {
       [{ ...valid, state: 'merged' }],
       [],
     ];
-    for (const input of cases) expect(failure(() => confirmSync(service, github.id, input)).code).toBe('INVALID_INPUT');
-    expect(failure(() => confirmSync(service, github.id, [valid, { ...valid, seqs: [999] }])).message).toBe(
+    for (const input of cases) expect(failure(() => confirmSync(service, github.id, input, ctx)).code).toBe('INVALID_INPUT');
+    expect(failure(() => confirmSync(service, github.id, [valid, { ...valid, seqs: [999] }], ctx)).message).toBe(
       'result 2 (TASK-0001): no pending outbox entry with seq 999 on connection 1; nothing was written.',
     );
-    expect(failure(() => confirmSync(service, github.id, [{ ...valid, item_id: 'TASK-0009' }])).message).toBe(
+    expect(failure(() => confirmSync(service, github.id, [{ ...valid, item_id: 'TASK-0009' }], ctx)).message).toBe(
       `result 1 (TASK-0009): seq ${entry!.seq} belongs to TASK-0001; result 1 (TASK-0009): unknown item TASK-0009; nothing was written.`,
     );
     expect(refsOf(service, 'TASK-0001')).toEqual([]);
     expect(service.outbox.list(github.id)).toHaveLength(1);
     expect(service.getItem('TASK-0001').item.external_ref).toBeNull();
-    expect(failure(() => confirmSync(service, 9, [valid]))).toEqual({ code: 'NOT_FOUND', message: 'No connection with id 9.' });
+    expect(failure(() => confirmSync(service, 9, [valid], ctx))).toEqual({ code: 'NOT_FOUND', message: 'No connection with id 9.' });
     service.close();
   });
 
   it('acknowledges the close of a deleted item without a remote ref', async () => {
     const { service, github } = await twoConnections();
     const [created] = planSync(service, github.id, []).push;
-    confirmSync(service, github.id, [{ seqs: [created!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'open' }]);
+    confirmSync(service, github.id, [{ seqs: [created!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'open' }], ctx);
     service.deleteItem('TASK-0001', ctx);
     const [close] = planSync(service, github.id, []).push;
     expect(close).toMatchObject({ op: 'close', item_id: 'TASK-0001' });
-    expect(confirmSync(service, github.id, [{ seqs: [close!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'closed' }])).toMatchObject({
+    expect(confirmSync(service, github.id, [{ seqs: [close!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url: 'https://github.com/acme/demo/issues/7', state: 'closed' }], ctx)).toMatchObject({
       confirmed: [{ item_id: 'TASK-0001', fields: [] }],
       acked: [close!.seq],
     });
     expect(service.outbox.list(github.id)).toEqual([]);
+    service.close();
+  });
+
+  it('records the issue value a confirmed push replaced in history and as the latest confirm overwrites (TASK-0024 AC2, AC3)', async () => {
+    const { service, github, gitlab } = await twoConnections();
+    const [created] = planSync(service, github.id, []).push;
+    const url = 'https://github.com/acme/demo/issues/7';
+    confirmSync(service, github.id, [{ seqs: [created!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url, state: 'open' }], ctx);
+    // Both sides change the title; the board is the source of truth, so the push keeps the item's.
+    await service.updateItem({ id: 'TASK-0001', title: 'Ship the CSV export' }, ctx);
+    const listed = { number: 7, title: 'Ship the export now', body: 'CSV and JSON.', state: 'OPEN', labels: ['P2', 'Task', 'export'], assignees: [], milestone: null, html_url: url };
+    const plan = planSync(service, github.id, [listed]);
+    const [update] = plan.push;
+    expect(update).toMatchObject({ op: 'update', fields: ['title'], overwritten: { title: 'Ship the export now' } });
+    const result = { seqs: [update!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url, state: 'open', fields: update!.fields };
+
+    // An overwritten field the push did not set is refused.
+    expect(failure(() => confirmSync(service, github.id, [{ ...result, overwritten: { body: 'Old body' } }], ctx)).message).toBe(
+      'result 1 (TASK-0001): overwritten names body, which the push did not set; nothing was written.',
+    );
+
+    confirmSync(service, github.id, [{ ...result, overwritten: update!.overwritten }], ctx);
+    const history = service.getItem('TASK-0001', { history: true }).history!;
+    const event = history.at(-1)!;
+    expect(event).toMatchObject({ via: 'sync:github', action: 'overwrite', field: 'title', old_value: 'Ship the export now', new_value: 'Ship the CSV export' });
+    expect(service.outbox.list(github.id)).toEqual([]);
+    expect(service.outbox.list(gitlab.id).map((entry) => [entry.operation, entry.changed_fields])).toEqual([['create', []]]);
+    expect(service.connections.status().connections.map((state) => state.overwritten)).toEqual([
+      [{ step: 'confirm', item_id: 'TASK-0001', external_ref: 'acme/demo#7', field: 'title', winner: 'local', value: 'Ship the CSV export', overwritten: 'Ship the export now', at: event.at }],
+      [],
+    ]);
+    expect(plan.overwritten).toEqual([{ item_id: 'TASK-0001', external_ref: 'acme/demo#7', field: 'title', winner: 'local', value: 'Ship the CSV export', overwritten: 'Ship the export now' }]);
+
+    // The next confirm replaces the list: a push without overwritten values leaves it empty.
+    await service.updateItem({ id: 'TASK-0001', assignee: 'ana' }, ctx);
+    const [next] = planSync(service, github.id, [{ ...listed, title: 'Ship the CSV export' }]).push;
+    confirmSync(service, github.id, [{ seqs: [next!.seq], item_id: 'TASK-0001', external_id: 'acme/demo#7', url, state: 'open', fields: next!.fields }], ctx);
+    expect(service.connections.status().connections[0]!.overwritten).toEqual([]);
+    expect(service.getItem('TASK-0001', { history: true }).history!.filter((entry) => entry.action === 'overwrite')).toHaveLength(1);
     service.close();
   });
 
@@ -164,5 +207,61 @@ describe('sync confirm', () => {
     const unknown = await cli(root, ['sync', 'confirm', '9', 'missing.json', '--json']);
     expect(unknown.code).toBe(1);
     expect(JSON.parse(unknown.out).error).toEqual({ code: 'NOT_FOUND', message: 'No connection with id 9.' });
+  });
+});
+
+describe('sync status overwritten (TASK-0024 AC3)', () => {
+  it('lists the fields the latest pull and confirm of each connection overwrote, as JSON and text', async () => {
+    const root = tempRepo();
+    const service = openService(root);
+    const demo = service.connections.add({ host: 'github', repository: 'acme/demo' });
+    const web = service.connections.add({ host: 'github', repository: 'acme/web' });
+    for (const connection of [demo, web]) service.mappings.replace(connection.id, MAPPING);
+    await service.createItem({ kind: 'task', title: 'Ship the export', description: 'CSV and JSON.', priority: 'should', tags: ['export'] }, ctx);
+    const issueOf = (repository: string, number: number, title: string) => ({
+      number,
+      title,
+      body: 'CSV and JSON.',
+      state: 'OPEN',
+      labels: ['P2', 'Task', 'export'],
+      assignees: [],
+      milestone: null,
+      html_url: `https://github.com/${repository}/issues/${number}`,
+    });
+    for (const [connection, repository, number] of [[demo, 'acme/demo', 7], [web, 'acme/web', 3]] as const) {
+      const [created] = planSync(service, connection.id, []).push;
+      confirmSync(service, connection.id, [{ seqs: [created!.seq], item_id: 'TASK-0001', external_id: `${repository}#${number}`, url: issueOf(repository, number, '').html_url, state: 'open' }], ctx);
+    }
+    service.connections.claimSourceOfTruth(demo.id);
+    service.close();
+    const status = async () => JSON.parse((await cli(root, ['sync', 'status', '--json'])).out) as { connections: { overwritten: unknown[] }[] };
+    expect((await status()).connections.map((connection) => connection.overwritten)).toEqual([[], []]);
+    expect((await cli(root, ['sync', 'status'])).out).not.toMatch(/Overwritten/);
+
+    // The title changes locally and on both issues: acme/demo (source of truth) wins on pull, the board wins on acme/web.
+    const reopened = openService(root);
+    await reopened.updateItem({ id: 'TASK-0001', title: 'Ship the CSV export' }, ctx);
+    pullSync(reopened, demo.id, [issueOf('acme/demo', 7, 'Ship the export now')], ctx);
+    const [push] = planSync(reopened, web.id, [issueOf('acme/web', 3, 'Ship it')]).push;
+    expect(push).toMatchObject({ op: 'update', fields: ['title'], issue: { title: 'Ship the export now' }, overwritten: { title: 'Ship it' } });
+    reopened.close();
+    const results = [{ seqs: [push!.seq], item_id: 'TASK-0001', external_id: 'acme/web#3', url: issueOf('acme/web', 3, '').html_url, state: 'open', fields: push!.fields, overwritten: push!.overwritten }];
+    expect((await cli(root, ['sync', 'confirm', String(web.id), '-', '--json'], JSON.stringify(results))).code).toBe(0);
+
+    const json = await status();
+    const at = expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/);
+    expect(json.connections.map((connection) => connection.overwritten)).toEqual([
+      [{ step: 'pull', item_id: 'TASK-0001', external_ref: 'acme/demo#7', field: 'title', winner: 'remote', value: 'Ship the export now', overwritten: 'Ship the CSV export', at }],
+      [{ step: 'confirm', item_id: 'TASK-0001', external_ref: 'acme/web#3', field: 'title', winner: 'local', value: 'Ship the export now', overwritten: 'Ship it', at }],
+    ]);
+    const text = (await cli(root, ['sync', 'status'])).out;
+    expect(text).toMatch(/\nSource of truth: connection 1 \(github acme\/demo\)\n\nOverwritten by the latest pull and confirm of connection 1 \(github acme\/demo\):\nStep +Item +Issue +Field +Overwritten +Winner +Value +At\n/);
+    expect(text).toMatch(/\npull +TASK-0001 +acme\/demo#7 +title +"Ship the CSV export" +remote +"Ship the export now" +\d{4}-\S+\n/);
+    expect(text).toMatch(/\nOverwritten by the latest pull and confirm of connection 2 \(github acme\/web\):\n[^]*\nconfirm +TASK-0001 +acme\/web#3 +title +"Ship it" +local +"Ship the export now" +\d{4}-\S+\n$/);
+    const history = JSON.parse((await cli(root, ['show', 'TASK-0001', '--history', '--json'])).out).history as { via: string; action: string; field: string; old_value: string; new_value: string }[];
+    expect(history.filter((event) => event.action === 'overwrite').map(({ via, field, old_value, new_value }) => [via, field, old_value, new_value])).toEqual([
+      ['sync:github', 'title', 'Ship the CSV export', 'Ship the export now'],
+      ['sync:github', 'title', 'Ship it', 'Ship the export now'],
+    ]);
   });
 });

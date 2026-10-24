@@ -63,7 +63,10 @@ function formatSourceOfTruth(source: SourceOfTruth): string {
   ]);
 }
 
-/** Connections table (or `No connections.`) and the source of truth with its host and repository. */
+/**
+ * Connections table (or `No connections.`), the source of truth with its host and repository, then one table per
+ * connection whose latest pull or confirm overwrote fields.
+ */
 function formatStatus({ connections, source_of_truth }: SyncStatus): string {
   return [
     connections.length === 0
@@ -84,6 +87,15 @@ function formatStatus({ connections, source_of_truth }: SyncStatus): string {
     source_of_truth === 'board'
       ? 'Source of truth: board'
       : `Source of truth: connection ${source_of_truth.id} (${source_of_truth.host} ${source_of_truth.repository})`,
+    ...connections
+      .filter((connection) => connection.overwritten.length > 0)
+      .map(
+        (connection) =>
+          `\nOverwritten by the latest pull and confirm of connection ${connection.id} (${connection.host} ${connection.repository}):\n${table(
+            ['Step', 'Item', 'Issue', 'Field', 'Overwritten', 'Winner', 'Value', 'At'],
+            connection.overwritten.map((entry) => [entry.step, entry.item_id, entry.external_ref, entry.field, planValue(entry.overwritten), entry.winner, planValue(entry.value), entry.at]),
+          )}`,
+      ),
   ].join('\n');
 }
 
@@ -123,9 +135,10 @@ start gives CONFLICT.
 const CONFIRM_HELP = `
 Each result is one push op of sync plan as the MCP server answered it:
   [{"seqs": [12], "item_id": "TASK-0001", "external_id": "owner/repo#34", "url": "https://…", "state": "open",
-    "fields": ["title", "body", "labels", "state", "assignee", "milestone"]}]
-"fields" (optional) is the plan op's fields; the snapshot gets the item's values for them. Any invalid result gives
-INVALID_INPUT and nothing is written.
+    "fields": ["title", "body", "labels", "state", "assignee", "milestone"], "overwritten": {"title": "Issue title"}}]
+"fields" (optional) is the plan op's fields; the snapshot gets the item's values for them. "overwritten" (optional)
+is the plan op's overwritten, as is: each field gets an overwrite event in the item's history with the issue's value
+the push replaced, and sync status lists it. Any invalid result gives INVALID_INPUT and nothing is written.
 `;
 
 /** A conflicting or overwritten value in the text plan: JSON, cut to 60 characters. */
@@ -169,7 +182,9 @@ function formatPlan(connectionId: number, { push, pull, conflicts, ack, overwrit
 const PULL_HELP = `
 The listing is the raw answer of the connection's MCP server, as for sync plan; join every page into one array.
 Only the plan's pull operations are applied, in one transaction, with events via sync:<host>; the changes are queued
-in the outbox of the other connections, not this one. Applying the same listing again changes nothing.
+in the outbox of the other connections, not this one. A local edit the issue's value overwrites (this connection is
+the source of truth) also gets an overwrite event naming the field, the local value and the issue's, and sync status
+lists it. Applying the same listing again changes nothing.
 `;
 
 /** Counts line, then a table of created and updated items, the conflicts left untouched and a `warning:` line per warning. */
@@ -239,7 +254,7 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
 
   sync
     .command('status')
-    .description('each connection with its pending outbox entries, and the source of truth (local database only, no network)')
+    .description('each connection with its pending outbox entries and the fields its latest pull and confirm overwrote, and the source of truth (local database only, no network)')
     .option('--json', 'print JSON')
     .action(async (options: { json?: boolean }, command: Command) => {
       await rt.withService(command, 'read', (service) => {
@@ -490,7 +505,7 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
       await rt.withService(command, 'write', async (service) => {
         // An unknown connection gives NOT_FOUND before the file is read.
         const connection = service.connections.require(connectionId);
-        const confirmation = confirmSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Results'), 'Results'));
+        const confirmation = confirmSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Results'), 'Results'), rt.ctx);
         rt.emit(options.json, confirmation, ({ confirmed, acked }) =>
           [
             ...confirmed.map((push) => `${push.item_id}: ${push.external_id} (${push.state}) ${push.url}`),

@@ -112,7 +112,7 @@ describe('sync start', () => {
       state: op.issue.state,
       fields: op.fields,
     }));
-    expect(confirmSync(service, github.id, results).acked).toEqual(plan.push.map((op) => op.seq).sort((a, b) => a - b));
+    expect(confirmSync(service, github.id, results, ctx).acked).toEqual(plan.push.map((op) => op.seq).sort((a, b) => a - b));
     expect(service.outbox.list(github.id)).toEqual([]);
     const refs = service.db.prepare('SELECT item_id, external_ref, state FROM item_remote_refs WHERE connection_id = ? ORDER BY external_ref').all(github.id);
     expect(refs).toEqual(results.map((result) => ({ item_id: result.item_id, external_ref: result.external_id, state: result.state })));

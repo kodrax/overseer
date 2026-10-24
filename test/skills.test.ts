@@ -199,6 +199,16 @@ describe('skill templates', () => {
     expect(several).toMatch(/`overwritten` list/);
   });
 
+  it('overseer-sync passes the plan op overwritten to sync confirm and reports the overwritten fields of sync status (TASK-0024)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const sync = text.slice(text.indexOf('\n## Sync\n'));
+    const confirm = sync.indexOf('overseer sync confirm <connection> <results> --json');
+    expect(sync.indexOf('`"overwritten": <op overwritten>`')).toBeGreaterThan(0);
+    expect(sync.indexOf('`"overwritten": <op overwritten>`')).toBeLessThan(confirm);
+    expect(sync).toMatch(/records in the item's history each issue value the\s+push overwrote/);
+    expect(sync).toMatch(/`overseer sync status --json` and report each connection's `overwritten`/);
+  });
+
   it('the overseer skill and the subagent prompt point to overseer-sync for connecting and syncing', () => {
     expect(readFileSync(join(skillsDir, 'overseer', 'SKILL.md'), 'utf8')).toMatch(/Connecting or syncing[^]*`overseer-sync` skill/);
     const prompt = readFileSync(join(templates, 'agent-prompt.md'), 'utf8');
@@ -237,7 +247,8 @@ describe('skill templates', () => {
     // The result shape is documented, the sync skill points back to the rule, and the subagent reports the outcome.
     expect(flat(readFileSync(join(skillsDir, 'overseer', 'references', 'tools.md'), 'utf8'))).toMatch(/`sync_pending: \[\{connection_id, host, repository\}\]` \(by `connection_id`\)[^]*one list for the whole write/);
     const sync = flat(readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8'));
-    expect(sync.slice(sync.indexOf(' ## Sync '), sync.indexOf(' 1. Fetch the listing'))).toMatch(/right after writes whose results carry `sync_pending`, for those connections \(the `overseer` skill's rule 11\)/);
+    const syncStart = sync.indexOf(' ## Sync ');
+    expect(sync.slice(syncStart, sync.indexOf(' 1. Fetch the listing', syncStart))).toMatch(/right after writes whose results carry `sync_pending`, for those connections \(the `overseer` skill's rule 11\)/);
     expect(overseer).toMatch(/ 11\. A write result with `sync_pending/);
     expect(flat(readFileSync(join(templates, 'agent-prompt.md'), 'utf8'))).toMatch(/When results carried `sync_pending`: the connections synced after the writes \(skill rule 11\), or left pending in the outbox and why\./);
   });

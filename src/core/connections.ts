@@ -1,6 +1,9 @@
 import { type Database, nowIso, tx } from './db.js';
 import { OverseerError } from './errors.js';
+import { compareIds } from './ids.js';
+import { SYNCED_FIELDS, type SyncedField } from './import.js';
 import { normalizeRepositoryPath, type RemoteHost } from './remotes.js';
+import type { SyncOverwrite } from './sync-plan.js';
 
 /** Hosting services a connection can point to. */
 export const CONNECTION_HOSTS = ['github', 'gitlab'] as const satisfies readonly RemoteHost[];
@@ -63,9 +66,23 @@ const BOARD_SOURCE: SourceOfTruth = {
   reason: 'No connection started sync while the board was the source of truth; the first one that does becomes the source of truth.',
 };
 
-/** A connection in `sync status`, with how many sync_outbox rows wait to be pushed to it. */
+/** Which sync step overwrote a field: a pull (the issue's value won) or a confirm (the pushed item's value won). */
+export type OverwriteStep = 'pull' | 'confirm';
+
+/** A field the connection's latest pull or confirm overwrote, as `sync status` lists it. */
+export interface ConnectionOverwrite extends SyncOverwrite {
+  step: OverwriteStep;
+  /** When that pull or confirm ran. */
+  at: string;
+}
+
+/**
+ * A connection in `sync status`, with how many sync_outbox rows wait to be pushed to it and the fields its latest pull
+ * and latest confirm overwrote (pull first, then by item ID and synced field order; empty when none).
+ */
 export interface ConnectionState extends Connection {
   pending_outbox: number;
+  overwritten: ConnectionOverwrite[];
 }
 
 /** `sync status`: every connection, and `board` or the source-of-truth connection with its host and repository. */
@@ -208,9 +225,9 @@ export class Connections {
   }
 
   /**
-   * Deletes the connection with its remote refs, mappings and pending outbox rows, and counts each. When it was the
-   * source of truth, the board becomes the source of truth in the same transaction, even if another connection started
-   * sync.
+   * Deletes the connection with its remote refs, mappings, pending outbox rows and recorded overwrites, and counts the
+   * first three. When it was the source of truth, the board becomes the source of truth in the same transaction, even
+   * if another connection started sync.
    */
   remove(id: number | string): ConnectionRemoval {
     return tx(this.db, () => {
@@ -218,6 +235,7 @@ export class Connections {
       const remove = (table: string) => Number(this.db.prepare(`DELETE FROM ${table} WHERE connection_id = ?`).run(removed.id).changes);
       const counts = { remote_refs: remove('item_remote_refs'), mappings: remove('connection_mappings'), outbox: remove('sync_outbox') };
       const reset = remove('sync_source_of_truth') > 0;
+      remove('sync_overwrites');
       this.db.prepare('DELETE FROM connections WHERE id = ?').run(removed.id);
       return { removed, ...counts, source_of_truth_reset: reset };
     });
@@ -244,18 +262,67 @@ export class Connections {
     return Number(this.db.prepare('INSERT INTO sync_source_of_truth(id, connection_id) VALUES (1, ?) ON CONFLICT(id) DO NOTHING').run(id).changes) > 0;
   }
 
-  /** Every connection with its pending outbox count, and the source of truth; reads only the local database. */
+  /**
+   * Replaces the overwritten fields recorded for the connection's latest `step` with `entries` (none clears them), in
+   * the caller's transaction.
+   */
+  recordOverwrites(id: number, step: OverwriteStep, at: string, entries: readonly SyncOverwrite[]): void {
+    this.db.prepare('DELETE FROM sync_overwrites WHERE connection_id = ? AND step = ?').run(id, step);
+    const insert = this.db.prepare(
+      'INSERT INTO sync_overwrites(connection_id, step, at, item_id, external_ref, field, value, overwritten) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const entry of entries) {
+      insert.run(id, step, at, entry.item_id, entry.external_ref, entry.field, JSON.stringify(entry.value ?? null), JSON.stringify(entry.overwritten ?? null));
+    }
+  }
+
+  /** Every connection with its pending outbox count and latest overwrites, and the source of truth; reads only the local database. */
   status(): SyncStatus {
     const pending = new Map(
       (this.db.prepare('SELECT connection_id, count(*) AS n FROM sync_outbox GROUP BY connection_id').all() as { connection_id: number; n: number }[]).map(
         (row) => [Number(row.connection_id), Number(row.n)],
       ),
     );
+    const overwritten = new Map<number, ConnectionOverwrite[]>();
+    const rows = this.db.prepare('SELECT * FROM sync_overwrites').all() as unknown as OverwriteRow[];
+    for (const row of rows) {
+      const step = row.step;
+      const entries = overwritten.get(Number(row.connection_id)) ?? [];
+      entries.push({
+        step,
+        item_id: row.item_id,
+        external_ref: row.external_ref,
+        field: row.field,
+        winner: step === 'pull' ? 'remote' : 'local',
+        value: JSON.parse(row.value) as SyncOverwrite['value'],
+        overwritten: JSON.parse(row.overwritten) as SyncOverwrite['overwritten'],
+        at: row.at,
+      });
+      overwritten.set(Number(row.connection_id), entries);
+    }
+    const steps: OverwriteStep[] = ['pull', 'confirm'];
+    for (const entries of overwritten.values()) {
+      entries.sort(
+        (a, b) =>
+          steps.indexOf(a.step) - steps.indexOf(b.step) || compareIds(a.item_id, b.item_id) || SYNCED_FIELDS.indexOf(a.field) - SYNCED_FIELDS.indexOf(b.field),
+      );
+    }
     const source = this.sourceOfTruth();
     return {
-      connections: this.list().map((connection) => ({ ...connection, pending_outbox: pending.get(connection.id) ?? 0 })),
+      connections: this.list().map((connection) => ({ ...connection, pending_outbox: pending.get(connection.id) ?? 0, overwritten: overwritten.get(connection.id) ?? [] })),
       source_of_truth:
         source.source_of_truth === 'board' ? 'board' : { id: source.source_of_truth, host: source.host!, repository: source.repository! },
     };
   }
+}
+
+interface OverwriteRow {
+  connection_id: number;
+  step: OverwriteStep;
+  at: string;
+  item_id: string;
+  external_ref: string;
+  field: SyncedField;
+  value: string;
+  overwritten: string;
 }
