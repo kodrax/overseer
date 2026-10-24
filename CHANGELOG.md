@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `overseer sync start <connection> <listing>` seeds an empty GitHub or GitLab repository from the board: every item without an issue there, of any kind and status, gets one pending create in the connection's outbox, and the connection records its sync start time (`sync_started_at`, shown by `sync connections` and `sync status`) once.
 - `overseer pr draft` closes the item's issue in every connected repository on the pull request's host (`Closes owner/repo#N` per repository) and names issues on the other host with `Also tracked in GitLab: <url>` instead of a closing keyword.
 
+### Fixed
+
+- `overseer doctor` counts a harness as installed at project scope only from its own agent file or MCP entry, so a project-scope install for Codex, Gemini CLI, Copilot CLI, Cursor or OpenCode no longer names every harness that reads the shared `.agents/skills` folder (BUG-0013).
+
 ## [0.1.1] - 2026-10-24
 
 ### Changed

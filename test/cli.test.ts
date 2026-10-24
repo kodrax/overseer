@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -607,6 +607,67 @@ describe('cli install and doctor', () => {
 
     expect((await cli(repo, ['install', '--targets', 'claude', '--skip-model'], { env })).code).toBe(0);
     expect((await harnesses())?.detail).toBe('overseer installed for claude, omp (project)');
+  });
+
+  describe('project-scope installs sharing .agents/skills (BUG-0013)', () => {
+    async function doctor(repo: string, env: Record<string, string>): Promise<CheckLine[]> {
+      return (await cli(repo, ['doctor', '--json'], { env })).json<{ checks: CheckLine[] }>().checks;
+    }
+    function setup(): { repo: string; env: Record<string, string> } {
+      const home = tempDir('ovs-home-');
+      return { repo: tempRepo(), env: { HOME: home, PATH: binDir(), OVERSEER_CONFIG_DIR: tempDir('ovs-config-'), XDG_CACHE_HOME: join(home, 'cache') } };
+    }
+    const projectHarnesses = (checks: CheckLine[]): string[] =>
+      [...new Set(checks.filter((check) => check.label.includes(' (project) ')).map((check) => check.label.split(' ')[0]!))];
+
+    it('names only the harness installed and checks only its MCP config', async () => {
+      const { repo, env } = setup();
+      expect((await cli(repo, ['init'], { env })).code).toBe(0);
+      expect((await cli(repo, ['install', '--scope', 'project', '--targets', 'codex', '--skip-model'], { env })).code).toBe(0);
+      expect((await cli(repo, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo'], { env })).code).toBe(0);
+      const checks = await doctor(repo, env);
+      expect(checks.find((check) => check.label === 'harnesses')?.detail).toBe('overseer installed for codex (project)');
+      expect(projectHarnesses(checks)).toEqual(['codex']);
+      expect(checks.find((check) => check.label === 'connection 1')?.detail).toMatch(/ in codex \(project\);/);
+    });
+
+    it('names two such harnesses, each with its own agent and MCP checks', async () => {
+      const { repo, env } = setup();
+      expect((await cli(repo, ['install', '--scope', 'project', '--targets', 'codex,gemini', '--skip-model'], { env })).code).toBe(0);
+      const checks = await doctor(repo, env);
+      expect(checks.find((check) => check.label === 'harnesses')?.detail).toBe('overseer installed for codex (project), gemini (project)');
+      expect(checks.filter((check) => check.label.includes(' (project) ')).map((check) => check.label)).toEqual([
+        'codex (project) agent',
+        'codex (project) skills',
+        'codex (project) mcp',
+        'gemini (project) agent',
+        'gemini (project) skills',
+        'gemini (project) mcp',
+      ]);
+    });
+
+    it('names no harness when only the shared skills folder is there', async () => {
+      const { repo, env } = setup();
+      expect((await cli(repo, ['install', '--scope', 'project', '--targets', 'codex', '--skip-model'], { env })).code).toBe(0);
+      rmSync(join(repo, '.codex'), { recursive: true });
+      expect(existsSync(join(repo, '.agents/skills/overseer/SKILL.md'))).toBe(true);
+      const checks = await doctor(repo, env);
+      expect(checks.find((check) => check.label === 'harnesses')).toEqual({
+        status: 'WARN',
+        label: 'harnesses',
+        detail: 'overseer is not installed for any harness; run overseer install',
+      });
+      expect(projectHarnesses(checks)).toEqual([]);
+    });
+
+    it('leaves user-scope and Claude Code / OMP project installs unchanged', async () => {
+      const { repo, env } = setup();
+      expect((await cli(repo, ['install', '--targets', 'codex,gemini', '--skip-model'], { env })).code).toBe(0);
+      expect((await cli(repo, ['install', '--scope', 'project', '--targets', 'claude,omp', '--skip-model'], { env })).code).toBe(0);
+      const checks = await doctor(repo, env);
+      expect(checks.find((check) => check.label === 'harnesses')?.detail).toBe('overseer installed for claude (project), omp (project), codex, gemini');
+      expect(projectHarnesses(checks)).toEqual(['claude', 'omp']);
+    });
   });
 
   it('doctor warns when overseer is installed for no harness', async () => {
