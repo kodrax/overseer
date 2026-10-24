@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-24
+
 ### Added
 
 - `overseer sync start <connection> <listing>` seeds an empty GitHub or GitLab repository from the board: every item without an issue there, of any kind and status, gets one pending create in the connection's outbox, and the connection records its sync start time (`sync_started_at`, shown by `sync connections` and `sync status`) once.
@@ -39,6 +41,7 @@ First release.
 - **Ship workflow**: `overseer worktree start`/`finish`/`list` for per-item branches and worktrees, `overseer pr draft` for pull request titles and bodies, and `overseer pr opened`.
 - **Sync commands (early, manual)**: repository connections, source of truth, kind/status/priority mapping, outbox, `sync plan`, `sync pull` and `sync confirm`, driven by the `overseer-sync` skill through the harness's GitHub or GitLab MCP server.
 
-[Unreleased]: https://github.com/kodrax/overseer/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/kodrax/overseer/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kodrax/overseer/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kodrax/overseer/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kodrax/overseer/releases/tag/v0.1.0

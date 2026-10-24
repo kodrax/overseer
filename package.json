@@ -1,6 +1,6 @@
 {
   "name": "@kodrax/overseer",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Cross-harness requirements registry and Agile board for coding agents: MCP server, CLI and local web board backed by SQLite with local embeddings.",
   "keywords": [
     "mcp",
