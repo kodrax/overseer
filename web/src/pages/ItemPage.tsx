@@ -282,6 +282,8 @@ function describeEvent(ev: ItemEvent): string {
       return `unlinked ${humanize(ev.field)} ${ev.old_value ?? ''}`;
     case 'comment':
       return 'commented';
+    case 'overwrite':
+      return `overwrote ${ev.field ?? 'field'}: ${ev.old_value ?? '∅'} → ${ev.new_value ?? '∅'}`;
     default:
       return `${ev.field ?? 'field'}: ${ev.old_value ?? '∅'} → ${ev.new_value ?? '∅'}`;
   }

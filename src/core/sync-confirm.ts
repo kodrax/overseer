@@ -4,9 +4,9 @@ import { OverseerError } from './errors.js';
 import { SYNCED_FIELDS, type SyncedField, type SyncedFields } from './import.js';
 import { getRow, toItem } from './items.js';
 import type { OutboxEntry } from './outbox.js';
-import { parseInput } from './schema.js';
+import { type Ctx, parseInput } from './schema.js';
 import type { OverseerService } from './service.js';
-import { REMOTE_FIELDS, targetIssue } from './sync-plan.js';
+import { REMOTE_FIELDS, type SyncOverwrite, targetIssue } from './sync-plan.js';
 
 const STATES: Record<string, 'open' | 'closed'> = { open: 'open', opened: 'open', closed: 'closed' };
 
@@ -22,6 +22,8 @@ const pushResultSchema = z
       .transform((state) => STATES[state.toLowerCase()])
       .pipe(z.enum(['open', 'closed'], { message: 'state must be open or closed' })),
     fields: z.array(z.enum(SYNCED_FIELDS)).optional(),
+    /** The plan op's `overwritten`: the issue's values the push replaced, by field. */
+    overwritten: z.partialRecord(z.enum(SYNCED_FIELDS), z.union([z.string(), z.array(z.string()), z.null()])).optional(),
   })
   .strict();
 
@@ -45,17 +47,21 @@ export interface SyncConfirmation {
 
 /**
  * Records the pushes the agent ran for one connection's sync plan (NOT_FOUND for an unknown connection). Every result
- * is checked first; any unknown or repeated seq, a seq of another item or connection, an unknown item or an issue of
- * another repository or item gives INVALID_INPUT and nothing is written. Then, in one transaction, per result:
+ * is checked first; any unknown or repeated seq, a seq of another item or connection, an unknown item, an issue of
+ * another repository or item, or an `overwritten` field the push did not set gives INVALID_INPUT and nothing is
+ * written. Then, in one transaction, per result:
  * - the item's remote ref on the connection is created or updated (issue ID, URL, state, sync time), and the item's
  *   `external_ref`/`external_url` are set to it when the item has none, so references resolve as for an import;
  * - the snapshot gets the pushed values of `fields` (the plan op's `fields`; when omitted, every synced field for an
  *   item not linked yet or a pending create, else the fields the entries' changes touch), recomputed from the item and
  *   the mapping: a pending seq means the item has not changed since the plan, so the values are the plan's `issue`;
+ * - each field of `overwritten` (the plan op's: the issue's values the push replaced) gets an `overwrite` event via
+ *   `sync:<host>` with the issue's value and the pushed one;
  * - its outbox seqs are acknowledged.
- * The close of a deleted item only acknowledges its seqs.
+ * The close of a deleted item only acknowledges its seqs. The overwritten fields replace the connection's latest
+ * confirm overwrites (`sync status`).
  */
-export function confirmSync(service: OverseerService, connectionId: number | string, input: unknown): SyncConfirmation {
+export function confirmSync(service: OverseerService, connectionId: number | string, input: unknown, ctx: Ctx): SyncConfirmation {
   const connection = service.connections.require(connectionId);
   const results = parseInput(z.array(pushResultSchema).min(1, 'Pass at least one push result.'), input);
   const db = service.db;
@@ -66,7 +72,7 @@ export function confirmSync(service: OverseerService, connectionId: number | str
   const linked = db.prepare('SELECT synced_fields FROM item_remote_refs WHERE item_id = ? AND connection_id = ?');
   const errors: string[] = [];
   const seen = new Set<number>();
-  const planned: { result: z.infer<typeof pushResultSchema>; entries: OutboxEntry[] }[] = [];
+  const planned: { result: z.infer<typeof pushResultSchema>; entries: OutboxEntry[]; fields: SyncedField[] }[] = [];
 
   results.forEach((result, index) => {
     const at = `result ${index + 1} (${result.item_id})`;
@@ -89,12 +95,26 @@ export function confirmSync(service: OverseerService, connectionId: number | str
       const other = holder.get(connection.id, result.external_id) as { item_id: string } | undefined;
       if (other && other.item_id !== result.item_id) errors.push(`${at}: ${result.external_id} is already linked to ${other.item_id} in connection ${connection.id}`);
     }
-    planned.push({ result, entries: own });
+    const earlier = exists && linked.get(result.item_id, connection.id) !== undefined;
+    const fields = !exists
+      ? []
+      : (result.fields ??
+        SYNCED_FIELDS.filter(
+          (field) =>
+            !earlier ||
+            own.some((entry) => entry.operation === 'create' || entry.changed_fields.some((changed) => REMOTE_FIELDS[changed]?.includes(field))),
+        ));
+    for (const field of SYNCED_FIELDS) {
+      if (result.overwritten && field in result.overwritten && !fields.includes(field)) errors.push(`${at}: overwritten names ${field}, which the push did not set`);
+    }
+    planned.push({ result, entries: own, fields });
   });
   if (errors.length > 0) throw new OverseerError('INVALID_INPUT', `${errors.join('; ')}; nothing was written.`);
 
   return tx(db, () => {
     const now = nowIso();
+    const confirmCtx: Ctx = { ...ctx, via: `sync:${connection.host}`, origin_connection: connection.id };
+    const overwrites: SyncOverwrite[] = [];
     const upsert = db.prepare(
       `INSERT INTO item_remote_refs(item_id, connection_id, external_ref, url, state, synced_at, synced_fields) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(item_id, connection_id) DO UPDATE SET
@@ -106,20 +126,13 @@ export function confirmSync(service: OverseerService, connectionId: number | str
       'UPDATE items SET external_ref = ?, external_url = ?, external_state = ?, external_synced_at = ? WHERE id = ? AND external_ref IS NULL',
     );
     const confirmed: ConfirmedPush[] = [];
-    for (const { result, entries: own } of planned) {
+    for (const { result, fields } of planned) {
       const row = getRow(db, result.item_id);
       if (!row) {
         confirmed.push({ item_id: result.item_id, external_id: result.external_id, url: result.url, state: result.state, fields: [] });
         continue;
       }
       const earlier = linked.get(result.item_id, connection.id) as { synced_fields: string } | undefined;
-      const fields =
-        result.fields ??
-        SYNCED_FIELDS.filter(
-          (field) =>
-            !earlier ||
-            own.some((entry) => entry.operation === 'create' || entry.changed_fields.some((changed) => REMOTE_FIELDS[changed]?.includes(field))),
-        );
       const pushed = { ...targetIssue(toItem(row), mapping).issue, state: result.state };
       const merged: SyncedFields = { ...(earlier ? (JSON.parse(earlier.synced_fields) as SyncedFields) : {}) };
       for (const field of fields) Object.assign(merged, { [field]: pushed[field] });
@@ -127,8 +140,22 @@ export function confirmSync(service: OverseerService, connectionId: number | str
       upsert.run(result.item_id, connection.id, result.external_id, result.url, result.state, now, JSON.stringify(snapshot));
       const legacy = `${connection.host}:${result.external_id}`;
       if (row.external_ref === null && !legacyHolder.get(legacy)) setLegacy.run(legacy, result.url, result.state, now, result.item_id);
+      for (const field of SYNCED_FIELDS) {
+        if (!result.overwritten || !(field in result.overwritten)) continue;
+        const entry: SyncOverwrite = {
+          item_id: result.item_id,
+          external_ref: result.external_id,
+          field,
+          winner: 'local',
+          value: pushed[field] ?? null,
+          overwritten: result.overwritten[field] ?? null,
+        };
+        service.addEvent(result.item_id, confirmCtx, now, 'overwrite', field, entry.overwritten, entry.value);
+        overwrites.push(entry);
+      }
       confirmed.push({ item_id: result.item_id, external_id: result.external_id, url: result.url, state: result.state, fields: SYNCED_FIELDS.filter((field) => fields.includes(field)) });
     }
+    service.connections.recordOverwrites(connection.id, 'confirm', now, overwrites);
     const acked = service.outbox.ack([...seen]).acked;
     return { connection_id: connection.id, confirmed, acked };
   });

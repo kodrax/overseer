@@ -114,7 +114,9 @@ function applyUpdate(service: OverseerService, connectionId: number, host: Impor
  * Applies the pull operations of a connection's sync plan (the same computation as `sync plan`) in one transaction:
  * a pull create creates the item as import does, with its remote ref and snapshot; a pull update applies only its
  * planned fields (fields with a pending local change are not planned, unless this connection is the source of truth
- * and overwrites them) and refreshes their snapshot. Conflicts are left
+ * and overwrites them) and refreshes their snapshot. Each overwritten local value gets an `overwrite` event (field,
+ * the local value, the issue's) after the item's update events, and the plan's overwritten list replaces the
+ * connection's latest pull overwrites (`sync status`). Conflicts are left
  * untouched and returned. Events are recorded via `sync:<host>`; the outbox skips this connection and queues the
  * others. Applying the same listing again changes nothing.
  */
@@ -127,6 +129,8 @@ export function pullSync(service: OverseerService, connectionId: number | string
   if (plan.pull.length === 0) return result;
   const pullCtx: Ctx = { ...ctx, via: `sync:${connection.host}`, origin_connection: connection.id };
   const now = nowIso();
+  // The planned connection is the source of truth: every resolved conflict is a local value the pull replaces.
+  const overwrites = plan.overwritten.filter((entry) => entry.winner === 'remote');
   tx(service.db, () => {
     const created: { id: string; remote: ImportItem }[] = [];
     for (const op of plan.pull) {
@@ -137,10 +141,14 @@ export function pullSync(service: OverseerService, connectionId: number | string
         result.created.push({ item_id: id, external_ref: op.external_ref });
       } else {
         applyUpdate(service, connection.id, connection.host, op, remote, pullCtx, now, result.warnings);
+        for (const entry of overwrites) {
+          if (entry.item_id === op.item_id) service.addEvent(entry.item_id, pullCtx, now, 'overwrite', entry.field, entry.overwritten, entry.value);
+        }
         result.updated.push({ item_id: op.item_id!, external_ref: op.external_ref, fields: op.fields });
       }
     }
     writeRemoteRefs(service.db, connection.id, created, now, result.warnings);
+    service.connections.recordOverwrites(connection.id, 'pull', now, overwrites);
     // Parents after every create, so a parent issue may come anywhere in the listing.
     for (const { remote } of created) linkImportedParent(service, connection.host, remote, pullCtx, now, result.warnings);
   });

@@ -7,7 +7,7 @@ import { ctx, openService } from './helpers/service.js';
 import { tempRepo } from './helpers/tmp.js';
 
 const V1_TABLES = ['meta', 'counters', 'items', 'links', 'events', 'items_fts', 'item_embeddings', 'sqlite_sequence'];
-const SYNC_TABLES = ['connections', 'item_remote_refs', 'connection_mappings', 'sync_outbox', 'tombstones', 'sync_source_of_truth'];
+const SYNC_TABLES = ['connections', 'item_remote_refs', 'connection_mappings', 'sync_outbox', 'tombstones', 'sync_source_of_truth', 'sync_overwrites'];
 const T = '2026-10-01T10:00:00-03:00';
 
 /** A schema_version 1 database as the previous release created it, filled with items, links, events and an external_ref. */
@@ -73,8 +73,8 @@ describe('migrations', () => {
     v1.close();
 
     const { db } = openDatabase(root, { create: false })!;
-    expect(SCHEMA_VERSION).toBe(5);
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '5' });
+    expect(SCHEMA_VERSION).toBe(6);
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '6' });
     const after = snapshot(db, V1_TABLES);
     expect(after).toEqual(before);
     expect(before.events).toHaveLength(5);
@@ -92,6 +92,10 @@ describe('migrations', () => {
       `INSERT INTO events(item_id, at, actor, via, action) VALUES ('TASK-0001', '${T}', 'tester', 'cli', 'delete')`,
     ).run();
     expect(db.prepare("SELECT seq, action FROM events WHERE action = 'delete'").get()).toEqual({ seq: 10, action: 'delete' });
+    db.prepare(
+      `INSERT INTO events(item_id, at, actor, via, action, field, old_value, new_value) VALUES ('TASK-0001', '${T}', 'tester', 'sync:github', 'overwrite', 'title', 'Mine', 'Theirs')`,
+    ).run();
+    expect(db.prepare("SELECT seq, action FROM events WHERE action = 'overwrite'").get()).toEqual({ seq: 11, action: 'overwrite' });
     db.close();
   });
 
@@ -107,7 +111,7 @@ describe('migrations', () => {
     v2.close();
 
     const { db } = openDatabase(root, { create: false })!;
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '5' });
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '6' });
     expect(db.prepare('SELECT id, repository, sync_started_at, sync_start_baseline FROM connections').all()).toEqual([
       { id: 1, repository: 'acme/app', sync_started_at: null, sync_start_baseline: null },
     ]);
@@ -133,7 +137,7 @@ describe('migrations', () => {
     const root = tempRepo();
     createOldDatabase(root, version, [null, null]);
     const service = openService(root);
-    expect(service.info().schema_version).toBe(5);
+    expect(service.info().schema_version).toBe(6);
     expect(service.db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'sync_settings'").get()).toBeUndefined();
     expect(service.connections.sourceOfTruth()).toMatchObject({ source_of_truth: 'board', host: null, repository: null });
     expect(service.connections.status().source_of_truth).toBe('board');
@@ -157,9 +161,9 @@ describe('migrations', () => {
 
   it('runs every migration for a new project', () => {
     const service = openService();
-    expect(service.info().schema_version).toBe(5);
+    expect(service.info().schema_version).toBe(6);
     const { db } = openDatabase(service.root, { create: false })!;
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '5' });
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '6' });
     for (const table of SYNC_TABLES) {
       expect(db.prepare('SELECT 1 FROM sqlite_master WHERE name = ?').get(table), table).toBeDefined();
     }
@@ -213,8 +217,15 @@ describe('migrations', () => {
     expect(() => run('INSERT INTO sync_source_of_truth(id, connection_id) VALUES (2, 1)')).toThrow(/CHECK/);
     expect(() => run('UPDATE sync_source_of_truth SET connection_id = 9')).toThrow(/FOREIGN KEY/);
 
+    run(`INSERT INTO sync_overwrites(connection_id, step, at, item_id, external_ref, field, value, overwritten)
+         VALUES (1, 'pull', '${T}', 'TASK-0001', 'acme/app#1', 'title', '"Theirs"', '"Mine"')`);
+    expect(() =>
+      run(`INSERT INTO sync_overwrites(connection_id, step, at, item_id, external_ref, field, value, overwritten)
+           VALUES (1, 'push', '${T}', 'TASK-0001', 'acme/app#1', 'title', '"Theirs"', '"Mine"')`),
+    ).toThrow(/CHECK/);
+
     run('DELETE FROM connections WHERE id = 1');
-    for (const table of ['item_remote_refs', 'connection_mappings', 'sync_outbox', 'sync_source_of_truth']) {
+    for (const table of ['item_remote_refs', 'connection_mappings', 'sync_outbox', 'sync_source_of_truth', 'sync_overwrites']) {
       expect(db.prepare(`SELECT count(*) AS n FROM ${table}`).get(), table).toEqual({ n: 0 });
     }
     db.close();

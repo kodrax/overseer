@@ -24,7 +24,7 @@ const issue = (number: number, title: string, overrides: Record<string, unknown>
   ...overrides,
 });
 
-const TABLES = ['items', 'events', 'links', 'sync_outbox', 'item_remote_refs', 'connection_mappings', 'connections', 'tombstones', 'meta', 'counters'];
+const TABLES = ['items', 'events', 'links', 'sync_outbox', 'item_remote_refs', 'connection_mappings', 'connections', 'tombstones', 'sync_overwrites', 'meta', 'counters'];
 const dump = (service: OverseerService) => Object.fromEntries(TABLES.map((table) => [table, service.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
 
 const snapshotOf = (service: OverseerService, itemId: string, connectionId = 1) =>
@@ -163,6 +163,7 @@ describe('sync pull', () => {
     expect(snapshotOf(service, 'TASK-0002').title).toBe('Rename settings screen');
     expect(eventsOf(service, 'TASK-0002', before)).toEqual([
       { via: 'sync:github', action: 'update', field: 'title', old_value: 'Rename the settings page', new_value: 'Rename settings screen' },
+      { via: 'sync:github', action: 'overwrite', field: 'title', old_value: 'Rename the settings page', new_value: 'Rename settings screen' },
     ]);
 
     // Applied: nothing left to pull or push for TASK-0002, and its pending entry is still only to acknowledge.
@@ -171,6 +172,33 @@ describe('sync pull', () => {
     expect(after.overwritten).toEqual([]);
     expect(after.push.some((op) => op.item_id === 'TASK-0002')).toBe(false);
     expect(after.ack).toContain(seq);
+    service.close();
+  });
+
+  it('records each overwritten local value in history and as the latest pull overwrites of the connection (TASK-0024 AC1, AC3)', async () => {
+    const { service, connection, other, listing } = await scenario();
+    service.connections.claimSourceOfTruth(connection.id);
+    expect(service.connections.status().connections.map((state) => state.overwritten)).toEqual([[], []]);
+    const before = lastEvent(service);
+    pullSync(service, connection.id, listing, ctx);
+
+    const history = service.getItem('TASK-0002', { history: true }).history!.filter((event) => event.seq > before);
+    expect(history.at(-1)).toMatchObject({ via: 'sync:github', action: 'overwrite', field: 'title', old_value: 'Rename the settings page', new_value: 'Rename settings screen' });
+    // Only history: the overwrite queues nothing for the other connection beyond the title update itself.
+    expect(service.outbox.list(other.id).find((entry) => entry.item_id === 'TASK-0002')).toMatchObject({ changed_fields: ['title'] });
+
+    const [state, otherState] = service.connections.status().connections;
+    const at = history.at(-1)!.at;
+    expect(state!.overwritten).toEqual([
+      { step: 'pull', item_id: 'TASK-0002', external_ref: 'acme/demo#3', field: 'title', winner: 'remote', value: 'Rename settings screen', overwritten: 'Rename the settings page', at },
+    ]);
+    expect(otherState!.overwritten).toEqual([]);
+
+    // A pull that applies nothing changes nothing; the next one that applies changes replaces the list.
+    pullSync(service, connection.id, listing, ctx);
+    expect(service.connections.status().connections[0]!.overwritten).toEqual(state!.overwritten);
+    pullSync(service, connection.id, { issues: [...listing.issues.slice(0, 4), issue(5, 'Dark mode toggle switch')] }, ctx);
+    expect(service.connections.status().connections[0]!.overwritten).toEqual([]);
     service.close();
   });
 

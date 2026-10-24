@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Write results (`create_item`, batch included, `update_item`, `delete_item`, `link_items`, `import_items` and their `--json` commands) carry `sync_pending: [{connection_id, host, repository}]` naming each connection with auto-sync on and a started sync that the write queued changes for, one list per write; the `overseer` and `overseer-ship` skills then run the `overseer-sync` Sync step once per request, or say the changes stay in the outbox (TASK-0023).
+- Overwritten conflicting edits are recorded: `sync pull` adds an `overwrite` history event (field, the local value, the issue's) when the repository wins a conflict, `sync confirm` accepts the plan op's `overwritten` and records the issue's replaced value the same way, and `sync status` lists each connection's overwritten fields of its latest pull and confirm (TASK-0024).
 
 ### Changed
 

@@ -156,6 +156,41 @@ INSERT INTO sync_source_of_truth(id, connection_id)
 `;
 
 /**
+ * Overwritten conflicting edits. `events` is rebuilt so its action CHECK accepts 'overwrite' (rows, seq values and the
+ * AUTOINCREMENT counter are kept, as in migration 2); `sync_overwrites` holds the overwritten fields of each
+ * connection's latest pull and latest confirm, for `sync status`.
+ */
+const MIGRATION_6 = `
+CREATE TABLE events_new (seq INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT NOT NULL, at TEXT NOT NULL, actor TEXT NOT NULL,
+  via TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('create','update','status','link','unlink','comment','import','delete','overwrite')),
+  field TEXT, old_value TEXT, new_value TEXT);
+INSERT INTO events_new(seq, item_id, at, actor, via, action, field, old_value, new_value)
+  SELECT seq, item_id, at, actor, via, action, field, old_value, new_value FROM events ORDER BY seq;
+CREATE TEMP TABLE events_counter AS SELECT seq FROM sqlite_sequence WHERE name = 'events';
+DROP TABLE events;
+ALTER TABLE events_new RENAME TO events;
+DELETE FROM sqlite_sequence WHERE name = 'events';
+INSERT INTO sqlite_sequence(name, seq) SELECT 'events', seq FROM temp.events_counter;
+DROP TABLE temp.events_counter;
+CREATE INDEX events_item ON events(item_id, seq);
+-- One row per field a sync overwrote: a pull applying the issue's value over a local edit (winner remote) or a confirmed
+-- push replacing an issue edit (winner local). Each pull that applies changes replaces the connection's pull rows, each
+-- confirm its confirm rows. value (the winning value) and overwritten (the losing one) are JSON.
+CREATE TABLE sync_overwrites (
+  connection_id INTEGER NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+  step TEXT NOT NULL CHECK (step IN ('pull','confirm')),
+  at TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  external_ref TEXT NOT NULL,
+  field TEXT NOT NULL,
+  value TEXT NOT NULL,
+  overwritten TEXT NOT NULL,
+  PRIMARY KEY (connection_id, step, item_id, field)
+);
+`;
+
+/**
  * Vectors per item: full text (`items_vec`), title only (`items_title_vec`) so short queries match titles, and title +
  * description (`items_statement_vec`), the shape of a duplicate-guard query, so a reworded item matches regardless of
  * its acceptance criteria.
@@ -187,6 +222,7 @@ export const MIGRATIONS: ReadonlyArray<(db: DatabaseSync, context: MigrationCont
   (db) => db.exec(MIGRATION_3),
   (db) => db.exec(MIGRATION_4),
   (db) => db.exec(MIGRATION_5),
+  (db) => db.exec(MIGRATION_6),
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
