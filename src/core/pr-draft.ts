@@ -1,8 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Connection, ConnectionHost } from './connections.js';
+import type { Database } from './db.js';
 import { OverseerError } from './errors.js';
 import { templatesDir } from './paths.js';
 import { git, resolveProjectRoot } from './project.js';
+import { HOST_NAME } from './references.js';
+import { branchRemote, classifyHost, parseRemoteUrl } from './remotes.js';
+import type { Item } from './schema.js';
 import type { ItemDetail } from './service.js';
 
 /** Conventional Commit types allowed in branch names and pull request titles (CONTRIBUTING.md). */
@@ -101,10 +106,69 @@ export function prTitle(type: PrType, summary: string, id: string): string {
   return `${type}: ${text} (${id})`;
 }
 
-/** `Closes owner/repo#12` for an imported GitHub/GitLab issue (`external_ref` = `<source>:<owner/repo>#<n>`). */
-export function closingRef(externalRef: string | null): string | undefined {
-  const match = externalRef ? /^(?:github|gitlab):(.+#\d+)$/.exec(externalRef) : null;
-  return match ? `Closes ${match[1]}` : undefined;
+/** An issue the item is linked to, from its imported `external_ref` or a connection's remote ref. */
+export interface ItemIssue {
+  host: ConnectionHost;
+  /** `owner/repo#12` on GitHub, `group/…/project#12` on GitLab. */
+  ref: string;
+  url: string | null;
+}
+
+const ISSUE_REF = /^(?:(github|gitlab):)?(.+#\d+)$/;
+
+/** The issue of an imported item (`external_ref` = `<source>:<owner/repo>#<n>`), else none. */
+export function importedIssue(item: Pick<Item, 'external_ref' | 'external_url'>): ItemIssue[] {
+  const match = item.external_ref ? ISSUE_REF.exec(item.external_ref) : null;
+  return match?.[1] ? [{ host: match[1] as ConnectionHost, ref: match[2]!, url: item.external_url }] : [];
+}
+
+/**
+ * Every issue of an item: the imported one, then its remote refs (`<repo>#<n>` or `<host>:<repo>#<n>`) by connection;
+ * an issue named twice (same host and reference, case-insensitive) counts once.
+ */
+export function itemIssues(db: Database, item: Pick<Item, 'id' | 'external_ref' | 'external_url'>): ItemIssue[] {
+  const rows = db
+    .prepare('SELECT c.host, r.external_ref, r.url FROM item_remote_refs r JOIN connections c ON c.id = r.connection_id WHERE r.item_id = ? ORDER BY c.id')
+    .all(item.id) as unknown as { host: ConnectionHost; external_ref: string; url: string | null }[];
+  const issues = importedIssue(item);
+  for (const row of rows) {
+    const ref = ISSUE_REF.exec(row.external_ref)?.[2];
+    if (ref !== undefined) issues.push({ host: row.host, ref, url: row.url });
+  }
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.host}:${issue.ref.toLowerCase()}`;
+    return !seen.has(key) && seen.add(key);
+  });
+}
+
+/**
+ * Host the pull request goes to: that of the branch's upstream remote, else origin. A remote on another server
+ * (GitHub Enterprise, self-hosted GitLab) takes the host of the connections to its repository when they agree.
+ * Undefined without a remote or when the host is unclear.
+ */
+export function pullRequestHost(dir: string, branch: string | null, connections: readonly Connection[]): ConnectionHost | undefined {
+  const remote = branchRemote(dir, branch);
+  const url = remote === null ? undefined : git(dir, ['remote', 'get-url', remote]);
+  const parsed = url === undefined ? undefined : parseRemoteUrl(url);
+  if (!parsed) return undefined;
+  const host = classifyHost(parsed.hostname);
+  if (host !== 'unknown') return host;
+  const hosts = new Set(connections.filter((c) => c.repository.toLowerCase() === parsed.repository.toLowerCase()).map((c) => c.host));
+  return hosts.size === 1 ? [...hosts][0] : undefined;
+}
+
+/**
+ * Lines after `Item:`: `Closes owner/repo#12` for each issue the pull request's host can close (every issue when the
+ * host is unknown), then `Also tracked in GitLab: <url>` for issues on the other host, which it cannot close.
+ */
+export function issueLines(issues: readonly ItemIssue[], host: ConnectionHost | undefined): string[] {
+  const closes = issues.filter((issue) => host === undefined || issue.host === host);
+  const others = issues.filter((issue) => !closes.includes(issue));
+  return [
+    ...closes.map((issue) => `Closes ${issue.ref}`),
+    ...others.map((issue) => `Also tracked in ${HOST_NAME[issue.host]}: ${issue.url ?? `\`${issue.ref}\``}`),
+  ];
 }
 
 interface Section {
@@ -170,12 +234,20 @@ function why(detail: ItemDetail): string {
   return parts.join('\n\n');
 }
 
+/** Issues to close or name in the body, and the host the pull request goes to. */
+export interface PrIssueOptions {
+  /** Default: the imported issue (`importedIssue`). */
+  issues?: readonly ItemIssue[];
+  /** Undefined: every issue gets a closing line. */
+  host?: ConnectionHost;
+}
+
 /**
- * Fills a pull request template for an item: the `Item:` line, a closing reference for imported issues, the Why
- * section (description and linked requirements) and the acceptance criteria as a checklist. Why and acceptance
- * sections missing from the template are added; every other section keeps its HTML comment for the author.
+ * Fills a pull request template for an item: the `Item:` line, the issue lines (`issueLines`), the Why section
+ * (description and linked requirements) and the acceptance criteria as a checklist. Why and acceptance sections
+ * missing from the template are added; every other section keeps its HTML comment for the author.
  */
-export function fillPrTemplate(template: string, detail: ItemDetail): string {
+export function fillPrTemplate(template: string, detail: ItemDetail, options: PrIssueOptions = {}): string {
   const { item } = detail;
   const sections = parseSections(template.replace(/\r\n/g, '\n'));
   const level = sections.find((section) => section.heading !== null)?.level ?? 2;
@@ -210,12 +282,12 @@ export function fillPrTemplate(template: string, detail: ItemDetail): string {
     lineIndex = 1;
   }
 
-  const closes = closingRef(item.external_ref);
-  if (closes) {
+  const issues = issueLines(options.issues ?? importedIssue(item), options.host);
+  if (issues.length > 0) {
     const section = sections[itemIndex]!;
     const itemLine = section.lines[lineIndex]!;
     section.lines = dropComments(section.lines, /\b(closes|fixes|resolves)\b/i);
-    section.lines.splice(section.lines.indexOf(itemLine) + 1, 0, closes);
+    section.lines.splice(section.lines.indexOf(itemLine) + 1, 0, ...issues);
   }
 
   const whyText = why(detail);
@@ -239,11 +311,11 @@ export function fillPrTemplate(template: string, detail: ItemDetail): string {
  * Title and body for a task or bug. Type: `type`, else the branch's when it is `<type>/<ID>-…`, else fix for bugs
  * and feat for tasks. Same item, template and branch → same draft.
  */
-export function draftPullRequest(detail: ItemDetail, template: string, options: { type?: PrType; branch?: string } = {}): PrDraft {
+export function draftPullRequest(detail: ItemDetail, template: string, options: { type?: PrType; branch?: string } & PrIssueOptions = {}): PrDraft {
   const { kind, id, title } = detail.item;
   if (kind !== 'task' && kind !== 'bug') {
     throw new OverseerError('INVALID_INPUT', `${id} is a ${kind}; pull requests are drafted for tasks and bugs.`);
   }
   const type = options.type ?? typeFromBranch(options.branch, id) ?? (kind === 'bug' ? 'fix' : 'feat');
-  return { title: prTitle(type, imperativeSummary(title), id), body: fillPrTemplate(template, detail) };
+  return { title: prTitle(type, imperativeSummary(title), id), body: fillPrTemplate(template, detail, options) };
 }

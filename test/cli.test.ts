@@ -10,6 +10,7 @@ import type { CompactCreatedResult, CompactUpdateResult, DeleteResult, ItemDetai
 import type { CheckLine } from '../src/install/index.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { packageJsonVersion } from './helpers/package.js';
+import { ctx, openService } from './helpers/service.js';
 import { git, isolateGitConfig, tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
 
 interface Run {
@@ -854,6 +855,28 @@ describe('cli pr draft', () => {
     const { title, body } = (await cli(repo, ['pr', 'draft', 'BUG-0001', '--json'])).json<{ title: string; body: string }>();
     expect(title).toBe('fix: login crashes on Safari (BUG-0001)');
     expect(body).toBe('## Item\n\nItem: BUG-0001\n\n## Why\n\n<!-- why -->\n');
+  });
+
+  it("closes the item's issue in each repository the pull request's host can close", async () => {
+    const repo = tempRepo();
+    git(repo, 'remote', 'add', 'origin', 'https://github.com/acme/demo.git');
+    const service = openService(repo);
+    service.connections.add({ host: 'github', repository: 'acme/demo' });
+    const gitlab = service.connections.add({ host: 'gitlab', repository: 'acme/group' });
+    await service.importItems(
+      { source: 'github', repo: 'acme/demo', items: [{ external_id: 'acme/demo#12', url: 'https://github.com/acme/demo/issues/12', title: 'Login crashes', state: 'open', labels: ['bug'] }] },
+      ctx,
+    );
+    service.db
+      .prepare("INSERT INTO item_remote_refs(item_id, connection_id, external_ref, url, state, synced_at, synced_fields) VALUES ('BUG-0001', ?, 'acme/group#3', ?, 'open', '2026-10-24T00:00:00Z', '{}')")
+      .run(gitlab.id, 'https://gitlab.com/acme/group/-/issues/3');
+    service.close();
+
+    const { body } = (await cli(repo, ['pr', 'draft', 'BUG-0001', '--json'])).json<{ title: string; body: string }>();
+    expect(body).toContain('Item: BUG-0001\nCloses acme/demo#12\nAlso tracked in GitLab: https://gitlab.com/acme/group/-/issues/3\n');
+    git(repo, 'remote', 'set-url', 'origin', 'git@gitlab.com:acme/group.git');
+    const onGitlab = (await cli(repo, ['pr', 'draft', 'BUG-0001', '--json'])).json<{ title: string; body: string }>();
+    expect(onGitlab.body).toContain('Item: BUG-0001\nCloses acme/group#3\nAlso tracked in GitHub: https://github.com/acme/demo/issues/12\n');
   });
 });
 

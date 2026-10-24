@@ -70,7 +70,7 @@ export function parseIssueReference(text: string): IssueReference | undefined {
   return parseUrl(value) ?? parseShort(value);
 }
 
-const HOST_NAME: Record<ConnectionHost, string> = { github: 'GitHub', gitlab: 'GitLab' };
+export const HOST_NAME: Record<ConnectionHost, string> = { github: 'GitHub', gitlab: 'GitLab' };
 
 /** `#N` names an issue of the one connected repository; INVALID_INPUT when none or several are connected. */
 function bareTarget(reference: IssueReference, connections: Connection[]): { hosts: ConnectionHost[]; repository: string } {
