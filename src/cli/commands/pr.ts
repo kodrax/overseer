@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { checkoutDir, draftPullRequest, type PrDraft, PR_TYPES, readPrTemplate } from '../../core/pr-draft.js';
+import { checkoutDir, draftPullRequest, itemIssues, type PrDraft, PR_TYPES, pullRequestHost, readPrTemplate } from '../../core/pr-draft.js';
 import { git } from '../../core/project.js';
 import { openPullRequest, type PrOpenedResult } from '../../core/worktree.js';
 import { oneOf } from '../options.js';
@@ -19,7 +19,9 @@ export function registerPrCommands(program: Command, rt: CliRuntime): void {
         const detail = service.getItem(id);
         const dir = checkoutDir(service.root, rt.cwd);
         const branch = git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
-        const draft = draftPullRequest(detail, readPrTemplate(dir), { ...(type ? { type } : {}), ...(branch ? { branch } : {}) });
+        const issues = itemIssues(service.db, detail.item);
+        const host = pullRequestHost(dir, branch ?? null, service.connections.list());
+        const draft = draftPullRequest(detail, readPrTemplate(dir), { ...(type ? { type } : {}), ...(branch ? { branch } : {}), issues, ...(host ? { host } : {}) });
         rt.emit(options.json, draft, (value: PrDraft) => `${value.title}\n\n${value.body}`);
       });
     });

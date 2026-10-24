@@ -1,9 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { packageRoot } from '../src/core/paths.js';
-import { draftPullRequest, fillPrTemplate, imperativeSummary, prTitle, typeFromBranch } from '../src/core/pr-draft.js';
-import type { ItemDetail } from '../src/core/service.js';
+import {
+  draftPullRequest,
+  fillPrTemplate,
+  imperativeSummary,
+  itemIssues,
+  prTitle,
+  pullRequestHost,
+  typeFromBranch,
+} from '../src/core/pr-draft.js';
+import type { ItemDetail, OverseerService } from '../src/core/service.js';
 import { ctx, openService } from './helpers/service.js';
+import { git, tempRepo } from './helpers/tmp.js';
 
 const repoTemplate = readFileSync(`${packageRoot()}/.github/pull_request_template.md`, 'utf8');
 
@@ -125,6 +134,89 @@ describe('pr draft body', () => {
     const detail = service.getItem('US-0001');
     service.close();
     expect(() => draftPullRequest(detail, repoTemplate)).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+  });
+});
+
+/** Imports acme/demo#12 (BUG-0001) and acme/demo#13 (BUG-0002) through the GitHub connection acme/demo. */
+async function syncedBugs(service: OverseerService): Promise<void> {
+  service.connections.add({ host: 'github', repository: 'acme/demo' });
+  service.connections.add({ host: 'gitlab', repository: 'acme/group' });
+  service.connections.add({ host: 'github', repository: 'acme/mirror' });
+  const issue = (n: number) => ({ external_id: `acme/demo#${n}`, url: `https://github.com/acme/demo/issues/${n}`, title: `Login crashes ${n}`, state: 'open' as const, labels: ['bug'] });
+  await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue(12), issue(13)] }, ctx);
+}
+
+/** A remote ref of `item` on connection `connection`, as sync confirm writes it after a push. */
+function addRemoteRef(service: OverseerService, item: string, connection: number, externalRef: string, url: string | null): void {
+  service.db
+    .prepare("INSERT INTO item_remote_refs(item_id, connection_id, external_ref, url, state, synced_at, synced_fields) VALUES (?, ?, ?, ?, 'open', '2026-10-24T00:00:00Z', '{}')")
+    .run(item, connection, externalRef, url);
+}
+
+describe('pr draft issue lines', () => {
+  it("closes the item's issue in each repository the pull request's host can close, and no other item's", async () => {
+    const service = openService();
+    await syncedBugs(service);
+    addRemoteRef(service, 'BUG-0001', 2, 'acme/group#3', 'https://gitlab.com/acme/group/-/issues/3');
+    addRemoteRef(service, 'BUG-0001', 3, 'github:acme/mirror#5', 'https://github.com/acme/mirror/issues/5');
+    addRemoteRef(service, 'BUG-0002', 2, 'acme/group#4', 'https://gitlab.com/acme/group/-/issues/4');
+    const detail = service.getItem('BUG-0001');
+    const issues = itemIssues(service.db, detail.item);
+    service.close();
+
+    const github = sections(draftPullRequest(detail, repoTemplate, { issues, host: 'github' }).body).Item;
+    expect(github).toBe('Item: BUG-0001\nCloses acme/demo#12\nCloses acme/mirror#5\nAlso tracked in GitLab: https://gitlab.com/acme/group/-/issues/3');
+    const gitlab = sections(draftPullRequest(detail, repoTemplate, { issues, host: 'gitlab' }).body).Item;
+    expect(gitlab).toBe(
+      'Item: BUG-0001\nCloses acme/group#3\nAlso tracked in GitHub: https://github.com/acme/demo/issues/12\nAlso tracked in GitHub: https://github.com/acme/mirror/issues/5',
+    );
+    for (const body of [github, gitlab]) expect(body).not.toMatch(/#13|#4\b/);
+  });
+
+  it('names a GitLab issue without a closing keyword on a GitHub pull request', async () => {
+    const service = openService();
+    await syncedBugs(service);
+    addRemoteRef(service, 'BUG-0001', 2, 'gitlab:acme/group#3', null);
+    const detail = service.getItem('BUG-0001');
+    const issues = itemIssues(service.db, detail.item);
+    service.close();
+
+    const item = sections(draftPullRequest(detail, repoTemplate, { issues, host: 'github' }).body).Item;
+    expect(item).toBe('Item: BUG-0001\nCloses acme/demo#12\nAlso tracked in GitLab: `acme/group#3`');
+    expect(item).not.toMatch(/(closes|fixes|resolves) acme\/group/i);
+  });
+
+  it('keeps the body of an item linked to one repository, or imported without a connection, as before', async () => {
+    const unconnected = openService();
+    await unconnected.importItems(
+      { source: 'github', repo: 'acme/demo', items: [{ external_id: 'acme/demo#12', url: 'https://github.com/acme/demo/issues/12', title: 'Login crashes', state: 'open', labels: ['bug'] }] },
+      ctx,
+    );
+    const connected = openService();
+    await syncedBugs(connected);
+    for (const service of [unconnected, connected]) {
+      const detail = service.getItem('BUG-0001');
+      const issues = itemIssues(service.db, detail.item);
+      service.close();
+      const before = draftPullRequest(detail, repoTemplate).body;
+      expect(sections(before).Item).toBe('Item: BUG-0001\nCloses acme/demo#12');
+      for (const host of ['github', undefined] as const) expect(draftPullRequest(detail, repoTemplate, { issues, ...(host ? { host } : {}) }).body).toBe(before);
+    }
+  });
+
+  it("reads the pull request's host from the branch's upstream remote, else origin", () => {
+    const repo = tempRepo();
+    const connections = [{ id: 1, host: 'gitlab' as const, repository: 'Acme/Demo', mcp_server: null, auto_sync: true, last_sync_cursor: null, sync_started_at: null, created_at: '' }];
+    expect(pullRequestHost(repo, 'main', connections)).toBeUndefined();
+    git(repo, 'remote', 'add', 'origin', 'git@github.com:acme/demo.git');
+    expect(pullRequestHost(repo, 'main', connections)).toBe('github');
+    git(repo, 'remote', 'add', 'work', 'https://git.example.com/acme/demo.git');
+    git(repo, 'config', 'branch.main.remote', 'work');
+    git(repo, 'config', 'branch.main.merge', 'refs/heads/main');
+    // A self-hosted server takes the host of the connection to the same repository.
+    expect(pullRequestHost(repo, 'main', connections)).toBe('gitlab');
+    expect(pullRequestHost(repo, 'main', [])).toBeUndefined();
+    expect(pullRequestHost(repo, null, connections)).toBe('github');
   });
 });
 

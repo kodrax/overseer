@@ -115,7 +115,9 @@ overseer worktree start <ID> --type <T> [--slug <S>] [--base <B>] [--no-setup] -
 1. Commit following the project's conventions and push: `git -C <path> push -u origin <branch>`.
 2. `overseer pr draft <ID> --type <T> --json` → `{title, body}`. Fill what only you know: what
    changed, how it was verified (the real commands and results from step 4) and the risk. Keep the
-   template's headings; tick checklist boxes only when they are true.
+   template's headings; tick checklist boxes only when they are true. Keep the `Closes …` lines under
+   `Item:`: one per repository of the pull request's host the item's issue lives in; issues on the
+   other host are named with `Also tracked in …`, since this pull request cannot close them.
 3. Show the title and body to the user, apply their edits and show the result again until they
    approve. Never create the pull request before that.
 4. Create it from `branch` against `base`:

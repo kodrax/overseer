@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { errorMessage, OverseerError } from './errors.js';
 import { checkoutDir, PR_TYPES, type PrType } from './pr-draft.js';
 import { git } from './project.js';
+import { branchRemote } from './remotes.js';
 import { type Ctx, ID_PREFIX } from './schema.js';
 import type { OverseerService } from './service.js';
 
@@ -162,13 +163,6 @@ export function itemIdFromBranch(pattern: string, branch: string | null): string
     throw new OverseerError('INVALID_INPUT', `${where}; branch_pattern is "${pattern}". Pass the item ID explicitly.`);
   }
   return id;
-}
-
-/** Remote of the branch's upstream, else `origin` when that remote exists, else null. */
-function remoteFor(root: string, branch: string | null): string | null {
-  const upstream = branch === null ? undefined : git(root, ['for-each-ref', '--format=%(upstream:remotename)', `refs/heads/${branch}`]);
-  if (upstream) return upstream;
-  return git(root, ['remote', 'get-url', 'origin']) !== undefined ? 'origin' : null;
 }
 
 function assertGitRepo(root: string): void {
@@ -443,8 +437,8 @@ export async function finishWorktree(service: OverseerService, id: string, optio
 
   const matcher = branchMatcher(service.configValue('branch_pattern'), escapeRegExp(item.id));
   const locals = matchingRefs(root, 'refs/heads/', matcher);
-  const remote = remoteFor(root, locals.length === 1 ? locals[0]! : null);
-  const baseRemote = remoteFor(root, refExists(root, `refs/heads/${base}`) ? base : null);
+  const remote = branchRemote(root, locals.length === 1 ? locals[0]! : null);
+  const baseRemote = branchRemote(root, refExists(root, `refs/heads/${base}`) ? base : null);
   for (const name of new Set([remote, baseRemote])) {
     if (name !== null) gitOrThrow(root, ['fetch', '--quiet', '--prune', name], FETCH_TIMEOUT_MS);
   }

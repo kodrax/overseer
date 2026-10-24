@@ -94,3 +94,10 @@ export function parseRemotes(output: string): RemoteRepository[] {
 export function detectRemotes(dir: string): RemoteRepository[] {
   return parseRemotes(git(dir, ['remote', '-v']) ?? '');
 }
+
+/** Remote of the branch's upstream, else `origin` when that remote exists, else null. */
+export function branchRemote(dir: string, branch: string | null): string | null {
+  const upstream = branch === null ? undefined : git(dir, ['for-each-ref', '--format=%(upstream:remotename)', `refs/heads/${branch}`]);
+  if (upstream) return upstream;
+  return git(dir, ['remote', 'get-url', 'origin']) !== undefined ? 'origin' : null;
+}
