@@ -71,7 +71,7 @@ describe('skill templates', () => {
     const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
     const order = [
       'overseer sync remotes --json',
-      'overseer sync connection add --host github|gitlab --repo <repository> --json',
+      'overseer sync connection add --host github|gitlab --repo <repository> --mcp-server <server> --json',
       'overseer sync inspect <bundle> --source github|gitlab --json',
       'overseer sync mapping import <id> <file> --json',
       '## 4. Choose the source of truth',
@@ -93,9 +93,39 @@ describe('skill templates', () => {
     expect(source).toContain('`overseer list --all --json` gives `"total": 0`');
     expect(source).toMatch(/open issues[^]*Both true → recommend that repository[^]*Otherwise recommend the\s+board/);
     expect(source).toMatch(/change it later with the same command[^]*no issue is re-created/);
-    // MCP server choice (TASK-0030) and label creation (TASK-0028) are not part of this flow.
-    expect(text).not.toContain('--mcp-server');
-    expect(text).not.toMatch(/sync connection set/);
+  });
+
+  it('overseer-sync asks for the MCP server and stores it on the connection (TASK-0030 AC1)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const choose = text.slice(text.indexOf('## 2. Choose the MCP server'), text.indexOf('## 3. '));
+    expect(choose).toMatch(/Ask which MCP server reaches the repository\. Offer the server\(s\) found/);
+    expect(choose).toMatch(/offer the host default \(`github` or `gitlab`\)/);
+    const connect = text.slice(text.indexOf('## 3. '), text.indexOf('## 4. '));
+    const add = connect.indexOf('overseer sync connection add --host github|gitlab --repo <repository> --mcp-server <server> --json');
+    const set = connect.indexOf('`CONFLICT` means it is already\n   connected: use the id it names and store the server with\n   `overseer sync connection set <id> --mcp-server <server> --json`');
+    expect(add).toBeGreaterThanOrEqual(0);
+    expect(set).toBeGreaterThan(add);
+    // A repository connected earlier without a server gets one with set.
+    const find = text.slice(text.indexOf('## 1. '), text.indexOf('## 2. '));
+    expect(find).toMatch(/`mcp_server` is\s+`null`[^]*`overseer sync connection set <id> --mcp-server <server> --json`/);
+  });
+
+  it('overseer-sync calls the stored MCP server with the harness prefix, the default only without one (TASK-0030 AC2)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const server = text.slice(text.indexOf('## MCP server'), text.indexOf('## 1. '));
+    expect(server).toContain('`mcp_server` in\n`overseer sync connections --json`');
+    expect(server).toMatch(/only when `mcp_server` is `null` use the host's\s+default server, `github` or `gitlab`/);
+    expect(server).toMatch(/never the default server's\s+prefix when another server is stored/);
+    for (const prefix of ['`mcp__<server>__<tool>`', '`mcp__<server>_<tool>`', '`mcp_<server>_<tool>`', '`<server>-<tool>`', '`<server>_<tool>`']) {
+      expect(server).toContain(prefix);
+    }
+    // Bundle keys stay plain tool names; listing and pushes go through the stored server.
+    expect(text).toMatch(/keyed by the plain MCP\s+tool name \(no harness prefix\)/);
+    const sync = text.slice(text.indexOf('\n## Sync\n'));
+    expect(sync).toMatch(/1\. Fetch the listing[^]*through the connection's\s+`mcp_server`/);
+    expect(sync).toMatch(/4\. Run each `push` op with the tools of the connection's `mcp_server`/);
+    // The MCP server section precedes every step that calls GitHub or GitLab.
+    expect(text.indexOf('## MCP server')).toBeLessThan(text.indexOf('## 1. '));
   });
 
   it('overseer-sync pushes the plan through the host MCP tools, confirms the results and acknowledges ack (TASK-0022)', () => {

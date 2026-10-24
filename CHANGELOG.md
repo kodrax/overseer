@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The `overseer-sync` skill asks which MCP server reaches each repository, offering the servers in the session or the host default (`github` / `gitlab`), stores it with `sync connection add|set --mcp-server`, and calls that server's tools with the harness's prefix in every connect and sync step.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added
