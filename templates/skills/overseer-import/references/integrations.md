@@ -12,6 +12,11 @@ Pick one setup per remote:
 Placeholders: `<host>` is `gitlab.com` or your instance; tokens come from environment variables
 (`GITHUB_PAT`, `GITLAB_PERSONAL_ACCESS_TOKEN`) so they never land in a config file.
 
+Server names: the snippets name the server `github` or `gitlab` (the defaults `overseer-sync` uses)
+or, for GitLab's built-in server, `GitLab`. Any name works; `overseer-sync` asks which server reaches
+each repository and stores that name on the connection (`overseer sync connection add|set
+--mcp-server <name>`), then calls that server's tools.
+
 ## GitHub (official remote server)
 
 Server: https://github.com/github/github-mcp-server, hosted at `https://api.githubcopilot.com/mcp/`.
