@@ -65,24 +65,11 @@ skill folder next to this one), ask the user to authenticate, and stop: connect 
 6. `overseer sync mapping <id> --json` → list the local values still `null` as unmapped and leave them
    unmapped.
 
-## 4. Choose the source of truth
+## 4. Source of truth
 
-The source of truth is where synced fields come from when the board and a repository disagree.
-
-1. `overseer sync connections --json` → the options are `board` plus only these connected
-   repositories (`host hostname/repository`, id). Never offer a host or repository that is not connected.
-2. Recommend one:
-   - the board has no items: `overseer list --all --json` gives `"total": 0`;
-   - a connected repository has open issues: ask its MCP server for open issues (GitHub `list_issues`
-     with state `OPEN`; GitLab `list_issues` or `list_work_items` with state `opened`), one page is
-     enough; any result counts.
-   Both true → recommend that repository (the team already tracks work there). Otherwise recommend the
-   board. Say why.
-3. Ask the user to choose, then `overseer sync source-of-truth set <connection id>|board --json`.
-   `NOT_FOUND`: the id is not a connection; offer the list again.
-4. Tell the user they can change it later with the same command, `overseer sync source-of-truth set
-   <connection id>|board`. Changing it stores only the setting: connections, issue references and
-   mappings stay, and no issue is re-created.
+The source of truth is where synced fields come from when the board and a repository disagree. Nobody
+chooses it: it is the board until sync starts on a connection while the board is the source of truth, then
+that connection until it is removed (`overseer sync source-of-truth --json` shows it and why).
 
 ## 5. Finish
 

@@ -38,6 +38,7 @@ export interface SyncStart {
  *   nothing is queued for it, and pending create, update and status entries of items without an issue there are
  *   dropped. The highest item ID per kind is recorded as `sync_start_baseline`: `sync plan` never pushes a create for
  *   those items (see existedBeforeSyncStart).
+ * Once started (either way), the connection becomes the source of truth when the board is; otherwise it stays as it is.
  */
 export function startSync(service: OverseerService, connectionId: number | string, payload: unknown, ctx: Ctx): SyncStart {
   const db = service.db;
@@ -90,6 +91,7 @@ export function startSync(service: OverseerService, connectionId: number | strin
       next = `Run sync plan ${connection.id} <listing>, run each create op through ${server} (a create whose issue.state is closed is closed after it is created), then record the results with sync confirm ${connection.id} <results>.`;
     }
     db.prepare('UPDATE connections SET sync_started_at = ? WHERE id = ?').run(now, connection.id);
+    service.connections.claimSourceOfTruth(connection.id);
     return {
       connection: service.connections.require(connection.id),
       started_at: now,

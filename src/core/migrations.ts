@@ -140,6 +140,22 @@ ALTER TABLE connections ADD COLUMN sync_start_baseline TEXT;
 `;
 
 /**
+ * The source of truth is derived, no longer chosen: the board until sync starts on a connection while the board is the
+ * source of truth, then that connection (its row goes with it). The manual choice of `sync_settings` is dropped
+ * unread; a connection whose sync already started becomes the source of truth, the earliest start first.
+ */
+const MIGRATION_5 = `
+DROP TABLE sync_settings;
+-- At most one row; no row means the board is the source of truth.
+CREATE TABLE sync_source_of_truth (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  connection_id INTEGER NOT NULL REFERENCES connections(id) ON DELETE CASCADE
+);
+INSERT INTO sync_source_of_truth(id, connection_id)
+  SELECT 1, id FROM connections WHERE sync_started_at IS NOT NULL ORDER BY julianday(sync_started_at), id LIMIT 1;
+`;
+
+/**
  * Vectors per item: full text (`items_vec`), title only (`items_title_vec`) so short queries match titles, and title +
  * description (`items_statement_vec`), the shape of a duplicate-guard query, so a reworded item matches regardless of
  * its acceptance criteria.
@@ -170,6 +186,7 @@ export const MIGRATIONS: ReadonlyArray<(db: DatabaseSync, context: MigrationCont
   (db) => db.exec(MIGRATION_2),
   (db) => db.exec(MIGRATION_3),
   (db) => db.exec(MIGRATION_4),
+  (db) => db.exec(MIGRATION_5),
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

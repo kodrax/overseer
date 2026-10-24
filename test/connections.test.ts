@@ -7,13 +7,13 @@ import { HashEmbedder } from './helpers/hash-embedder.js';
 import { ctx, openService } from './helpers/service.js';
 import { tempDir, tempUserConfig } from './helpers/tmp.js';
 
-async function cli(cwd: string, args: string[]) {
+async function cli(cwd: string, args: string[], stdin = '') {
   let out = '';
   let err = '';
   const io = {
     stdout: { write: (chunk: string) => (out += chunk) },
     stderr: { write: (chunk: string) => (err += chunk) },
-    stdin: Readable.from([]),
+    stdin: Readable.from([stdin]),
   };
   const code = await runCli(args, io, { embedder: new HashEmbedder(), env: { OVERSEER_CONFIG_DIR: tempUserConfig() }, cwd });
   return { code, out, err, json: <T,>(): T => JSON.parse(out) };
@@ -193,98 +193,99 @@ describe('sync connections, connection set and connection remove', () => {
 });
 
 describe('sync source-of-truth', () => {
-  const board: SourceOfTruth = { source_of_truth: 'board', host: null, repository: null };
+  const board: SourceOfTruth = {
+    source_of_truth: 'board',
+    host: null,
+    repository: null,
+    reason: 'No connection started sync while the board was the source of truth; the first one that does becomes the source of truth.',
+  };
+  /** `sync start <id>` on an empty repository. */
+  const start = (root: string, id: number) => cli(root, ['sync', 'start', String(id), '-', '--json'], '[]');
+  const sourceOfTruth = async (root: string) => (await cli(root, ['sync', 'source-of-truth', '--json'])).json<SourceOfTruth>();
+  const startedAt = (root: string, id: number) => {
+    const service = openService(root);
+    const at = service.connections.require(id).sync_started_at;
+    service.close();
+    return at;
+  };
 
-  it('reports board when nothing is stored, in JSON and as text', async () => {
+  it('is the board, with why, with no connection or no started sync (TASK-0066 AC1)', async () => {
     const root = tempDir();
     await cli(root, ['init']);
     const json = await cli(root, ['sync', 'source-of-truth', '--json']);
     expect([json.code, json.json<SourceOfTruth>()]).toEqual([0, board]);
-    expect((await cli(root, ['sync', 'source-of-truth'])).out).toMatch(/^source_of_truth: +board\n$/);
-    const service = openService(root);
-    expect(service.db.prepare('SELECT count(*) AS n FROM sync_settings').get()!.n).toBe(0);
-    service.close();
+    expect((await cli(root, ['sync', 'source-of-truth'])).out).toBe(`source_of_truth:  board\nreason:           ${board.reason}\n`);
+
+    await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo']);
+    await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/project']);
+    expect(await sourceOfTruth(root)).toEqual(board);
+    expect((await cli(root, ['sync', 'status', '--json'])).json()).toMatchObject({ source_of_truth: 'board' });
+    expect((await cli(root, ['sync', 'status'])).out).toMatch(/\nSource of truth: board\n$/);
+
+    // A start that fails (a GitLab listing for a GitHub connection) changes nothing.
+    expect((await cli(root, ['sync', 'start', '1', '-', '--json'], '{"items": [], "pageInfo": {}}')).code).toBe(1);
+    expect(await sourceOfTruth(root)).toEqual(board);
   });
 
-  it('set stores a connection or board; unknown ids give NOT_FOUND and other targets INVALID_INPUT', async () => {
+  it('becomes the first connection whose sync starts, and later starts leave it (TASK-0066 AC2, AC3)', async () => {
     const root = tempDir();
     await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo']);
     await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/sub/project']);
 
-    const github: SourceOfTruth = { source_of_truth: 1, host: 'github', repository: 'acme/demo' };
-    const set = await cli(root, ['sync', 'source-of-truth', 'set', '1', '--json']);
-    expect([set.code, set.json<SourceOfTruth>()]).toEqual([0, github]);
-    expect((await cli(root, ['sync', 'source-of-truth', '--json'])).json<SourceOfTruth>()).toEqual(github);
+    expect((await start(root, 1)).code).toBe(0);
+    const github: SourceOfTruth = {
+      source_of_truth: 1,
+      host: 'github',
+      repository: 'acme/demo',
+      reason: `Sync of connection 1 (github acme/demo) started at ${startedAt(root, 1)} while the board was the source of truth.`,
+    };
+    expect(await sourceOfTruth(root)).toEqual(github);
+    expect((await cli(root, ['sync', 'source-of-truth'])).out).toBe(
+      `source_of_truth:  1\nhost:             github\nrepository:       acme/demo\nreason:           ${github.reason}\n`,
+    );
 
-    const text = await cli(root, ['sync', 'source-of-truth', 'set', '2']);
-    expect(text.out).toMatch(/^source_of_truth: +2\nhost: +gitlab\nrepository: +group\/sub\/project\n$/);
-    expect((await cli(root, ['sync', 'source-of-truth'])).out).toBe(text.out);
-
-    expect((await cli(root, ['sync', 'source-of-truth', 'set', 'board', '--json'])).json<SourceOfTruth>()).toEqual(board);
-    expect((await cli(root, ['sync', 'source-of-truth', '--json'])).json<SourceOfTruth>()).toEqual(board);
-    const service = openService(root);
-    expect(service.db.prepare('SELECT source_of_truth FROM sync_settings').all()).toEqual([{ source_of_truth: 'board' }]);
-    service.close();
-
-    await cli(root, ['sync', 'source-of-truth', 'set', '2']);
-    const missing = await cli(root, ['sync', 'source-of-truth', 'set', '9', '--json']);
-    expect([missing.code, errorCode(missing)]).toEqual([1, { code: 'NOT_FOUND', message: 'No connection with id 9.' }]);
-    for (const target of ['github', '0', '-1', '1.5']) {
-      const invalid = await cli(root, ['sync', 'source-of-truth', 'set', target, '--json']);
-      expect([invalid.code, errorCode(invalid).code], target).toEqual([1, 'INVALID_INPUT']);
-    }
-    expect((await cli(root, ['sync', 'source-of-truth', '--json'])).json<SourceOfTruth>()).toMatchObject({ source_of_truth: 2 });
+    expect((await start(root, 2)).code).toBe(0);
+    expect(startedAt(root, 2)).not.toBeNull();
+    expect(await sourceOfTruth(root)).toEqual(github);
+    expect((await cli(root, ['sync', 'status', '--json'])).json()).toMatchObject({ source_of_truth: { id: 1, host: 'github', repository: 'acme/demo' } });
+    expect((await cli(root, ['sync', 'status'])).out).toMatch(/\nSource of truth: connection 1 \(github acme\/demo\)\n$/);
   });
 
-  it('removing the source-of-truth connection resets it to board and says so; removing another keeps it', async () => {
+  it('goes back to the board when its connection is removed, even with another started one; removing another keeps it (TASK-0066 AC4)', async () => {
     const root = tempDir();
-    await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo']);
-    await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/project']);
-    await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/other']);
-    await cli(root, ['sync', 'source-of-truth', 'set', '1']);
+    for (const repo of ['acme/demo', 'acme/other', 'acme/third']) await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', repo]);
+    await start(root, 1);
+    await start(root, 2);
 
     const other = await cli(root, ['sync', 'connection', 'remove', '3', '--json']);
     expect(other.json<ConnectionRemoval>().source_of_truth_reset).toBe(false);
-    expect((await cli(root, ['sync', 'source-of-truth', '--json'])).json<SourceOfTruth>()).toMatchObject({ source_of_truth: 1 });
+    expect(await sourceOfTruth(root)).toMatchObject({ source_of_truth: 1 });
 
-    const json = await cli(root, ['sync', 'connection', 'remove', '1', '--json']);
-    expect(json.json<ConnectionRemoval>()).toMatchObject({ removed: { id: 1 }, source_of_truth_reset: true });
-    expect((await cli(root, ['sync', 'source-of-truth', '--json'])).json<SourceOfTruth>()).toEqual(board);
+    const text = await cli(root, ['sync', 'connection', 'remove', '1']);
+    expect(text.out).toMatch(/^Removed connection 1 \(github acme\/demo\) with .*\nSource of truth reset to board\.\n$/);
+    expect(await sourceOfTruth(root)).toEqual(board);
+    expect((await cli(root, ['sync', 'status', '--json'])).json()).toMatchObject({ source_of_truth: 'board', connections: [{ id: 2, sync_started_at: expect.any(String) }] });
 
-    await cli(root, ['sync', 'source-of-truth', 'set', '2']);
-    const text = await cli(root, ['sync', 'connection', 'remove', '2']);
-    expect(text.out).toBe('Removed connection 2 (gitlab group/project) with 0 remote refs, 0 mappings and 0 outbox rows.\nSource of truth reset to board.\n');
-    expect((await cli(root, ['sync', 'source-of-truth', '--json'])).json<SourceOfTruth>()).toEqual(board);
+    // The board is the source of truth again: the next connection whose sync starts takes it.
+    const added = (await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/project', '--json'])).json<Connection>();
+    await start(root, added.id);
+    expect(await sourceOfTruth(root)).toMatchObject({ source_of_truth: added.id, host: 'gitlab', repository: 'group/project' });
+    const json = await cli(root, ['sync', 'connection', 'remove', String(added.id), '--json']);
+    expect(json.json<ConnectionRemoval>()).toMatchObject({ removed: { id: added.id }, source_of_truth_reset: true });
+    expect(await sourceOfTruth(root)).toEqual(board);
   });
 
-  it('changing it leaves connections, remote refs, mappings and the outbox untouched (REQ-0259)', async () => {
+  it('has no set command: it only shows the derived value (TASK-0066 AC5)', async () => {
     const root = tempDir();
-    await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo', '--mcp-server', 'github']);
-    await cli(root, ['sync', 'connection', 'add', '--host', 'gitlab', '--repo', 'group/project']);
-    const service = openService(root);
-    const created = await service.createItem({ kind: 'task', title: 'Send the reset email' }, ctx);
-    const itemId = created.created ? created.item.id : '';
-    for (const connection of [1, 2]) {
-      service.db
-        .prepare("INSERT INTO item_remote_refs(item_id, connection_id, external_ref, synced_fields) VALUES (?, ?, ?, '{\"title\":\"Send the reset email\"}')")
-        .run(itemId, connection, `ref-${connection}`);
-      service.db.prepare("INSERT INTO connection_mappings(connection_id, dimension, local_value, remote_value) VALUES (?, 'kind', 'bug', 'bug')").run(connection);
+    await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo']);
+    for (const target of ['1', 'board']) {
+      const set = await cli(root, ['sync', 'source-of-truth', 'set', target, '--json']);
+      expect([set.code, errorCode(set).code], target).toEqual([1, 'INVALID_INPUT']);
+      expect(errorCode(set).message).toMatch(/^too many arguments for 'source-of-truth'/);
     }
-    const snapshot = () =>
-      Object.fromEntries(
-        ['connections', 'item_remote_refs', 'connection_mappings', 'sync_outbox', 'events'].map((table) => [
-          table,
-          service.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
-        ]),
-      );
-    const before = snapshot();
-    expect([before.item_remote_refs, before.connection_mappings].map((rows) => rows.length)).toEqual([2, 2]);
-
-    for (const target of ['1', '2', 'board', '2']) {
-      expect((await cli(root, ['sync', 'source-of-truth', 'set', target, '--json'])).code).toBe(0);
-      expect(snapshot(), target).toEqual(before);
-    }
-    service.close();
+    expect(await sourceOfTruth(root)).toEqual(board);
+    const help = await cli(root, ['sync', 'source-of-truth', '--help']);
+    expect(help.out).not.toMatch(/\bset\b/);
   });
 });
 
@@ -332,14 +333,14 @@ describe('sync status', () => {
       source_of_truth: 'board',
     });
 
-    await cli(root, ['sync', 'source-of-truth', 'set', '2']);
+    await cli(root, ['sync', 'start', '2', '-'], '[]');
     expect((await cli(root, ['sync', 'status', '--json'])).json()).toMatchObject({
       source_of_truth: { id: 2, host: 'gitlab', repository: 'group/sub/project' },
     });
     const text = (await cli(root, ['sync', 'status'])).out;
     expect(text).toMatch(/Pending outbox/);
     expect(text).toMatch(/1 +github +acme\/demo +github +on +never +2026-10-19T09:00:00Z +2/);
-    expect(text).toMatch(/2 +gitlab +group\/sub\/project +- +off +2026-10-20T12:00:00Z +never +1/);
+    expect(text).toMatch(/2 +gitlab +group\/sub\/project +- +off +2026-10-20T12:00:00Z +\d{4}-\d{2}-\d{2}T\S+ +1/);
     expect(text).toMatch(/\nSource of truth: connection 2 \(gitlab group\/sub\/project\)\n$/);
   });
 });
@@ -353,7 +354,7 @@ describe('no GitHub or GitLab calls', () => {
     expect((await cli(root, ['sync', 'connections', '--json'])).json()).toEqual([]);
     await cli(root, ['sync', 'connection', 'add', '--host', 'github', '--repo', 'acme/demo', '--mcp-server', 'github']);
     await cli(root, ['sync', 'connection', 'set', '1', '--auto-sync', 'off']);
-    await cli(root, ['sync', 'source-of-truth', 'set', '1']);
+    expect((await cli(root, ['sync', 'source-of-truth', '--json'])).code).toBe(0);
     expect((await cli(root, ['sync', 'status', '--json'])).code).toBe(0);
     expect((await cli(root, ['sync', 'status'])).code).toBe(0);
     await cli(root, ['sync', 'connection', 'remove', '1']);
