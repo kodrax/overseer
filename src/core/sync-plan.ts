@@ -15,7 +15,7 @@ import {
 import { getRow, toItem } from './items.js';
 import { type DimensionMapping, MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES, type MappingDimension } from './mappings.js';
 import type { OutboxEntry } from './outbox.js';
-import { CLOSED_STATUSES, DELIVERED_STATUSES, type Item, parseInput } from './schema.js';
+import { CLOSED_STATUSES, DELIVERED_STATUSES, type Item, type Kind, parseInput } from './schema.js';
 import type { OverseerService, TombstoneRef } from './service.js';
 
 /** What a push does with one issue: open a new one, change fields, or change fields and close or reopen it. */
@@ -133,6 +133,11 @@ export interface SyncPlanInput {
   deleted_issues: ReadonlySet<string>;
   /** Item ID by the external ID of its imported `external_ref` on the connection's host. */
   imported: ReadonlyMap<string, string>;
+  /**
+   * The highest item ID number per kind when the connection's sync started from a repository that already had issues;
+   * null before the start and after a start that seeded an empty repository. See {@link existedBeforeSyncStart}.
+   */
+  start_baseline: SyncStartBaseline | null;
   issues: readonly ImportItem[];
   /** Warnings of the payload adapter (skipped pull requests). */
   warnings: readonly string[];
@@ -149,6 +154,20 @@ export const REMOTE_FIELDS: Record<string, readonly SyncedField[]> = {
   assignee: ['assignee'],
   milestone: ['milestone'],
 };
+
+/** The highest item ID number of each kind (`{"task": 12}`) as `sync start` recorded it; a missing kind had no item. */
+export type SyncStartBaseline = Partial<Record<Kind, number>>;
+
+/**
+ * Whether an item existed before its connection's sync started from a repository that already had issues (`baseline`
+ * non-null): its ID number is at most the highest of its kind then. IDs are never reused, so a later item is always
+ * above it. Such an item without an issue on the connection is never pushed as a create: its outbox entries go to ack.
+ * After a start that seeded an empty repository (`baseline` null) every item is pushed as usual.
+ */
+export function existedBeforeSyncStart(item: Pick<Item, 'id' | 'kind'>, baseline: SyncStartBaseline | null): boolean {
+  if (baseline === null) return false;
+  return Number(item.id.slice(item.id.lastIndexOf('-') + 1)) <= (baseline[item.kind] ?? 0);
+}
 
 const STATE_NAMES: Record<string, IssueState> = { open: 'open', opened: 'open', closed: 'closed' };
 
@@ -225,9 +244,10 @@ export function uniqueIssues(issues: readonly ImportItem[], warnings: string[]):
  * the same input always gives the same plan, in the same order (push, conflicts and overwritten by item ID, pull by
  * issue).
  *
- * - push: each outbox entry. No remote ref → create; else the issue fields its changed fields touch, minus those the
- *   issue already had at the last sync → update, or close/reopen when the state changes. A pending create with a
- *   remote ref updates every field. A delete closes the issue of the deleted item.
+ * - push: each outbox entry. No remote ref → create, unless the item existed before a sync start that brought the
+ *   repository's issues to the board ({@link existedBeforeSyncStart}) → ack; else the issue fields its changed fields
+ *   touch, minus those the issue already had at the last sync → update, or close/reopen when the state changes. A
+ *   pending create with a remote ref updates every field. A delete closes the issue of the deleted item.
  * - pull: each linked issue's fields that differ from the snapshot and have no pending local change; each issue no
  *   item has → create.
  * - a field with a pending local change whose remote value also differs from the snapshot, unless both sides hold the
@@ -251,7 +271,10 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
   const localChanges = new Map<string, Set<SyncedField>>();
   /** Items per unmapped dimension and local value. */
   const unmapped = new Map<string, string[]>();
-  /** Outbox entries with nothing to send: deleted items without an open issue, gone items, issues that already match or won every changed field. */
+  /**
+   * Outbox entries with nothing to send: deleted items without an open issue, gone items, items without an issue that
+   * existed before the sync start, issues that already match or won every changed field.
+   */
   const ack: number[] = [];
 
   for (const entry of [...input.outbox].sort((a, b) => compareIds(a.item_id, b.item_id))) {
@@ -294,6 +317,10 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
     const ref = refByItem.get(item.id);
     let op: PushOp | undefined;
     if (!ref) {
+      if (existedBeforeSyncStart(item, input.start_baseline)) {
+        ack.push(entry.seq);
+        continue;
+      }
       op = { op: 'create', item_id: item.id, seq: entry.seq, external_ref: null, url: null, fields: [...SYNCED_FIELDS], issue: target };
     } else {
       // A pending create whose item already has an issue here (TASK-0018) sends the whole item as an update.
@@ -395,6 +422,12 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
   return { push, pull, conflicts, ack: ack.sort((a, b) => a - b), overwritten, warnings };
 }
 
+/** The connection's {@link SyncStartBaseline}, or null (not started, or started by seeding an empty repository). */
+export function syncStartBaseline(service: OverseerService, connectionId: number): SyncStartBaseline | null {
+  const row = service.db.prepare('SELECT sync_start_baseline FROM connections WHERE id = ?').get(connectionId) as { sync_start_baseline: string | null } | undefined;
+  return row?.sync_start_baseline ? (JSON.parse(row.sync_start_baseline) as SyncStartBaseline) : null;
+}
+
 interface RemoteRefRow {
   item_id: string;
   external_ref: string;
@@ -447,6 +480,7 @@ export function loadSyncPlanInput(service: OverseerService, connectionId: number
     tombstones,
     deleted_issues: deletedIssues,
     imported,
+    start_baseline: syncStartBaseline(service, connection.id),
     issues,
     warnings: mapped.warnings,
   };

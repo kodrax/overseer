@@ -4,7 +4,7 @@ import { runCli } from '../src/cli/index.js';
 import { isOverseerError } from '../src/core/errors.js';
 import type { OverseerService } from '../src/core/service.js';
 import { confirmSync } from '../src/core/sync-confirm.js';
-import { planSync } from '../src/core/sync-plan.js';
+import { existedBeforeSyncStart, planSync } from '../src/core/sync-plan.js';
 import { startSync } from '../src/core/sync-start.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { ctx, openService } from './helpers/service.js';
@@ -34,14 +34,20 @@ async function cli(cwd: string, args: string[], stdin = '') {
 
 const ISSUE = { number: 1, title: 'Existing issue', body: '', state: 'OPEN', labels: [], assignees: [], milestone: null, html_url: 'https://github.com/acme/demo/issues/1' };
 
+/** A raw GitHub issue of acme/demo. */
+const gh = (number: number, title: string) => ({ ...ISSUE, number, title, html_url: `https://github.com/acme/demo/issues/${number}` });
+
+const BASELINE_SQL = 'SELECT sync_start_baseline FROM connections WHERE id = ?';
+
 const outboxRows = (service: OverseerService) =>
   service.db.prepare('SELECT seq, connection_id, item_id, operation, changed_fields FROM sync_outbox ORDER BY seq').all();
 
 /**
  * A board with every kind, open and closed items (REQ-0002 rejected, EPIC-0001 cancelled, TASK-0002 done), and a
- * GitHub connection with auto-sync off: no outbox entry is pending before the start.
+ * GitHub connection with auto-sync off: no outbox entry is pending before the start. `beforeConnect` runs once the
+ * items exist, before the connection is added.
  */
-async function board(root = tempRepo()) {
+async function board(root = tempRepo(), beforeConnect?: (service: OverseerService) => Promise<unknown>) {
   const service = openService(root);
   const create = (input: Record<string, unknown>) => service.createItem({ ...input, allow_duplicate: true }, ctx);
   await create({ kind: 'requirement', req_type: 'functional', title: 'Export the backlog as CSV' });
@@ -54,6 +60,7 @@ async function board(root = tempRepo()) {
   await service.updateItem({ id: 'REQ-0002', status: 'rejected' }, ctx);
   await service.updateItem({ id: 'EPIC-0001', status: 'cancelled' }, ctx);
   await service.updateItem({ id: 'TASK-0002', status: 'done' }, ctx);
+  await beforeConnect?.(service);
   const github = service.connections.add({ host: 'github', repository: 'acme/demo', mcp_server: 'github' });
   service.connections.set(github.id, { auto_sync: false });
   return { service, github, root };
@@ -67,14 +74,19 @@ describe('sync start', () => {
     const { service, github } = await board();
     expect(service.outbox.list(github.id)).toEqual([]);
 
-    const started = startSync(service, github.id, { issues: [] });
+    const started = startSync(service, github.id, { issues: [] }, ctx);
     expect(started).toEqual({
       connection: { ...github, auto_sync: false, sync_started_at: started.started_at },
       started_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      from: 'board',
       queued: 7,
       by_kind: { requirement: 2, epic: 1, story: 1, task: 2, bug: 1 },
+      created: 0,
+      linked: 0,
+      warnings: [],
       next: expect.stringMatching(/^Run sync plan 1 <listing>, run each create op through github .*sync confirm 1 <results>\.$/),
     });
+    expect(service.db.prepare(BASELINE_SQL).get(github.id)).toEqual({ sync_start_baseline: null });
     const entries = service.outbox.list(github.id);
     expect(entries.map((entry) => [entry.item_id, entry.operation, entry.changed_fields])).toEqual(ALL.map((id) => [id, 'create', []]).sort((a, b) => (a[0]! < b[0]! ? -1 : 1)));
     expect(service.connections.require(github.id).sync_started_at).toBe(started.started_at);
@@ -122,7 +134,7 @@ describe('sync start', () => {
       ['TASK-0003', 'create'],
     ]);
 
-    const started = startSync(service, github.id, []);
+    const started = startSync(service, github.id, [], ctx);
     expect([started.queued, started.by_kind]).toEqual([7, { requirement: 2, epic: 1, story: 1, task: 3, bug: 0 }]);
     const entries = service.outbox.list(github.id);
     expect(entries.map((entry) => entry.item_id).sort()).toEqual([...ALL.filter((id) => id !== 'BUG-0001'), 'TASK-0003'].sort());
@@ -133,11 +145,11 @@ describe('sync start', () => {
 
   it('gives CONFLICT and queues nothing once the sync of the connection has started (AC3)', async () => {
     const { service, github } = await board();
-    const { started_at } = startSync(service, github.id, []);
+    const { started_at } = startSync(service, github.id, [], ctx);
     service.outbox.ack(service.outbox.list(github.id).slice(0, 3).map((entry) => entry.seq));
     const before = outboxRows(service);
 
-    expect(failure(() => startSync(service, github.id, []))).toEqual({
+    expect(failure(() => startSync(service, github.id, [], ctx))).toEqual({
       code: 'CONFLICT',
       message: `Sync of connection 1 (github acme/demo) already started at ${started_at}; nothing was queued.`,
       details: { connection_id: 1, sync_started_at: started_at },
@@ -147,21 +159,94 @@ describe('sync start', () => {
     service.close();
   });
 
-  it('refuses a listing that has issues and changes nothing', async () => {
+  it('brings the issues of a repository that has some to the board as an import does, queues nothing and records the start (AC1)', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    // TASK-0003: imported from acme/demo#1 before the connection existed, so not linked to it yet.
+    const { service, github } = await board(tempRepo(), (setup) => setup.importItems({ source: 'github', repo: 'acme/demo', payload: [gh(1, 'Existing issue')] }, ctx));
+    service.connections.set(github.id, { auto_sync: true });
+    await service.updateItem({ id: 'TASK-0001', title: 'Write the CSV writer fast' }, ctx);
+    expect(service.outbox.list(github.id).map((entry) => [entry.item_id, entry.operation])).toEqual([['TASK-0001', 'update']]);
+
+    const listing = { issues: [gh(2, 'Second issue'), gh(1, 'Existing issue, renamed')] };
+    const started = startSync(service, github.id, listing, ctx);
+    expect(started).toEqual({
+      connection: { ...github, auto_sync: true, sync_started_at: started.started_at },
+      started_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      from: 'repository',
+      queued: 0,
+      by_kind: { requirement: 0, epic: 0, story: 0, task: 0, bug: 0 },
+      created: 1,
+      linked: 1,
+      warnings: [],
+      next: expect.stringMatching(/^Items created from now on get a create push; .* through github, then record the results with sync confirm 1 <results>\.$/),
+    });
+    // No entry for the existing local items: the pending update of TASK-0001 is dropped, and the issues' items queue nothing here.
+    expect(service.outbox.list(github.id)).toEqual([]);
+    expect(service.db.prepare('SELECT item_id, external_ref FROM item_remote_refs WHERE connection_id = ? ORDER BY item_id').all(github.id)).toEqual([
+      { item_id: 'TASK-0003', external_ref: 'acme/demo#1' },
+      { item_id: 'TASK-0004', external_ref: 'acme/demo#2' },
+    ]);
+    expect(service.getItem('TASK-0003').item).toMatchObject({ title: 'Existing issue, renamed', external_ref: 'github:acme/demo#1' });
+    expect(service.getItem('TASK-0004').item).toMatchObject({ title: 'Second issue', status: 'backlog', external_ref: 'github:acme/demo#2' });
+    expect(service.db.prepare("SELECT DISTINCT item_id FROM events WHERE via = 'sync:github' ORDER BY item_id").all()).toEqual([{ item_id: 'TASK-0003' }, { item_id: 'TASK-0004' }]);
+    expect(service.connections.require(github.id).sync_started_at).toBe(started.started_at);
+    expect(service.db.prepare(BASELINE_SQL).get(github.id)).toEqual({ sync_start_baseline: JSON.stringify({ bug: 1, epic: 1, requirement: 2, story: 1, task: 4 }) });
+    expect(planSync(service, github.id, listing)).toEqual({ push: [], pull: [], conflicts: [], ack: [], overwritten: [], warnings: [] });
+    expect(fetch).not.toHaveBeenCalled();
+    service.close();
+  });
+
+  it('after a start from a repository with issues, pushes a create for a new item and nothing for a changed item that existed before, listed under ack (AC2, AC3)', async () => {
     const { service, github } = await board();
-    for (const listing of [[ISSUE], { issues: [ISSUE, { ...ISSUE, number: 2 }] }]) {
-      const count = Array.isArray(listing) ? 1 : 2;
-      expect(failure(() => startSync(service, github.id, listing))).toEqual({
-        code: 'INVALID_INPUT',
-        message: `github acme/demo already has ${count} issue${count === 1 ? '' : 's'}; sync start currently supports only empty repositories. Nothing was queued.`,
-        details: { connection_id: 1, issues: count },
-      });
-    }
+    service.connections.set(github.id, { auto_sync: true });
+    const listing = [gh(1, 'Existing issue')];
+    startSync(service, github.id, listing, ctx);
+
+    await service.updateItem({ id: 'TASK-0001', title: 'Write the CSV writer fast' }, ctx);
+    await service.updateItem({ id: 'REQ-0001', status: 'approved' }, ctx);
+    await service.updateItem({ id: 'TASK-0003', title: 'Existing issue, renamed' }, ctx);
+    await service.createItem({ kind: 'task', title: 'Document the CSV format', allow_duplicate: true }, ctx);
+    const seqOf = (id: string) => service.outbox.list(github.id).find((entry) => entry.item_id === id)!.seq;
+
+    const plan = planSync(service, github.id, listing);
+    expect(plan.push.map((op) => [op.op, op.item_id, op.external_ref])).toEqual([
+      ['update', 'TASK-0003', 'acme/demo#1'],
+      ['create', 'TASK-0004', null],
+    ]);
+    expect(plan.ack).toEqual([seqOf('TASK-0001'), seqOf('REQ-0001')].sort((a, b) => a - b));
+    expect([plan.pull, plan.conflicts]).toEqual([[], []]);
+    service.close();
+  });
+
+  it('still pushes a create for every item after seeding an empty repository, including items changed or created after the start', async () => {
+    const { service, github } = await board();
+    service.connections.set(github.id, { auto_sync: true });
+    startSync(service, github.id, [], ctx);
+    await service.updateItem({ id: 'TASK-0001', title: 'Write the CSV writer fast' }, ctx);
+    await service.createItem({ kind: 'task', title: 'Document the CSV format', allow_duplicate: true }, ctx);
+
+    const plan = planSync(service, github.id, []);
+    expect(plan.push.map((op) => [op.op, op.item_id])).toEqual(
+      [...ALL, 'TASK-0003'].sort((a, b) => (a < b ? -1 : 1)).map((id) => ['create', id]),
+    );
+    expect(plan.ack).toEqual([]);
+    service.close();
+  });
+
+  it('tells items that existed before a start from a repository with issues by their ID number per kind', () => {
+    expect(existedBeforeSyncStart({ id: 'TASK-0004', kind: 'task' }, { task: 4 })).toBe(true);
+    expect(existedBeforeSyncStart({ id: 'TASK-0005', kind: 'task' }, { task: 4 })).toBe(false);
+    expect(existedBeforeSyncStart({ id: 'BUG-0001', kind: 'bug' }, { task: 4 })).toBe(false);
+    expect(existedBeforeSyncStart({ id: 'TASK-0001', kind: 'task' }, null)).toBe(false);
+  });
+
+  it('rejects a listing of the other host and an unknown connection, changing nothing', async () => {
+    const { service, github } = await board();
+    // A GitLab listing for a GitHub connection is not a listing of its issues.
+    expect(failure(() => startSync(service, github.id, { items: [], pageInfo: {} }, ctx)).code).toBe('INVALID_INPUT');
+    expect(failure(() => startSync(service, 9, [], ctx)).code).toBe('NOT_FOUND');
     expect(outboxRows(service)).toEqual([]);
     expect(service.connections.require(github.id).sync_started_at).toBeNull();
-    // A GitLab listing for a GitHub connection is not a listing of its issues.
-    expect(failure(() => startSync(service, github.id, { items: [], pageInfo: {} })).code).toBe('INVALID_INPUT');
-    expect(failure(() => startSync(service, 9, [])).code).toBe('NOT_FOUND');
     service.close();
   });
 
@@ -185,6 +270,17 @@ describe('sync start', () => {
     expect(JSON.parse(again.out).error.code).toBe('CONFLICT');
     const status = await cli(root, ['sync', 'status', '--json']);
     expect(JSON.parse(status.out).connections.map((connection: { pending_outbox: number }) => connection.pending_outbox)).toEqual([7, 7]);
+
+    const other = { ...ISSUE, html_url: 'https://github.com/acme/other/issues/1' };
+    const setup = openService(root);
+    setup.connections.add({ host: 'github', repository: 'acme/other' });
+    setup.connections.add({ host: 'github', repository: 'acme/more' });
+    setup.close();
+    const fromIssues = await cli(root, ['sync', 'start', '3', '-', '--json'], JSON.stringify([other, { ...other, number: 2, html_url: 'https://github.com/acme/other/issues/2' }]));
+    expect(fromIssues.code).toBe(0);
+    expect(JSON.parse(fromIssues.out)).toMatchObject({ connection: { id: 3 }, from: 'repository', queued: 0, created: 2, linked: 0, warnings: [] });
+    const fromIssuesText = await cli(root, ['sync', 'start', '4', '-'], JSON.stringify([{ ...ISSUE, html_url: 'https://github.com/acme/more/issues/1' }]));
+    expect(fromIssuesText.out).toMatch(/^Started sync of connection 4 \(github acme\/more\) at \S+ from its issues: created 1 item, linked 0; queued nothing\.\nNext: Items created from now on /);
 
     const unknown = await cli(root, ['sync', 'start', '9', 'missing.json', '--json']);
     expect(JSON.parse(unknown.out).error).toEqual({ code: 'NOT_FOUND', message: 'No connection with id 9.' });

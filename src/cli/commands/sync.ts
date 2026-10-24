@@ -110,11 +110,13 @@ response or array of work items. Join the pages into one array to plan against e
 `;
 
 const START_HELP = `
-The listing is the raw answer of the connection's MCP server, as for sync plan; join every page into one array. It
-must hold no issues: sync start currently supports only empty repositories. Every item of every kind and status
-without an issue on the connection gets one pending create in its outbox (whatever the auto-sync flag), and the
-connection records its sync start time, once: a second start gives CONFLICT. Then run sync plan, push the creates and
-sync confirm.
+The listing is the raw answer of the connection's MCP server, as for sync plan; join every page into one array.
+An empty repository is seeded from the board: every item of every kind and status without an issue on the connection
+gets one pending create in its outbox (whatever the auto-sync flag); then run sync plan, push the creates and sync
+confirm. A repository with issues comes to the board instead: its issues are created or linked as import does, nothing
+is queued, and sync plan never pushes a create for an item that existed before the start (its entries go to ack);
+items created later get create pushes as usual. Either way the connection records its sync start time, once: a second
+start gives CONFLICT.
 `;
 
 const CONFIRM_HELP = `
@@ -422,7 +424,7 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
   sync
     .command('start')
     .description(
-      "seed an empty repository from the board: queue a create on the connection for every item without an issue there and record the sync start time, from a raw MCP listing of its issues in a file or stdin (-); no network",
+      "start syncing a connection from a raw MCP listing of its issues in a file or stdin (-): an empty repository is seeded from the board (a create queued for every item without an issue there), a repository with issues comes to the board as an import (nothing queued); records the sync start time; no network",
     )
     .argument('<connection>', 'connection id (see sync connections)')
     .argument('<file>', 'JSON listing file, or - for stdin')
@@ -432,12 +434,17 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
       await rt.withService(command, 'write', async (service) => {
         // An unknown connection gives NOT_FOUND before the file is read.
         const connection = service.connections.require(connectionId);
-        const started = startSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Listing'), 'Listing'));
-        rt.emit(options.json, started, ({ started_at, queued, by_kind, next }) =>
+        const started = startSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Listing'), 'Listing'), rt.ctx);
+        rt.emit(options.json, started, ({ started_at, from, queued, by_kind, created, linked, warnings, next }) =>
           [
-            `Started sync of connection ${connection.id} (${connection.host} ${connection.repository}) at ${started_at}: queued ${queued} create${queued === 1 ? '' : 's'} (${Object.entries(by_kind)
-              .map(([kind, count]) => `${kind} ${count}`)
-              .join(', ')}).`,
+            from === 'board'
+              ? `Started sync of connection ${connection.id} (${connection.host} ${connection.repository}) at ${started_at}: queued ${queued} create${queued === 1 ? '' : 's'} (${Object.entries(
+                  by_kind,
+                )
+                  .map(([kind, count]) => `${kind} ${count}`)
+                  .join(', ')}).`
+              : `Started sync of connection ${connection.id} (${connection.host} ${connection.repository}) at ${started_at} from its issues: created ${created} item${created === 1 ? '' : 's'}, linked ${linked}; queued nothing.`,
+            ...warnings.map((warning) => `warning: ${warning}`),
             `Next: ${next}`,
           ].join('\n'),
         );

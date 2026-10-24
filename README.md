@@ -238,7 +238,7 @@ overseer export                             # writes docs/overseer/
 | `sync mapping import <connection> <file\|->` | replace a connection's whole mapping with a JSON mapping, all or nothing |
 | `sync outbox [<connection>]` | local item changes waiting to be pushed, per connection with auto-sync on (see [Outbox](#outbox)) |
 | `sync outbox ack <seq...>` | remove outbox entries once their push is confirmed, all or nothing |
-| `sync start <connection> <file\|->` | seed an empty repository from the board: queue a create for every item without an issue on the connection and record its sync start time, once (see [Sync start](#sync-start)) |
+| `sync start <connection> <file\|->` | start syncing a connection, once: an empty repository is seeded from the board (a create queued for every item without an issue there), a repository with issues comes to the board as an import (nothing queued); records its sync start time (see [Sync start](#sync-start)) |
 | `sync plan <connection> <file\|->` | the push and pull operations that would sync a connection, with conflicts resolved by the source of truth, from a raw MCP listing of its issues; writes nothing (see [Sync plan](#sync-plan)) |
 | `sync pull <connection> <file\|->` | apply the pull operations of `sync plan`: create items for new issues and apply remote changes without a pending local change, or that win as source of truth (see [Sync pull](#sync-pull)) |
 | `sync confirm <connection> <file\|->` | record the pushes run for a plan: remote ref, snapshot of the pushed values, outbox ack; all or nothing (see [Sync confirm](#sync-confirm)) |
@@ -438,12 +438,20 @@ These commands read and write only the project database: they make no GitHub or 
 
 ### Sync start
 
-`overseer sync start <connection> <file|-> --json` seeds a connection's repository from the board, so that the first sync creates an issue for every item. Use it once, right after connecting a repository that has no issues yet; from then on the [outbox](#outbox) queues each change. The listing is the repository's issues as for [`sync plan`](#sync-plan), fetched through the connection's MCP server (every page joined). It prints `{"connection", "started_at", "queued", "by_kind": {"requirement", "epic", "story", "task", "bug"}, "next"}`; without `--json`, a summary line and a `Next:` line.
+`overseer sync start <connection> <file|-> --json` starts the sync of a connection. Use it once, right after connecting a repository; from then on the [outbox](#outbox) queues each change. The listing is the repository's issues as for [`sync plan`](#sync-plan), fetched through the connection's MCP server (every page joined); pull requests in it are not issues. What it does depends on whether the repository has issues. It prints `{"connection", "started_at", "from", "queued", "by_kind": {"requirement", "epic", "story", "task", "bug"}, "created", "linked", "warnings", "next"}`; without `--json`, a summary line, a `warning:` line per warning and a `Next:` line.
 
-- **Empty repository only**: a listing with issues gives `INVALID_INPUT` (`github acme/demo already has 3 issues; sync start currently supports only empty repositories.`) and changes nothing. Pull requests in the listing are not issues.
-- **Queue**: in one transaction, every item of every kind and status (open or closed) without a remote ref on the connection gets one pending `create` in the connection's outbox, whatever its auto-sync flag. A pending update or status entry of such an item becomes the create; a pending create stays. Items already linked to an issue there are skipped.
-- **Once per connection**: the connection records `sync_started_at`. Running it again gives `CONFLICT` with the start time and queues nothing.
+**Empty repository** (`from: "board"`): the board seeds it, so that the first sync creates an issue for every item.
+
+- **Queue**: in one transaction, every item of every kind and status (open or closed) without a remote ref on the connection gets one pending `create` in the connection's outbox, whatever its auto-sync flag (`queued`, `by_kind`). A pending update or status entry of such an item becomes the create; a pending create stays. Items already linked to an issue there are skipped.
 - **Then**: `sync plan` gives one `create` push per seeded item (a closed item's create has `issue.state: "closed"`, so the push closes the new issue), the agent runs them through the MCP server, and [`sync confirm`](#sync-confirm) links each item to its issue.
+
+**Repository with issues** (`from: "repository"`): its issues come to the board and the items already on the board are never pushed.
+
+- **Issues**: in one transaction, the issues are upserted as `import` does: an issue no item has creates one (`created`), an item imported from it earlier is updated from it (`linked`), and each gets its remote ref on the connection with the snapshot of its synced fields. History records these changes via `sync:<host>`; other connections with auto-sync on queue them as usual.
+- **Nothing queued**: no outbox entry is queued for existing local items (`queued: 0`), and their pending create, update and status entries on the connection are dropped. The connection records the highest item ID per kind (`sync_start_baseline`).
+- **Then**: an item that existed before the start and has no issue on the connection is never pushed as a create: when it changes, `sync plan` lists its entry under `ack`. Items created after the start get a `create` push as usual, and items linked to an issue get updates.
+
+- **Once per connection**: the connection records `sync_started_at`. Running it again gives `CONFLICT` with the start time and changes nothing.
 
 It reads only the project database and the listing given: no GitHub or GitLab call. An unknown connection gives `NOT_FOUND` before the file is read. It has no MCP tool; `sync start --help` describes the listing.
 
@@ -474,7 +482,7 @@ It reads only the project database and the listing given: no GitHub or GitLab ca
 
 - A pending `create` whose item already has a remote ref on the connection (a push not acknowledged yet) updates every synced field of that issue; it never opens a second one.
 - A `delete` closes the deleted item's issue: `fields: ["state"]`, `issue` with the listing's values and `state: "closed"`, or the tombstone's title and `null` body and labels when the listing lacks the issue.
-- An entry that changes nothing on the issue (only unsynced fields, values the issue already has, fields the issue won as source of truth, a deleted item without an issue on the connection or with a closed one, an item gone since) needs no remote call: its `seq` is in `ack` (ascending), to acknowledge with `sync outbox ack`. It gives no warning.
+- An entry that changes nothing on the issue (only unsynced fields, values the issue already has, fields the issue won as source of truth, a deleted item without an issue on the connection or with a closed one, an item gone since, an item without an issue that existed before a [sync start from a repository with issues](#sync-start)) needs no remote call: its `seq` is in `ack` (ascending), to acknowledge with `sync outbox ack`. It gives no warning.
 
 **Pull** operations, one per listed issue to apply to the board: `{"op", "external_ref", "url", "item_id", "fields", "issue"}`.
 
