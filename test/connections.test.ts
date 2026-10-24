@@ -48,6 +48,7 @@ describe('sync connection add', () => {
       mcp_server: 'github',
       auto_sync: true,
       last_sync_cursor: null,
+      sync_started_at: null,
       created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     });
 
@@ -57,6 +58,7 @@ describe('sync connection add', () => {
     expect(text.out).toMatch(/^host: +gitlab$/m);
     expect(text.out).toMatch(/^repository: +group\/sub\/project$/m);
     expect(text.out).toMatch(/^mcp_server: +-$/m);
+    expect(text.out).toMatch(/^sync_started_at: +-$/m);
     expect(text.out).toMatch(/^auto_sync: +on$/m);
 
     const service = openService(root);
@@ -120,9 +122,9 @@ describe('sync connections, connection set and connection remove', () => {
     ]);
 
     const lines = (await cli(root, ['sync', 'connections'])).out.trimEnd().split('\n');
-    expect(lines[0]).toMatch(/^Id +Host +Repository +MCP server +Auto-sync +Last sync$/);
-    expect(lines[2]).toMatch(/^1 +github +acme\/demo +github +on +-$/);
-    expect(lines[3]).toMatch(/^2 +gitlab +group\/sub\/project +- +on +-$/);
+    expect(lines[0]).toMatch(/^Id +Host +Repository +MCP server +Auto-sync +Last sync +Sync started$/);
+    expect(lines[2]).toMatch(/^1 +github +acme\/demo +github +on +- +-$/);
+    expect(lines[3]).toMatch(/^2 +gitlab +group\/sub\/project +- +on +- +-$/);
   });
 
   it('set changes auto-sync and the MCP server; unknown ids, bad states and empty changes fail', async () => {
@@ -317,14 +319,15 @@ describe('sync status', () => {
     const insertOutbox = service.db.prepare("INSERT INTO sync_outbox(connection_id, item_id, operation, created_at) VALUES (?, 'TASK-0001', 'update', '2026-10-20T00:00:00Z')");
     for (const connection of [1, 1, 2]) insertOutbox.run(connection);
     service.db.prepare("UPDATE connections SET last_sync_cursor = '2026-10-20T12:00:00Z' WHERE id = 2").run();
+    service.db.prepare("UPDATE connections SET sync_started_at = '2026-10-19T09:00:00Z' WHERE id = 1").run();
     service.close();
 
     const json = await cli(root, ['sync', 'status', '--json']);
     const state = (id: number, rest: Partial<Connection>, pending: number) => expect.objectContaining({ id, ...rest, pending_outbox: pending });
     expect(json.json()).toEqual({
       connections: [
-        state(1, { host: 'github', repository: 'acme/demo', mcp_server: 'github', auto_sync: true, last_sync_cursor: null }, 2),
-        state(2, { host: 'gitlab', repository: 'group/sub/project', mcp_server: null, auto_sync: false, last_sync_cursor: '2026-10-20T12:00:00Z' }, 1),
+        state(1, { host: 'github', repository: 'acme/demo', mcp_server: 'github', auto_sync: true, last_sync_cursor: null, sync_started_at: '2026-10-19T09:00:00Z' }, 2),
+        state(2, { host: 'gitlab', repository: 'group/sub/project', mcp_server: null, auto_sync: false, last_sync_cursor: '2026-10-20T12:00:00Z', sync_started_at: null }, 1),
       ],
       source_of_truth: 'board',
     });
@@ -335,8 +338,8 @@ describe('sync status', () => {
     });
     const text = (await cli(root, ['sync', 'status'])).out;
     expect(text).toMatch(/Pending outbox/);
-    expect(text).toMatch(/1 +github +acme\/demo +github +on +never +2/);
-    expect(text).toMatch(/2 +gitlab +group\/sub\/project +- +off +2026-10-20T12:00:00Z +1/);
+    expect(text).toMatch(/1 +github +acme\/demo +github +on +never +2026-10-19T09:00:00Z +2/);
+    expect(text).toMatch(/2 +gitlab +group\/sub\/project +- +off +2026-10-20T12:00:00Z +never +1/);
     expect(text).toMatch(/\nSource of truth: connection 2 \(gitlab group\/sub\/project\)\n$/);
   });
 });

@@ -125,6 +125,11 @@ DROP TABLE temp.events_counter;
 CREATE INDEX events_item ON events(item_id, seq);
 `;
 
+/** When `sync start` seeded a connection's repository from the board; null until then. Set once. */
+const MIGRATION_3 = `
+ALTER TABLE connections ADD COLUMN sync_started_at TEXT;
+`;
+
 /**
  * Vectors per item: full text (`items_vec`), title only (`items_title_vec`) so short queries match titles, and title +
  * description (`items_statement_vec`), the shape of a duplicate-guard query, so a reworded item matches regardless of
@@ -154,6 +159,7 @@ export const MIGRATIONS: ReadonlyArray<(db: DatabaseSync, context: MigrationCont
     insert.run('board_port', '4477');
   },
   (db) => db.exec(MIGRATION_2),
+  (db) => db.exec(MIGRATION_3),
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

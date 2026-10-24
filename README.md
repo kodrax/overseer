@@ -225,7 +225,7 @@ overseer export                             # writes docs/overseer/
 | `worktree finish <id> --merged-head <sha> [--pr] [--base]` | after the merge: remove the worktree and branches, fast-forward the base, set the item done and roll its story up to done |
 | `worktree list` | worktrees on task and bug branches, with their item IDs |
 | `sync remotes` | GitHub, GitLab and other repositories named by the project's git remotes (see [Repository remotes](#repository-remotes)) |
-| `sync status` | sync state: each connection with its MCP server, auto-sync flag, last sync cursor and pending outbox entries, and the source of truth (see [Sync status](#sync-status)) |
+| `sync status` | sync state: each connection with its MCP server, auto-sync flag, last sync cursor, sync start time and pending outbox entries, and the source of truth (see [Sync status](#sync-status)) |
 | `sync connections` | the project's repository connections, with their MCP server and auto-sync flag (see [Repository connections](#repository-connections)) |
 | `sync connection add --host github\|gitlab --repo <repo> [--mcp-server <name>]` | connect a GitHub or GitLab repository to the project, with auto-sync on |
 | `sync connection set <id> [--auto-sync on\|off] [--mcp-server <name>]` | change a connection's auto-sync flag or MCP server |
@@ -238,6 +238,7 @@ overseer export                             # writes docs/overseer/
 | `sync mapping import <connection> <file\|->` | replace a connection's whole mapping with a JSON mapping, all or nothing |
 | `sync outbox [<connection>]` | local item changes waiting to be pushed, per connection with auto-sync on (see [Outbox](#outbox)) |
 | `sync outbox ack <seq...>` | remove outbox entries once their push is confirmed, all or nothing |
+| `sync start <connection> <file\|->` | seed an empty repository from the board: queue a create for every item without an issue on the connection and record its sync start time, once (see [Sync start](#sync-start)) |
 | `sync plan <connection> <file\|->` | the push and pull operations that would sync a connection, with conflicts resolved by the source of truth, from a raw MCP listing of its issues; writes nothing (see [Sync plan](#sync-plan)) |
 | `sync pull <connection> <file\|->` | apply the pull operations of `sync plan`: create items for new issues and apply remote changes without a pending local change, or that win as source of truth (see [Sync pull](#sync-pull)) |
 | `sync confirm <connection> <file\|->` | record the pushes run for a plan: remote ref, snapshot of the pushed values, outbox ack; all or nothing (see [Sync confirm](#sync-confirm)) |
@@ -329,12 +330,12 @@ It reads only the local git config and makes no network calls. This command has 
 
 ### Repository connections
 
-A connection is one GitHub or GitLab repository the project syncs with. `overseer sync connection add --host github --repo acme/demo --mcp-server github --json` stores it and prints `{"id", "host", "repository", "mcp_server", "auto_sync", "last_sync_cursor", "created_at"}`; without `--json`, one `key: value` line per field:
+A connection is one GitHub or GitLab repository the project syncs with. `overseer sync connection add --host github --repo acme/demo --mcp-server github --json` stores it and prints `{"id", "host", "repository", "mcp_server", "auto_sync", "last_sync_cursor", "sync_started_at", "created_at"}`; without `--json`, one `key: value` line per field:
 
 - **Repository**: `owner/repo` on GitHub; `group/project` on GitLab, with any number of subgroups (`group/sub/project`). Slashes around it and `.git` are dropped, as in `sync remotes`. Each part holds letters, digits, `.`, `_` and `-`. Another host, or another repository shape (a URL, `acme`, `acme/demo/extra` on GitHub), gives `INVALID_INPUT`.
 - **One connection per repository**: the same host and repository again (case-insensitive) gives `CONFLICT` naming the existing connection's id.
 - **MCP server**: the harness MCP server that reaches the repository (`--mcp-server`), else `null`.
-- **Auto-sync**: on for a new connection; `last_sync_cursor` is `null` until the first pull.
+- **Auto-sync**: on for a new connection; `last_sync_cursor` is `null` until the first pull, and `sync_started_at` until [`sync start`](#sync-start).
 
 `overseer sync connections --json` lists every connection by id (`[]` when there is none; `No connections.` and a table without `--json`). `overseer sync connection set <id> --auto-sync on|off --mcp-server <name> --json` changes either field and prints the connection; give at least one. `overseer sync connection remove <id> --json` deletes the connection together with its issue references on items, its kind/status/priority mappings and its pending outbox rows, and prints `{"removed": <connection>, "remote_refs", "mappings", "outbox", "source_of_truth_reset"}` with the number of rows deleted from each. When the removed connection was the source of truth, the board becomes the source of truth in the same step: `source_of_truth_reset` is `true` and the text output adds `Source of truth reset to board.`. An unknown id gives `NOT_FOUND`.
 
@@ -359,7 +360,7 @@ These commands read and write only the project database: they make no GitHub or 
 
 ### Sync status
 
-`overseer sync status --json` prints `{"connections": [...], "source_of_truth": "board"}`: every connection as in `sync connections` (`id`, `host`, `repository`, `mcp_server`, `auto_sync`, `last_sync_cursor`, `created_at`) plus `pending_outbox`, the number of its rows waiting in the outbox. `last_sync_cursor` is `null` until the first sync. A connection as source of truth shows as `{"id", "host", "repository"}`. With no connection it prints `{"connections": [], "source_of_truth": "board"}`. Without `--json`, a table (`No connections.` when there is none; `never` for a connection not synced yet) and a `Source of truth:` line with the connection's host and repository.
+`overseer sync status --json` prints `{"connections": [...], "source_of_truth": "board"}`: every connection as in `sync connections` (`id`, `host`, `repository`, `mcp_server`, `auto_sync`, `last_sync_cursor`, `sync_started_at`, `created_at`) plus `pending_outbox`, the number of its rows waiting in the outbox. `last_sync_cursor` is `null` until the first sync, `sync_started_at` until [`sync start`](#sync-start). A connection as source of truth shows as `{"id", "host", "repository"}`. With no connection it prints `{"connections": [], "source_of_truth": "board"}`. Without `--json`, a table (`No connections.` when there is none; `never` for a connection not synced or started yet) and a `Source of truth:` line with the connection's host and repository.
 
 It reads only the project database: no GitHub or GitLab call. It has no MCP tool.
 
@@ -435,6 +436,17 @@ Every item change made on this side (CLI, MCP tools, the web board, batch create
 
 These commands read and write only the project database: they make no GitHub or GitLab call and record nothing in item history. They have no MCP tool.
 
+### Sync start
+
+`overseer sync start <connection> <file|-> --json` seeds a connection's repository from the board, so that the first sync creates an issue for every item. Use it once, right after connecting a repository that has no issues yet; from then on the [outbox](#outbox) queues each change. The listing is the repository's issues as for [`sync plan`](#sync-plan), fetched through the connection's MCP server (every page joined). It prints `{"connection", "started_at", "queued", "by_kind": {"requirement", "epic", "story", "task", "bug"}, "next"}`; without `--json`, a summary line and a `Next:` line.
+
+- **Empty repository only**: a listing with issues gives `INVALID_INPUT` (`github acme/demo already has 3 issues; sync start currently supports only empty repositories.`) and changes nothing. Pull requests in the listing are not issues.
+- **Queue**: in one transaction, every item of every kind and status (open or closed) without a remote ref on the connection gets one pending `create` in the connection's outbox, whatever its auto-sync flag. A pending update or status entry of such an item becomes the create; a pending create stays. Items already linked to an issue there are skipped.
+- **Once per connection**: the connection records `sync_started_at`. Running it again gives `CONFLICT` with the start time and queues nothing.
+- **Then**: `sync plan` gives one `create` push per seeded item (a closed item's create has `issue.state: "closed"`, so the push closes the new issue), the agent runs them through the MCP server, and [`sync confirm`](#sync-confirm) links each item to its issue.
+
+It reads only the project database and the listing given: no GitHub or GitLab call. An unknown connection gives `NOT_FOUND` before the file is read. It has no MCP tool; `sync start --help` describes the listing.
+
 ### Sync plan
 
 `overseer sync plan <connection> <file|-> --json` works out what a sync of one connection would do, from its pending outbox entries, its remote refs with their last synced snapshot, its mapping, the [source of truth](#source-of-truth) and a listing of its issues fetched through the connection's MCP server. It prints `{"push": [...], "pull": [...], "conflicts": [...], "ack": [...], "overwritten": [...], "warnings": [...]}`; without `--json`, a counts line, one table per non-empty part, an `ack:` line and a `warning:` line per warning. [`sync pull`](#sync-pull) applies its pull operations and [`sync confirm`](#sync-confirm) records its pushes.
@@ -454,7 +466,7 @@ These commands read and write only the project database: they make no GitHub or 
 
 | Field | Meaning |
 |---|---|
-| `op` | `create` when the item has no remote ref on the connection (`external_ref` and `url` null, `fields` all six); `close` or `reopen` when `fields` holds `state` (by the new state); `update` otherwise |
+| `op` | `create` when the item has no remote ref on the connection (`external_ref` and `url` null, `fields` all six; `issue.state` `closed` for a delivered or closed item, whose new issue is then closed); `close` or `reopen` when `fields` holds `state` (by the new state); `update` otherwise |
 | `seq` | the outbox entry to acknowledge with `sync outbox ack` once the push is confirmed |
 | `fields` | the synced fields to set. For an update: those the entry's changed fields touch (`title` → title, `description` → body, `tags`, `kind` and `priority` → labels, `status` → state and labels, `assignee`, `milestone`), minus those whose new value equals the snapshot and those in conflict that the issue wins (see **Conflicts** below). Other item fields (links, acceptance criteria, …) are not synced |
 | `issue` | the whole issue as the push leaves it: `{"title", "body", "labels", "state", "assignee", "milestone"}`; a push sets only `fields`, and a field the issue won keeps the listing's value |

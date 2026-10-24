@@ -6,6 +6,7 @@ import { IMPORT_SOURCES } from '../../core/schema.js';
 import { confirmSync } from '../../core/sync-confirm.js';
 import { planSync, type SyncPlan } from '../../core/sync-plan.js';
 import { pullSync, type SyncPullResult } from '../../core/sync-pull.js';
+import { startSync } from '../../core/sync-start.js';
 import { bundleKeys, inspectTracking, type TrackingSetup } from '../../core/tracking.js';
 import { assertProjectEnabled } from '../../core/user-config.js';
 import { fields, table } from '../format.js';
@@ -47,6 +48,7 @@ function formatConnection(connection: Connection): string {
     ['mcp_server', connection.mcp_server ?? '-'],
     ['auto_sync', connection.auto_sync ? 'on' : 'off'],
     ['last_sync_cursor', connection.last_sync_cursor ?? '-'],
+    ['sync_started_at', connection.sync_started_at ?? '-'],
     ['created_at', connection.created_at],
   ]);
 }
@@ -66,7 +68,7 @@ function formatStatus({ connections, source_of_truth }: SyncStatus): string {
     connections.length === 0
       ? 'No connections.'
       : table(
-          ['Id', 'Host', 'Repository', 'MCP server', 'Auto-sync', 'Last sync', 'Pending outbox'],
+          ['Id', 'Host', 'Repository', 'MCP server', 'Auto-sync', 'Last sync', 'Sync started', 'Pending outbox'],
           connections.map((connection) => [
             connection.id,
             connection.host,
@@ -74,6 +76,7 @@ function formatStatus({ connections, source_of_truth }: SyncStatus): string {
             connection.mcp_server,
             connection.auto_sync ? 'on' : 'off',
             connection.last_sync_cursor ?? 'never',
+            connection.sync_started_at ?? 'never',
             connection.pending_outbox,
           ]),
         ),
@@ -104,6 +107,14 @@ const PLAN_HELP = `
 The listing is the raw answer of the connection's MCP server: a GitHub list_issues response ({"issues": [...]}) or an
 array of GitHub issues, or a GitLab list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item
 response or array of work items. Join the pages into one array to plan against every issue. Nothing is written.
+`;
+
+const START_HELP = `
+The listing is the raw answer of the connection's MCP server, as for sync plan; join every page into one array. It
+must hold no issues: sync start currently supports only empty repositories. Every item of every kind and status
+without an issue on the connection gets one pending create in its outbox (whatever the auto-sync flag), and the
+connection records its sync start time, once: a second start gives CONFLICT. Then run sync plan, push the creates and
+sync confirm.
 `;
 
 const CONFIRM_HELP = `
@@ -243,7 +254,7 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
           connections.length === 0
             ? 'No connections.'
             : table(
-                ['Id', 'Host', 'Repository', 'MCP server', 'Auto-sync', 'Last sync'],
+                ['Id', 'Host', 'Repository', 'MCP server', 'Auto-sync', 'Last sync', 'Sync started'],
                 connections.map((connection) => [
                   connection.id,
                   connection.host,
@@ -251,6 +262,7 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
                   connection.mcp_server,
                   connection.auto_sync ? 'on' : 'off',
                   connection.last_sync_cursor,
+                  connection.sync_started_at,
                 ]),
               ),
         );
@@ -404,6 +416,31 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
     .action(async (seqs: string[], _options: unknown, command: Command) => {
       await rt.withService(command, 'write', (service, { json }) => {
         rt.emit(json, service.outbox.ack(seqs), ({ acked }) => `Removed ${acked.length} outbox ${acked.length === 1 ? 'entry' : 'entries'}: ${acked.join(', ')}.`);
+      });
+    });
+
+  sync
+    .command('start')
+    .description(
+      "seed an empty repository from the board: queue a create on the connection for every item without an issue there and record the sync start time, from a raw MCP listing of its issues in a file or stdin (-); no network",
+    )
+    .argument('<connection>', 'connection id (see sync connections)')
+    .argument('<file>', 'JSON listing file, or - for stdin')
+    .option('--json', 'print JSON')
+    .addHelpText('after', START_HELP)
+    .action(async (connectionId: string, file: string, options: { json?: boolean }, command: Command) => {
+      await rt.withService(command, 'write', async (service) => {
+        // An unknown connection gives NOT_FOUND before the file is read.
+        const connection = service.connections.require(connectionId);
+        const started = startSync(service, connection.id, parseJsonInput(await readInput(rt, file, 'Listing'), 'Listing'));
+        rt.emit(options.json, started, ({ started_at, queued, by_kind, next }) =>
+          [
+            `Started sync of connection ${connection.id} (${connection.host} ${connection.repository}) at ${started_at}: queued ${queued} create${queued === 1 ? '' : 's'} (${Object.entries(by_kind)
+              .map(([kind, count]) => `${kind} ${count}`)
+              .join(', ')}).`,
+            `Next: ${next}`,
+          ].join('\n'),
+        );
       });
     });
 
