@@ -1,6 +1,6 @@
 ---
 name: overseer-sync
-description: Connect the overseer board to the project's GitHub or GitLab repositories and map overseer kinds, statuses and priorities onto their labels, issue types and states, using the GitHub/GitLab MCP servers configured in this harness. Use when asked to connect, link or set up sync between overseer and GitHub or GitLab.
+description: Connect the overseer board to the project's GitHub or GitLab repositories and map overseer kinds, statuses and priorities onto their labels, issue types and states (proposing missing labels and creating them once the user confirms), using the GitHub/GitLab MCP servers configured in this harness. Use when asked to connect, link or set up sync between overseer and GitHub or GitLab.
 ---
 
 # overseer-sync
@@ -84,11 +84,27 @@ For each confirmed repository:
    verified, deferred, rejected, obsolete, open, in_progress, done, cancelled, backlog, ready, review;
    `priority` must, should, could, wont. Map kinds to issue types (else labels), statuses to the
    states `open` / `closed` or existing status labels, priorities to existing priority labels. Several
-   local values may share one remote value. Leave a value out when nothing existing fits; never invent
-   a remote name.
-5. Once the user confirms (or edits) it, save it and run
-   `overseer sync mapping import <id> <file> --json`. `INVALID_INPUT` lists every problem; fix and rerun.
-6. `overseer sync mapping <id> --json` → list the local values still `null` as unmapped and leave them
+   local values may share one remote value. Leave a value out when nothing existing fits; never map to a
+   name the repository lacks here (step 5 proposes new labels for those values).
+5. Propose a label for each kind, status and priority value still unmapped: a name in the repository's
+   existing label style when its labels have one (prefix, separator and case, e.g. `type/task`,
+   `Priority: Must`), else `kind: <kind>`, `status: <status>` and `priority: <priority>` (`kind: task`,
+   `status: in progress`, `priority: must`, underscores as spaces); and a colour as 6 hex digits, one
+   per dimension (kind `1d76db`, status `fbca04`, priority `d93f0b`) unless the existing labels suggest
+   others. Labels only: never propose or create an issue type. Show the full proposal, step 4's mapping
+   and the new labels, as one table (dimension, local value, remote value, new or existing, colour) and
+   ask the user to confirm all of it, a subset, or none; apply their edits.
+6. Create only the new labels the user confirmed: nothing is created without that confirmation. Use the
+   connection's server: GitHub `label_write` with `method: create` (`owner`, `repo`, `name`, `color`
+   without `#`); GitLab `create_label` (`project_id`, `name`, `color` with a leading `#`). When the
+   server has no such tool (GitLab's built-in server has none; see "Creating labels" in
+   `../overseer-import/references/integrations.md`), say it cannot create labels, create none and leave
+   those values unmapped. A failed call (permission denied, …): report its error and leave that value
+   unmapped; an answer that the label already exists means it is there, so keep it.
+7. Only then save the mapping: the confirmed pairs of step 4 plus each label created or already there,
+   and run `overseer sync mapping import <id> <file> --json`. `INVALID_INPUT` lists every problem; fix
+   and rerun.
+8. `overseer sync mapping <id> --json` → list the local values still `null` as unmapped and leave them
    unmapped.
 
 ## 4. Start sync

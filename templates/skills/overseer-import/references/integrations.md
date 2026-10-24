@@ -51,8 +51,9 @@ https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md.
 - URL: `https://api.githubcopilot.com/mcp/` with two headers:
   - `X-MCP-Toolsets: issues` — every issue tool, reading and writing (`issue_write`, `add_issue_comment`, …).
   - `X-MCP-Tools: get_label,list_label,projects_get,projects_list` — adds only the read tools of
-    the `labels` and `projects` toolsets; `label_write` and `projects_write` stay off. Tools are
-    added on top of the toolsets; an unknown tool name stops the server from starting.
+    the `labels` and `projects` toolsets; `label_write` and `projects_write` stay off (add
+    `label_write` to let `overseer-sync` create labels: see [Creating labels](#creating-labels)). Tools
+    are added on top of the toolsets; an unknown tool name stops the server from starting.
 - PAT: fine-grained with Issues read and write, plus Projects read for the owning account or
   organization (unconfirmed: the guides do not list the permission each tool needs).
 - A path toolset holds a single toolset, so this setup needs the headers; it cannot be expressed
@@ -96,6 +97,21 @@ projects tools.
   tools above. Toolsets per tool: `list_issue_types` and `issue_read` in `pkg/github/issues.go`,
   `list_label` and `get_label` in `pkg/github/labels.go`, `projects_list` and `projects_get` in
   `pkg/github/projects.go` (same repository).
+
+### Creating labels
+
+The `overseer-sync` connect flow creates the labels the user confirms with `label_write`
+(`method: create`, `owner`, `repo`, `name`, `color` as 6 hex digits without `#`, optional
+`description`), in the `labels` toolset (`pkg/github/labels.go`). The write setup above leaves it off:
+add it to the header, `X-MCP-Tools: get_label,list_label,label_write,projects_get,projects_list`, in
+the harness's snippet. Without it the skill says the server cannot create labels and leaves those
+values unmapped.
+
+- PAT: fine-grained with Issues write (or Pull requests write) on the repository: `POST
+  /repos/{owner}/{repo}/labels` in
+  https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens.
+  Classic PATs need the `repo` scope (the tool's required scope in `pkg/github/labels.go`).
+- REST equivalent and colour format: https://docs.github.com/en/rest/issues/labels#create-a-label.
 
 ## GitLab: zereight/gitlab-mcp (community server, any GitLab version)
 
@@ -161,6 +177,17 @@ setup above enables every one of them except `gitlab_api_request`.
 - `list_work_item_statuses` needs GitLab Premium or Ultimate (same source); without it issue types
   and sub-issue support stay unknown.
 
+### Creating labels
+
+The `overseer-sync` connect flow creates the labels the user confirms with `create_label`
+(`project_id`, `name`, `color` as 6 hex digits with a leading `#`, optional `description`), in the
+`labels` toolset the snippets above already enable (https://github.com/zereight/gitlab-mcp/blob/main/docs/tools/labels.md).
+It is a write tool, so readonly mode hides it: set `GITLAB_PERMISSION_MODE=modify` (or
+`--permission-mode=modify`) and use a token with the `api` scope. Creating a project label needs the
+Planner, Reporter, Developer, Maintainer or Owner role on the project
+(https://docs.gitlab.com/user/project/labels/). Without the tool or the role the skill says so and
+leaves those values unmapped.
+
 ## GitLab: built-in server (alternative; GitLab 18.6+, work item tools 19.4+)
 
 - URL: `https://<host>/api/v4/mcp` (`gitlab.com` or your instance). Auth: OAuth only (dynamic client
@@ -170,6 +197,9 @@ setup above enables every one of them except `gitlab_api_request`.
   `updated_after`, `types`) and `get_work_item` (`project_id` + `work_item_iid`, or `url`).
 - Source: https://docs.gitlab.com/user/model_context_protocol/mcp_server/ and
   https://docs.gitlab.com/user/model_context_protocol/mcp_server_tools/
+- No label-creation tool: the server's only label tool is `search_labels` (same source), so the
+  `overseer-sync` connect flow cannot create labels through it; it says so and leaves the values
+  without an existing label unmapped.
 
 | Harness | Setup |
 |---|---|
