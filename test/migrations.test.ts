@@ -73,8 +73,8 @@ describe('migrations', () => {
     v1.close();
 
     const { db } = openDatabase(root, { create: false })!;
-    expect(SCHEMA_VERSION).toBe(3);
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
+    expect(SCHEMA_VERSION).toBe(4);
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '4' });
     const after = snapshot(db, V1_TABLES);
     expect(after).toEqual(before);
     expect(before.events).toHaveLength(5);
@@ -95,7 +95,7 @@ describe('migrations', () => {
     db.close();
   });
 
-  it('migrates a version-2 database to version 3, adding sync_started_at null to existing connections', () => {
+  it('migrates a version-2 database to the current version, adding sync_started_at and sync_start_baseline null to existing connections', () => {
     const root = tempRepo();
     createV1Database(root);
     const v2 = new DatabaseSync(databaseFile(root));
@@ -107,16 +107,18 @@ describe('migrations', () => {
     v2.close();
 
     const { db } = openDatabase(root, { create: false })!;
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
-    expect(db.prepare('SELECT id, repository, sync_started_at FROM connections').all()).toEqual([{ id: 1, repository: 'acme/app', sync_started_at: null }]);
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '4' });
+    expect(db.prepare('SELECT id, repository, sync_started_at, sync_start_baseline FROM connections').all()).toEqual([
+      { id: 1, repository: 'acme/app', sync_started_at: null, sync_start_baseline: null },
+    ]);
     db.close();
   });
 
   it('runs every migration for a new project', () => {
     const service = openService();
-    expect(service.info().schema_version).toBe(3);
+    expect(service.info().schema_version).toBe(4);
     const { db } = openDatabase(service.root, { create: false })!;
-    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '3' });
+    expect(db.prepare(SCHEMA_VERSION_SQL).get()).toEqual({ value: '4' });
     for (const table of V2_TABLES) {
       expect(db.prepare('SELECT 1 FROM sqlite_master WHERE name = ?').get(table), table).toBeDefined();
     }

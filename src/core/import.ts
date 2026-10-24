@@ -500,6 +500,119 @@ function importConnectionId(db: Database, source: ImportSource, repo: string): n
   return row ? Number(row.id) : undefined;
 }
 
+/** The items an issue upsert created, changed and left as they were, by ID, and its warnings. */
+export type IssueUpsert = Pick<ImportResult, 'created' | 'updated' | 'unchanged' | 'warnings'>;
+
+/**
+ * Upserts issues of `source` into the board in the caller's transaction (import and sync start): an issue no item has
+ * (by its `<source>:` external_ref) creates one; a known issue updates its item's title, description, tags, assignee,
+ * milestone, URL and state. Parents are linked after every upsert; with `connectionId`, each item gets its remote ref
+ * there. An issue listed twice uses its first entry, with a warning. Adds the item IDs and warnings to `result` and
+ * returns the external_refs seen.
+ */
+export function upsertIssues(
+  service: OverseerService,
+  source: ImportSource,
+  items: readonly ImportItem[],
+  connectionId: number | undefined,
+  importCtx: Ctx,
+  now: string,
+  result: IssueUpsert,
+): Set<string> {
+  const db = service.db;
+  const refOf = (externalId: string) => `${source}:${externalId}`;
+  /** Item of each upserted issue, for its remote ref. */
+  const synced: { id: string; remote: ImportItem }[] = [];
+  const seen = new Set<string>();
+  for (const remote of items) {
+    const externalRef = refOf(remote.external_id);
+    if (seen.has(externalRef)) {
+      result.warnings.push(`${remote.external_id}: listed twice in this batch; only the first entry was used.`);
+      continue;
+    }
+    seen.add(externalRef);
+    const description = (remote.body ?? '').slice(0, DESCRIPTION_MAX);
+    const cutWarning = (id: string): void => {
+      const warning = descriptionCutWarning(id, remote);
+      if (warning) result.warnings.push(warning);
+    };
+    const existing = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(externalRef);
+    if (!existing) {
+      const id = insertImportedItem(service, remote, source, importCtx, now, result.warnings);
+      result.created.push(id);
+      synced.push({ id, remote });
+      continue;
+    }
+
+    const row = getRow(db, String(existing.id))!;
+    const current = toItem(row);
+    const incoming: Partial<Item> = {
+      title: remote.title,
+      // A missing body keeps the stored description; an explicit "" or null clears it.
+      ...(remote.body === undefined ? {} : { description }),
+      tags: remote.labels ?? [],
+      assignee: remote.assignees?.[0] ?? null,
+      milestone: remote.milestone ?? null,
+      external_url: remote.url,
+    };
+    const changes = (Object.keys(incoming) as (keyof Item)[]).filter(
+      (field) => JSON.stringify(current[field] ?? null) !== JSON.stringify(incoming[field] ?? null),
+    );
+    const stateChanged = current.external_state !== remote.state;
+    if (changes.length === 0 && !stateChanged) {
+      db.prepare('UPDATE items SET external_synced_at = ? WHERE rid = ?').run(now, row.rid);
+      result.unchanged.push(row.id);
+      synced.push({ id: row.id, remote });
+      continue;
+    }
+    const sets: string[] = ['external_synced_at = ?', 'updated_at = ?'];
+    const params: (string | number | null)[] = [now, now];
+    for (const field of changes) {
+      const value = incoming[field];
+      sets.push(`${field} = ?`);
+      params.push(columnValue(value));
+      service.addEvent(row.id, importCtx, now, 'update', field, current[field], value);
+      if (field === 'description') cutWarning(row.id);
+    }
+    if (stateChanged) {
+      sets.push('external_state = ?');
+      params.push(remote.state);
+      const status = remote.state === 'closed' ? closedStatus(row.kind, source, remote.state_reason) : openStatus(row.kind, []);
+      if (status !== current.status) {
+        sets.push('status = ?', 'status_changed_at = ?');
+        params.push(status, now);
+        const delivered = status === 'done' || status === 'implemented';
+        if (delivered && !current.delivered_at) {
+          sets.push('delivered_at = ?');
+          params.push(now);
+        } else if (!delivered && current.delivered_at) {
+          sets.push('delivered_at = NULL');
+        }
+        service.addEvent(row.id, importCtx, now, 'status', 'status', current.status, status);
+      }
+    }
+    db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE rid = ?`).run(...params, row.rid);
+    if (changes.some((field) => field === 'title' || field === 'description' || field === 'tags')) {
+      writeFts(db, row.rid, toItem(getRow(db, row.id)!));
+    }
+    result.updated.push(row.id);
+    synced.push({ id: row.id, remote });
+  }
+
+  // Parents are resolved after all upserts so a parent may appear anywhere in the batch (or a previous import).
+  for (const remote of items) {
+    const childId = linkImportedParent(service, source, remote, importCtx, now, result.warnings);
+    if (childId === null) continue;
+    const unchangedIndex = result.unchanged.indexOf(childId);
+    if (unchangedIndex >= 0) {
+      result.unchanged.splice(unchangedIndex, 1);
+      result.updated.push(childId);
+    }
+  }
+  if (connectionId !== undefined) writeRemoteRefs(db, connectionId, synced, now, result.warnings);
+  return seen;
+}
+
 /** Idempotent one-way upsert of GitHub/GitLab issues (S10). Imported text is stored as data only. */
 export async function importItems(service: OverseerService, raw: unknown, ctx: Ctx): Promise<ImportResult> {
   const { input, warnings } = parseImportRequest(raw);
@@ -514,109 +627,19 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
     possible_duplicates: [],
     last_import_at: '',
   };
-  const createdIds: string[] = [];
   const now = nowIso();
   const db = service.db;
   const connectionId = importConnectionId(db, source, input.repo);
   // The imported connection already holds these changes: the outbox records them for the other connections only.
   const importCtx: Ctx = { ...ctx, via: `import:${source}`, origin_connection: connectionId };
-  /** Item of each upserted issue, for its remote ref. */
-  const synced: { id: string; remote: ImportItem }[] = [];
 
   tx(db, () => {
-    const seen = new Set<string>();
-    for (const remote of input.items) {
-      const externalRef = refOf(remote.external_id);
-      if (seen.has(externalRef)) {
-        result.warnings.push(`${remote.external_id}: listed twice in this batch; only the first entry was used.`);
-        continue;
-      }
-      seen.add(externalRef);
-      const description = (remote.body ?? '').slice(0, DESCRIPTION_MAX);
-      const cutWarning = (id: string): void => {
-        const warning = descriptionCutWarning(id, remote);
-        if (warning) result.warnings.push(warning);
-      };
-      const existing = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(externalRef);
-      if (!existing) {
-        const id = insertImportedItem(service, remote, source, importCtx, now, result.warnings);
-        result.created.push(id);
-        createdIds.push(id);
-        synced.push({ id, remote });
-        continue;
-      }
-
-      const row = getRow(db, String(existing.id))!;
-      const current = toItem(row);
-      const incoming: Partial<Item> = {
-        title: remote.title,
-        // A missing body keeps the stored description; an explicit "" or null clears it.
-        ...(remote.body === undefined ? {} : { description }),
-        tags: remote.labels ?? [],
-        assignee: remote.assignees?.[0] ?? null,
-        milestone: remote.milestone ?? null,
-        external_url: remote.url,
-      };
-      const changes = (Object.keys(incoming) as (keyof Item)[]).filter(
-        (field) => JSON.stringify(current[field] ?? null) !== JSON.stringify(incoming[field] ?? null),
-      );
-      const stateChanged = current.external_state !== remote.state;
-      if (changes.length === 0 && !stateChanged) {
-        db.prepare('UPDATE items SET external_synced_at = ? WHERE rid = ?').run(now, row.rid);
-        result.unchanged.push(row.id);
-        synced.push({ id: row.id, remote });
-        continue;
-      }
-      const sets: string[] = ['external_synced_at = ?', 'updated_at = ?'];
-      const params: (string | number | null)[] = [now, now];
-      for (const field of changes) {
-        const value = incoming[field];
-        sets.push(`${field} = ?`);
-        params.push(columnValue(value));
-        service.addEvent(row.id, importCtx, now, 'update', field, current[field], value);
-        if (field === 'description') cutWarning(row.id);
-      }
-      if (stateChanged) {
-        sets.push('external_state = ?');
-        params.push(remote.state);
-        const status = remote.state === 'closed' ? closedStatus(row.kind, source, remote.state_reason) : openStatus(row.kind, []);
-        if (status !== current.status) {
-          sets.push('status = ?', 'status_changed_at = ?');
-          params.push(status, now);
-          const delivered = status === 'done' || status === 'implemented';
-          if (delivered && !current.delivered_at) {
-            sets.push('delivered_at = ?');
-            params.push(now);
-          } else if (!delivered && current.delivered_at) {
-            sets.push('delivered_at = NULL');
-          }
-          service.addEvent(row.id, importCtx, now, 'status', 'status', current.status, status);
-        }
-      }
-      db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE rid = ?`).run(...params, row.rid);
-      if (changes.some((field) => field === 'title' || field === 'description' || field === 'tags')) {
-        writeFts(db, row.rid, toItem(getRow(db, row.id)!));
-      }
-      result.updated.push(row.id);
-      synced.push({ id: row.id, remote });
-    }
-
-    // Parents are resolved after all upserts so a parent may appear anywhere in the batch (or a previous import).
-    for (const remote of input.items) {
-      const childId = linkImportedParent(service, source, remote, importCtx, now, result.warnings);
-      if (childId === null) continue;
-      const unchangedIndex = result.unchanged.indexOf(childId);
-      if (unchangedIndex >= 0) {
-        result.unchanged.splice(unchangedIndex, 1);
-        result.updated.push(childId);
-      }
-    }
-    if (connectionId !== undefined) writeRemoteRefs(db, connectionId, synced, now, result.warnings);
+    const seen = upsertIssues(service, source, input.items, connectionId, importCtx, now, result);
     deleteRemoved(service, input.deleted ?? [], seen, refOf, importCtx, result);
     service.setMeta(`last_import:${source}:${input.repo}`, now);
   });
 
-  for (const id of createdIds) {
+  for (const id of result.created) {
     const item = service.getItem(id).item;
     const similar = await service.findSimilar(`${item.title}\n${item.description}`, { excludeImported: true });
     const matches = similar.matches.filter(

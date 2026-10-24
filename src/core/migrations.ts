@@ -131,6 +131,15 @@ ALTER TABLE connections ADD COLUMN sync_started_at TEXT;
 `;
 
 /**
+ * The highest item ID number per kind (JSON `{"<kind>": <n>}`) when `sync start` brought the issues of a repository
+ * that already had some to the board: items up to it existed before the start and are never pushed as creates. Null
+ * before the start and after a start that seeded an empty repository.
+ */
+const MIGRATION_4 = `
+ALTER TABLE connections ADD COLUMN sync_start_baseline TEXT;
+`;
+
+/**
  * Vectors per item: full text (`items_vec`), title only (`items_title_vec`) so short queries match titles, and title +
  * description (`items_statement_vec`), the shape of a duplicate-guard query, so a reworded item matches regardless of
  * its acceptance criteria.
@@ -160,6 +169,7 @@ export const MIGRATIONS: ReadonlyArray<(db: DatabaseSync, context: MigrationCont
   },
   (db) => db.exec(MIGRATION_2),
   (db) => db.exec(MIGRATION_3),
+  (db) => db.exec(MIGRATION_4),
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

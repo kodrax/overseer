@@ -17,7 +17,7 @@ export interface Connection {
   auto_sync: boolean;
   /** The host's position reached by the last pull; null before the first one. */
   last_sync_cursor: string | null;
-  /** When `sync start` seeded the repository from the board; null until then. */
+  /** When `sync start` started the connection's sync (seeding its repository, or bringing its issues to the board); null until then. */
   sync_started_at: string | null;
   created_at: string;
 }
