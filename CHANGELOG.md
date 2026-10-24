@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.1.0]
+## [0.1.1] - 2026-10-24
+
+### Changed
+
+- Releases are prepared in pull requests on `chore/release-X.Y.Z` branches and published by pushing the version tag on the merge commit; 0.1.1 is the first release published from CI, with npm provenance.
+
+## [0.1.0] - 2026-10-23
 
 First release.
 
@@ -24,5 +30,6 @@ First release.
 - **Ship workflow**: `overseer worktree start`/`finish`/`list` for per-item branches and worktrees, `overseer pr draft` for pull request titles and bodies, and `overseer pr opened`.
 - **Sync commands (early, manual)**: repository connections, source of truth, kind/status/priority mapping, outbox, `sync plan`, `sync pull` and `sync confirm`, driven by the `overseer-sync` skill through the harness's GitHub or GitLab MCP server.
 
-[Unreleased]: https://github.com/kodrax/overseer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kodrax/overseer/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/kodrax/overseer/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kodrax/overseer/releases/tag/v0.1.0

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { createBoardApp } from '../src/board/server.js';
 import { OverseerService } from '../src/core/service.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
+import { packageJsonVersion } from './helpers/package.js';
 import { ctx, openService } from './helpers/service.js';
 import { tempDir, tempRepo } from './helpers/tmp.js';
 
@@ -72,7 +73,7 @@ describe('board API', () => {
   it('exposes project, items, links, search, similar, reports and export', async () => {
     const { request } = setup();
     const project = await (await request('GET', '/api/project')).json();
-    expect(project).toMatchObject({ initialized: true, version: '0.1.0', enums: { statuses: { story: expect.arrayContaining(['backlog', 'done']) } } });
+    expect(project).toMatchObject({ initialized: true, version: packageJsonVersion, enums: { statuses: { story: expect.arrayContaining(['backlog', 'done']) } } });
 
     const requirement = await request('POST', '/api/items', {
       kind: 'requirement',

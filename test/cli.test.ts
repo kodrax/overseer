@@ -9,6 +9,7 @@ import type { SimilarResult } from '../src/core/search.js';
 import type { CompactCreatedResult, CompactUpdateResult, DeleteResult, ItemDetail, ListResult, UpdateResult } from '../src/core/service.js';
 import type { CheckLine } from '../src/install/index.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
+import { packageJsonVersion } from './helpers/package.js';
 import { git, isolateGitConfig, tempDir, tempRepo, tempUserConfig } from './helpers/tmp.js';
 
 interface Run {
@@ -415,7 +416,7 @@ describe('cli errors and uninitialized projects', () => {
   it('reports commander parse errors and --version', async () => {
     const repo = tempRepo();
     const version = await cli(repo, ['--version']);
-    expect(version).toMatchObject({ code: 0, out: '0.1.0\n' });
+    expect(version).toMatchObject({ code: 0, out: `${packageJsonVersion}\n` });
     const unknown = await cli(repo, ['list', '--bogus']);
     expect(unknown.code).toBe(1);
     expect(unknown.err).toContain("unknown option '--bogus'");
