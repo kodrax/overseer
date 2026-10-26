@@ -27,6 +27,26 @@ export interface ConnectionMapping {
   mapping: Record<MappingDimension, DimensionMapping>;
 }
 
+const STATE_NAMES: Readonly<Record<string, 'open' | 'closed'>> = { open: 'open', opened: 'open', closed: 'closed' };
+
+/** The issue state a mapped status value names (`open`, `opened`, `closed`, any case); undefined for a label. */
+export function mappedState(remote: string): 'open' | 'closed' | undefined {
+  const key = remote.toLowerCase();
+  return Object.hasOwn(STATE_NAMES, key) ? STATE_NAMES[key] : undefined;
+}
+
+/** Whether a remote value of `dimension` is a label: every kind and priority value, and status values naming no state. */
+export function isMappedLabel(dimension: MappingDimension, remote: string): boolean {
+  return dimension !== 'status' || mappedState(remote) === undefined;
+}
+
+/** Every remote value of a mapping that is a label (see {@link isMappedLabel}). */
+export function mappedLabels(mapping: ConnectionMapping['mapping']): Set<string> {
+  return new Set(
+    MAPPING_DIMENSIONS.flatMap((dimension) => Object.values(mapping[dimension]).filter((remote): remote is string => remote !== null && isMappedLabel(dimension, remote))),
+  );
+}
+
 /** One stored pair and the remote value it replaced (null when the local value was unmapped). */
 export interface MappingChange {
   connection_id: number;

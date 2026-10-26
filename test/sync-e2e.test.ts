@@ -554,10 +554,10 @@ describe('sync end to end: one item on a GitHub and a GitLab connection (TASK-00
     expect(await board.outbox()).toEqual([]);
   });
 
-  // BUG: sync pull stores the issue's labels as tags as they are, mapped kind, priority and status labels of the
-  // pulled connection included. targetIssue drops only the planned connection's mapped labels from the tags, so the
-  // other connection's push sends them: GitHub's kind label "Task" lands on the GitLab issue next to "type::task".
-  it.fails("BUG: a label GitHub's mapping gives the kind does not reach the GitLab issue through pulled tags", async () => {
+  // BUG-0015: sync pull stored the issue's labels as tags as they were, mapped kind, priority and status labels of the
+  // pulled connection included, and the other connection's push sent them: GitHub's kind label "Task" landed on the
+  // GitLab issue next to "type::task". A pulled connection's mapped labels are no tags.
+  it("a label GitHub's mapping gives the kind does not reach the GitLab issue through pulled tags (BUG-0015)", async () => {
     const repos = await twoRepositories();
     const { board, github, gitlab } = repos;
     await board.json(['sync', 'mapping', 'import', '1', '-'], JSON.stringify({ kind: { task: 'Task' } }));
@@ -568,6 +568,144 @@ describe('sync end to end: one item on a GitHub and a GitLab connection (TASK-00
     github.edit(1, { labels: ['Task', 'ui'] });
     await syncBoth(repos);
     expect(gitlab.issue(1).labels).toEqual(['type::task', 'ui']);
+  });
+});
+
+// BUG-0017: issues reaching the board took neither priority nor a mapped status from their labels (priority "should",
+// a closed issue labelled "wontfix" "done") and kept the mapped labels as tags; the next push touching labels then
+// replaced the issue's priority label with "priority: should".
+describe("sync end to end: labels the connection's mapping names become fields (BUG-0017)", () => {
+  const mapping = {
+    kind: { story: 'type: user-facing' },
+    status: { in_progress: 'status: in progress', cancelled: 'wontfix' },
+    priority: { must: 'priority: must', should: 'priority: should', could: 'priority: could' },
+  };
+  const fieldsOfItem = async (board: Board, id: string) => {
+    const { kind, priority, status, tags } = await board.item(id);
+    return { kind, priority, status, tags };
+  };
+
+  it('a pull creates items with the kind, priority and status their mapped labels name, and a later push keeps the priority label', async () => {
+    const board = new Board();
+    const github = new FakeRepository('github', 'acme/demo');
+    await board.connect('github', 'acme/demo');
+    await board.json(['sync', 'mapping', 'import', '1', '-'], JSON.stringify(mapping));
+    expect(await board.json(['sync', 'start', '1', '-'], JSON.stringify(github.listing()))).toMatchObject({ from: 'board', queued: 0 });
+    github.open({ title: 'Retry uploads', labels: ['priority: could', 'ui'] });
+    // Closed as completed (GitHub's list_issues has no close reason): the label mapped to cancelled tells.
+    github.close(github.open({ title: 'Drop the beta flag', labels: ['wontfix', 'priority: must'] }));
+    github.open({ title: 'Export the backlog', labels: ['status: in progress'] });
+    // An unmapped value's label stays a tag.
+    github.open({ title: 'Share the board', labels: ['type: user-facing', 'priority: wont'] });
+    // A closed issue with a label mapped to an open status: the state wins.
+    github.close(github.open({ title: 'Print the board', labels: ['status: in progress'] }));
+
+    const round = await board.sync(1, github);
+    expect(round.pull.created.map((entry) => entry.item_id)).toEqual(['TASK-0001', 'TASK-0002', 'TASK-0003', 'US-0001', 'TASK-0004']);
+    expect(round.plan.push).toEqual([]);
+    expect(await fieldsOfItem(board, 'TASK-0001')).toEqual({ kind: 'task', priority: 'could', status: 'backlog', tags: ['ui'] });
+    expect(await fieldsOfItem(board, 'TASK-0002')).toEqual({ kind: 'task', priority: 'must', status: 'cancelled', tags: [] });
+    expect(await fieldsOfItem(board, 'TASK-0003')).toEqual({ kind: 'task', priority: 'should', status: 'in_progress', tags: [] });
+    expect(await fieldsOfItem(board, 'US-0001')).toEqual({ kind: 'story', priority: 'should', status: 'backlog', tags: ['priority: wont'] });
+    expect(await fieldsOfItem(board, 'TASK-0004')).toEqual({ kind: 'task', priority: 'should', status: 'done', tags: [] });
+    await board.expectSettled(1, github);
+
+    // A later push that touches labels keeps the issue's priority label.
+    await board.json(['update', 'TASK-0001', '--tag', 'ui', '--tag', 'backend']);
+    const push = await board.sync(1, github);
+    expect(push.plan.push.map((op) => [op.op, op.item_id, op.fields])).toEqual([['update', 'TASK-0001', ['labels']]]);
+    expect(github.issue(1).labels).toEqual(['backend', 'priority: could', 'ui']);
+    await board.expectSettled(1, github);
+  });
+
+  it('a pull update turns a changed mapped label into the field instead of a tag, and pushes nothing back', async () => {
+    const board = new Board();
+    const github = new FakeRepository('github', 'acme/demo');
+    await board.connect('github', 'acme/demo');
+    await board.json(['sync', 'mapping', 'import', '1', '-'], JSON.stringify(mapping));
+    await board.json(['sync', 'start', '1', '-'], JSON.stringify(github.listing()));
+    github.open({ title: 'Retry uploads', labels: ['priority: could', 'ui'] });
+    github.open({ title: 'Drop the beta flag', labels: ['priority: should'] });
+    await board.sync(1, github);
+
+    github.edit(1, { labels: ['priority: must', 'ui', 'status: in progress'] });
+    github.edit(2, { labels: ['priority: should', 'wontfix'] });
+    github.close(2);
+    const round = await board.sync(1, github);
+    expect(round.pull.updated).toEqual([
+      { item_id: 'TASK-0001', external_ref: 'acme/demo#1', fields: ['labels'] },
+      { item_id: 'TASK-0002', external_ref: 'acme/demo#2', fields: ['labels', 'state'] },
+    ]);
+    expect([round.plan.push, round.plan.ack, round.plan.conflicts]).toEqual([[], [], []]);
+    expect(await fieldsOfItem(board, 'TASK-0001')).toEqual({ kind: 'task', priority: 'must', status: 'in_progress', tags: ['ui'] });
+    expect(await fieldsOfItem(board, 'TASK-0002')).toEqual({ kind: 'task', priority: 'should', status: 'cancelled', tags: [] });
+    expect((await board.history('TASK-0001')).slice(1)).toEqual([
+      { via: 'sync:github', action: 'update', field: 'priority', old_value: 'could', new_value: 'must' },
+      { via: 'sync:github', action: 'status', field: 'status', old_value: 'backlog', new_value: 'in_progress' },
+    ]);
+    expect(await board.outbox()).toEqual([]);
+    await board.expectSettled(1, github);
+    expect(github.issue(1).labels).toEqual(['priority: must', 'ui', 'status: in progress']);
+  });
+
+  it("a priority one connection's label sets reaches the other repository as that connection's label", async () => {
+    const repos = await twoRepositories();
+    const { board, github, gitlab } = repos;
+    await board.json(['sync', 'mapping', 'import', '1', '-'], JSON.stringify({ priority: { must: 'P1', should: 'P2' } }));
+    await board.json(['sync', 'mapping', 'import', '2', '-'], JSON.stringify({ priority: { must: 'priority::1', should: 'priority::2' } }));
+    await board.json(['add', 'task', '--title', 'Retry uploads']);
+    await syncBoth(repos);
+    expect([github.issue(1).labels, gitlab.issue(1).labels]).toEqual([['P2'], ['priority::2']]);
+    github.edit(1, { labels: ['P1', 'ui'] });
+    await syncBoth(repos);
+    expect(await fieldsOfItem(board, 'TASK-0001')).toEqual({ kind: 'task', priority: 'must', status: 'backlog', tags: ['ui'] });
+    expect([github.issue(1).labels, gitlab.issue(1).labels]).toEqual([['P1', 'ui'], ['priority::1', 'ui']]);
+  });
+
+  it('sync start from a GitLab repository with issues sets priority and status from mapped labels', async () => {
+    const board = new Board();
+    const gitlab = new FakeRepository('gitlab', 'acme/app');
+    gitlab.open({ title: 'Retry uploads', labels: ['priority: could', 'backend'] });
+    // GitLab has no close reason at all: the label mapped to cancelled is the only way to tell.
+    gitlab.close(gitlab.open({ title: 'Drop the beta flag', labels: ['wontfix', 'priority: must'] }));
+    gitlab.open({ title: 'Export the backlog', labels: ['status: in progress'] });
+    await board.connect('gitlab', 'acme/app');
+    await board.json(['sync', 'mapping', 'import', '1', '-'], JSON.stringify(mapping));
+    expect(await board.json(['sync', 'start', '1', '-'], JSON.stringify(gitlab.listing()))).toMatchObject({ from: 'repository', created: 3, queued: 0 });
+    expect(await fieldsOfItem(board, 'TASK-0001')).toEqual({ kind: 'task', priority: 'could', status: 'backlog', tags: ['backend'] });
+    expect(await fieldsOfItem(board, 'TASK-0002')).toEqual({ kind: 'task', priority: 'must', status: 'cancelled', tags: [] });
+    expect(await fieldsOfItem(board, 'TASK-0003')).toEqual({ kind: 'task', priority: 'should', status: 'in_progress', tags: [] });
+    await board.expectSettled(1, gitlab);
+
+    await board.json(['update', 'TASK-0001', '--tag', 'backend', '--tag', 'api']);
+    await board.sync(1, gitlab);
+    expect(gitlab.issue(1).labels).toEqual(['api', 'backend', 'priority: could']);
+    await board.expectSettled(1, gitlab);
+  });
+
+  it("import reads the labels through the mapping of the repository's connection, and stores them as tags without one", async () => {
+    const board = new Board();
+    const demo = new FakeRepository('github', 'acme/demo');
+    const other = new FakeRepository('github', 'acme/other');
+    for (const repo of [demo, other]) {
+      repo.open({ title: `Retry uploads in ${repo.repository}`, labels: ['priority: could', 'ui'] });
+      repo.close(repo.open({ title: `Drop the beta flag in ${repo.repository}`, labels: ['wontfix', 'priority: must'] }));
+    }
+    await board.connect('github', 'acme/demo');
+    await board.json(['sync', 'mapping', 'import', '1', '-'], JSON.stringify(mapping));
+    const importRepo = (repo: FakeRepository) => board.json(['import', '-', '--source', 'github', '--repo', repo.repository], JSON.stringify(repo.listing()));
+    expect(await importRepo(demo)).toMatchObject({ created: ['TASK-0001', 'TASK-0002'] });
+    expect(await fieldsOfItem(board, 'TASK-0001')).toEqual({ kind: 'task', priority: 'could', status: 'backlog', tags: ['ui'] });
+    expect(await fieldsOfItem(board, 'TASK-0002')).toEqual({ kind: 'task', priority: 'must', status: 'cancelled', tags: [] });
+    // No connection for acme/other: no mapping, every label is a tag.
+    expect(await importRepo(other)).toMatchObject({ created: ['TASK-0003', 'TASK-0004'] });
+    expect(await fieldsOfItem(board, 'TASK-0003')).toEqual({ kind: 'task', priority: 'should', status: 'backlog', tags: ['priority: could', 'ui'] });
+    expect(await fieldsOfItem(board, 'TASK-0004')).toEqual({ kind: 'task', priority: 'should', status: 'done', tags: ['wontfix', 'priority: must'] });
+
+    // A re-import updates the fields the changed labels name.
+    demo.edit(1, { labels: ['priority: must', 'ui', 'status: in progress'] });
+    expect(await importRepo(demo)).toMatchObject({ updated: ['TASK-0001'], unchanged: ['TASK-0002'] });
+    expect(await fieldsOfItem(board, 'TASK-0001')).toEqual({ kind: 'task', priority: 'must', status: 'in_progress', tags: ['ui'] });
   });
 });
 

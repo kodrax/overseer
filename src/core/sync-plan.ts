@@ -13,7 +13,7 @@ import {
   type SyncedFields,
 } from './import.js';
 import { getRow, toItem } from './items.js';
-import { type DimensionMapping, MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES, type MappingDimension } from './mappings.js';
+import { type DimensionMapping, MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES, type MappingDimension, mappedLabels, mappedState } from './mappings.js';
 import type { OutboxEntry } from './outbox.js';
 import { CLOSED_STATUSES, DELIVERED_STATUSES, type Item, type Kind, parseInput } from './schema.js';
 import type { OverseerService, TombstoneRef } from './service.js';
@@ -169,14 +169,6 @@ export function existedBeforeSyncStart(item: Pick<Item, 'id' | 'kind'>, baseline
   return Number(item.id.slice(item.id.lastIndexOf('-') + 1)) <= (baseline[item.kind] ?? 0);
 }
 
-const STATE_NAMES: Record<string, IssueState> = { open: 'open', opened: 'open', closed: 'closed' };
-
-/** The issue state a mapped status value names (`open`, `opened`, `closed`, any case); undefined for a label. */
-function mappedState(remote: string): IssueState | undefined {
-  const key = remote.toLowerCase();
-  return Object.hasOwn(STATE_NAMES, key) ? STATE_NAMES[key] : undefined;
-}
-
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -195,12 +187,8 @@ function compareExternalIds(a: string, b: string): number {
  * statuses close the issue. Returns the dimensions whose value is unmapped too.
  */
 export function targetIssue(item: Item, mapping: SyncPlanInput['mapping']): { issue: IssueFields; unmapped: MappingDimension[] } {
-  const mappedLabels = new Set(
-    MAPPING_DIMENSIONS.flatMap((dimension) =>
-      Object.values(mapping[dimension]).filter((remote): remote is string => remote !== null && (dimension !== 'status' || mappedState(remote) === undefined)),
-    ),
-  );
-  const labels = item.tags.filter((tag) => !mappedLabels.has(tag));
+  const mapped = mappedLabels(mapping);
+  const labels = item.tags.filter((tag) => !mapped.has(tag));
   let state: IssueState = DELIVERED_STATUSES[item.kind].includes(item.status) || CLOSED_STATUSES[item.kind].includes(item.status) ? 'closed' : 'open';
   const unmapped: MappingDimension[] = [];
   for (const dimension of MAPPING_DIMENSIONS) {
