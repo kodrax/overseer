@@ -4,7 +4,7 @@ import { runCli } from '../src/cli/index.js';
 import { isOverseerError } from '../src/core/errors.js';
 import type { OverseerService } from '../src/core/service.js';
 import { confirmSync } from '../src/core/sync-confirm.js';
-import { existedBeforeSyncStart, planSync } from '../src/core/sync-plan.js';
+import { existedBeforeSyncStart, neverCreatedOn, originConnection, planSync } from '../src/core/sync-plan.js';
 import { startSync } from '../src/core/sync-start.js';
 import { HashEmbedder } from './helpers/hash-embedder.js';
 import { ctx, openService } from './helpers/service.js';
@@ -252,6 +252,30 @@ describe('sync start', () => {
     expect(existedBeforeSyncStart({ id: 'TASK-0005', kind: 'task' }, { task: 4 })).toBe(false);
     expect(existedBeforeSyncStart({ id: 'BUG-0001', kind: 'bug' }, { task: 4 })).toBe(false);
     expect(existedBeforeSyncStart({ id: 'TASK-0001', kind: 'task' }, null)).toBe(false);
+  });
+
+  it('tells the connection whose repository an item came from, and never creates such an item on another (BUG-0019)', () => {
+    const repositories = [
+      { id: 1, host: 'github' as const, repository: 'acme/demo' },
+      { id: 2, host: 'gitlab' as const, repository: 'acme/app' },
+    ];
+    const item = (external_ref: string | null, recorded_via: string) => ({ id: 'TASK-0009', kind: 'task' as const, external_ref, recorded_via });
+    // Created from an issue by sync start, sync pull or import: the issue's repository, case-insensitively.
+    expect(originConnection(item('gitlab:acme/app#3', 'sync:gitlab'), repositories)).toBe(2);
+    expect(originConnection(item('gitlab:Acme/App#3', 'import:gitlab'), repositories)).toBe(2);
+    expect(originConnection(item('github:acme/demo#7', 'sync:github'), repositories)).toBe(1);
+    // Created on the board (an external_ref from the first push), from an unconnected repository, or the other host.
+    expect(originConnection(item('github:acme/demo#7', 'cli'), repositories)).toBeNull();
+    expect(originConnection(item('gitlab:acme/other#1', 'import:gitlab'), repositories)).toBeNull();
+    expect(originConnection(item('github:acme/app#1', 'import:github'), repositories)).toBeNull();
+    expect(originConnection(item(null, 'sync:gitlab'), repositories)).toBeNull();
+
+    const plan = (connection_id: number, start_baseline: { task?: number } | null = null) => ({ connection_id, start_baseline, repositories });
+    expect(neverCreatedOn(item('gitlab:acme/app#3', 'sync:gitlab'), plan(1))).toBe(true);
+    expect(neverCreatedOn(item('gitlab:acme/app#3', 'sync:gitlab'), plan(2))).toBe(false);
+    expect(neverCreatedOn(item('github:acme/demo#7', 'cli'), plan(2))).toBe(false);
+    expect(neverCreatedOn(item(null, 'cli'), plan(1, { task: 9 }))).toBe(true);
+    expect(neverCreatedOn(item(null, 'cli'), plan(1, { task: 8 }))).toBe(false);
   });
 
   it('rejects a listing of the other host and an unknown connection, changing nothing', async () => {

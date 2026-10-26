@@ -204,17 +204,17 @@ describe('sync pull', () => {
     service.close();
   });
 
-  it('queues the pulled changes for the other connections only (AC3)', async () => {
+  it('queues the pulled changes for the other connections only, and nothing for a created item (AC3, BUG-0019)', async () => {
     const { service, connection, other, listing } = await scenario();
     const own = service.outbox.list(connection.id);
     expect(service.outbox.list(other.id)).toEqual([]);
     pullSync(service, connection.id, listing, ctx);
     expect(service.outbox.list(connection.id)).toEqual(own);
+    // BUG-0001 came from acme/demo#5: it stays in that repository, so no create (or parent update) is queued for GitLab.
     expect(service.outbox.list(other.id).map((entry) => [entry.item_id, entry.operation, entry.changed_fields])).toEqual([
       ['TASK-0001', 'update', ['description']],
       ['US-0001', 'update', ['tags', 'assignee']],
       ['TASK-0003', 'status', ['status']],
-      ['BUG-0001', 'create', []],
     ]);
     service.close();
   });

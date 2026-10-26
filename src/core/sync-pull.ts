@@ -141,7 +141,8 @@ function applyUpdate(
  * the local value, the issue's) after the item's update events, and the plan's overwritten list replaces the
  * connection's latest pull overwrites (`sync status`). Conflicts are left
  * untouched and returned. Events are recorded via `sync:<host>`; the outbox skips this connection and queues the
- * others. Applying the same listing again changes nothing.
+ * others, except for created items, which stay in this repository (see neverCreatedOn) and queue nothing. Applying
+ * the same listing again changes nothing.
  */
 export function pullSync(service: OverseerService, connectionId: number | string, payload: unknown, ctx: Ctx): SyncPullResult {
   const input = loadSyncPlanInput(service, connectionId, payload);
@@ -151,6 +152,7 @@ export function pullSync(service: OverseerService, connectionId: number | string
   const result: SyncPullResult = { created: [], updated: [], conflicts: plan.conflicts, warnings: [...plan.warnings] };
   if (plan.pull.length === 0) return result;
   const pullCtx: Ctx = { ...ctx, via: `sync:${connection.host}`, origin_connection: connection.id };
+  const createCtx: Ctx = { ...pullCtx, keep_in_origin: true };
   const now = nowIso();
   // The planned connection is the source of truth: every resolved conflict is a local value the pull replaces.
   const overwrites = plan.overwritten.filter((entry) => entry.winner === 'remote');
@@ -159,7 +161,7 @@ export function pullSync(service: OverseerService, connectionId: number | string
     for (const op of plan.pull) {
       const remote = issues.get(op.external_ref)!;
       if (op.op === 'create') {
-        const id = insertImportedItem(service, remote, connection.host, input.mapping, pullCtx, now, result.warnings);
+        const id = insertImportedItem(service, remote, connection.host, input.mapping, createCtx, now, result.warnings);
         created.push({ id, remote });
         result.created.push({ item_id: id, external_ref: op.external_ref });
       } else {
@@ -173,7 +175,7 @@ export function pullSync(service: OverseerService, connectionId: number | string
     writeRemoteRefs(service.db, connection.id, created, now, result.warnings);
     service.connections.recordOverwrites(connection.id, 'pull', now, overwrites);
     // Parents after every create, so a parent issue may come anywhere in the listing.
-    for (const { remote } of created) linkImportedParent(service, connection.host, remote, pullCtx, now, result.warnings);
+    for (const { remote } of created) linkImportedParent(service, connection.host, remote, createCtx, now, result.warnings);
   });
   return result;
 }

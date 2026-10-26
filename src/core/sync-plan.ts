@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Connection } from './connections.js';
 import { compareIds } from './ids.js';
 import {
   canonicalLabels,
@@ -138,6 +139,8 @@ export interface SyncPlanInput {
    * null before the start and after a start that seeded an empty repository. See {@link existedBeforeSyncStart}.
    */
   start_baseline: SyncStartBaseline | null;
+  /** Every connection's repository, to tell the items that came from another one ({@link neverCreatedOn}). */
+  repositories: readonly ConnectedRepository[];
   issues: readonly ImportItem[];
   /** Warnings of the payload adapter (skipped pull requests). */
   warnings: readonly string[];
@@ -167,6 +170,37 @@ export type SyncStartBaseline = Partial<Record<Kind, number>>;
 export function existedBeforeSyncStart(item: Pick<Item, 'id' | 'kind'>, baseline: SyncStartBaseline | null): boolean {
   if (baseline === null) return false;
   return Number(item.id.slice(item.id.lastIndexOf('-') + 1)) <= (baseline[item.kind] ?? 0);
+}
+
+/** A connection's host and repository, to tell which items came from it. */
+export type ConnectedRepository = Pick<Connection, 'id' | 'host' | 'repository'>;
+
+/**
+ * The connection whose repository an item came from, or null. An item created from an issue (by `import`, `sync
+ * start` or `sync pull`, so recorded via `import:<host>` or `sync:<host>`) keeps that issue as its `external_ref`,
+ * `<host>:<repository>#<n>`; repositories compare case-insensitively. An item created on the board came from none,
+ * even once a push gave it an `external_ref`; so does an issue of a repository no connection has.
+ */
+export function originConnection(item: Pick<Item, 'external_ref' | 'recorded_via'>, repositories: readonly ConnectedRepository[]): number | null {
+  if (item.external_ref === null || !/^(import|sync):/.test(item.recorded_via)) return null;
+  const match = /^(github|gitlab):(.+)#[1-9]\d*$/.exec(item.external_ref);
+  if (!match) return null;
+  const repository = match[2]!.toLowerCase();
+  return repositories.find((candidate) => candidate.host === match[1] && candidate.repository.toLowerCase() === repository)?.id ?? null;
+}
+
+/**
+ * Whether `sync plan` never pushes a create for an item without an issue on the planned connection; its outbox
+ * entries go to ack instead. Each repository keeps its own issues, and only items created on the board reach every
+ * connection:
+ * - an item that existed before the connection's sync started from a repository with issues ({@link existedBeforeSyncStart});
+ * - an item that came from another connection's repository ({@link originConnection}): brought in by its `sync start`
+ *   or `sync pull`, or imported from it, whenever it changes later.
+ */
+export function neverCreatedOn(item: Pick<Item, 'id' | 'kind' | 'external_ref' | 'recorded_via'>, input: Pick<SyncPlanInput, 'connection_id' | 'start_baseline' | 'repositories'>): boolean {
+  if (existedBeforeSyncStart(item, input.start_baseline)) return true;
+  const origin = originConnection(item, input.repositories);
+  return origin !== null && origin !== input.connection_id;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -233,9 +267,10 @@ export function uniqueIssues(issues: readonly ImportItem[], warnings: string[]):
  * issue).
  *
  * - push: each outbox entry. No remote ref → create, unless the item existed before a sync start that brought the
- *   repository's issues to the board ({@link existedBeforeSyncStart}) → ack; else the issue fields its changed fields
- *   touch, minus those the issue already had at the last sync → update, or close/reopen when the state changes. A
- *   pending create with a remote ref updates every field. A delete closes the issue of the deleted item.
+ *   repository's issues to the board or came from another connection's repository ({@link neverCreatedOn}) → ack;
+ *   else the issue fields its changed fields touch, minus those the issue already had at the last sync → update, or
+ *   close/reopen when the state changes. A pending create with a remote ref updates every field. A delete closes the
+ *   issue of the deleted item.
  * - pull: each linked issue's fields that differ from the snapshot and have no pending local change; each issue no
  *   item has → create.
  * - a field with a pending local change whose remote value also differs from the snapshot, unless both sides hold the
@@ -261,7 +296,8 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
   const unmapped = new Map<string, string[]>();
   /**
    * Outbox entries with nothing to send: deleted items without an open issue, gone items, items without an issue that
-   * existed before the sync start, issues that already match or won every changed field.
+   * existed before the sync start or came from another connection's repository, issues that already match or won
+   * every changed field.
    */
   const ack: number[] = [];
 
@@ -305,7 +341,7 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
     const ref = refByItem.get(item.id);
     let op: PushOp | undefined;
     if (!ref) {
-      if (existedBeforeSyncStart(item, input.start_baseline)) {
+      if (neverCreatedOn(item, input)) {
         ack.push(entry.seq);
         continue;
       }
@@ -469,6 +505,7 @@ export function loadSyncPlanInput(service: OverseerService, connectionId: number
     deleted_issues: deletedIssues,
     imported,
     start_baseline: syncStartBaseline(service, connection.id),
+    repositories: service.connections.list().map(({ id, host, repository }) => ({ id, host, repository })),
     issues,
     warnings: mapped.warnings,
   };

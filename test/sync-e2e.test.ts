@@ -789,6 +789,104 @@ describe('sync end to end: sync start (TASK-0025 AC5)', () => {
   });
 });
 
+/**
+ * One board item (TASK-0001), a GitHub connection started on a repository with two issues (TASK-0002, TASK-0003), and
+ * a GitLab repository with three issues, not connected yet.
+ */
+async function twoRepositoriesWithIssues(): Promise<TwoRepositories> {
+  const board = new Board();
+  await board.json(['add', 'task', '--title', 'Write the CSV writer']);
+  const github = new FakeRepository('github', 'acme/demo');
+  github.open({ title: 'Export the backlog', body: 'CSV.' });
+  github.close(github.open({ title: 'Drop the beta flag' }));
+  const gitlab = new FakeRepository('gitlab', 'acme/app');
+  gitlab.open({ title: 'Upload size limit' });
+  gitlab.open({ title: 'Retry uploads' });
+  gitlab.close(gitlab.open({ title: 'Resume uploads' }));
+  expect(await board.connect('github', 'acme/demo')).toBe(1);
+  expect(await board.json(['sync', 'start', '1', '-'], JSON.stringify(github.listing()))).toMatchObject({ from: 'repository', created: 2, queued: 0 });
+  return { board, github, gitlab };
+}
+
+/** The GitLab connection (2) added and started from its issues. */
+async function startGitlab({ board, gitlab }: TwoRepositories): Promise<unknown> {
+  expect(await board.connect('gitlab', 'acme/app')).toBe(2);
+  return board.json(['sync', 'start', '2', '-'], JSON.stringify(gitlab.listing()));
+}
+
+describe('sync end to end: each repository keeps its issues (BUG-0019)', () => {
+  it('starts a second connection from its issues without queueing or planning a create on the first (AC1)', async () => {
+    const repos = await twoRepositoriesWithIssues();
+    const { board, github, gitlab } = repos;
+    expect(await startGitlab(repos)).toMatchObject({ from: 'repository', created: 3, linked: 0, queued: 0 });
+    expect(await board.item('TASK-0004')).toMatchObject({ title: 'Upload size limit', external_ref: 'gitlab:acme/app#1' });
+    expect(await board.outbox()).toEqual([]);
+    const plan = await board.plan(1, github.listing());
+    expect([plan.push, plan.ack]).toEqual([[], []]);
+    await syncBoth(repos);
+    expect([github.numbers(), gitlab.numbers()]).toEqual([[1, 2], [1, 2, 3]]);
+    expect([github.calls, gitlab.calls]).toEqual([[], []]);
+  });
+
+  it('never creates on the first connection an item the second start linked, queueing nothing for it (AC1)', async () => {
+    const repos = await twoRepositoriesWithIssues();
+    const { board, github, gitlab } = repos;
+    // Imported before acme/app had a connection: an import of an unconnected repository is queued for every connection.
+    await board.json(['import', '-', '--source', 'gitlab', '--repo', 'acme/app'], JSON.stringify(gitlab.listing()));
+    const imported: [number, string, string, string[]][] = [
+      [1, 'TASK-0004', 'create', []],
+      [1, 'TASK-0005', 'create', []],
+      [1, 'TASK-0006', 'create', []],
+    ];
+    expect(await board.outbox()).toEqual(imported);
+    gitlab.edit(2, { title: 'Retry failed uploads' });
+    expect(await startGitlab(repos)).toMatchObject({ from: 'repository', created: 0, linked: 3, queued: 0 });
+    expect(await board.item('TASK-0005')).toMatchObject({ title: 'Retry failed uploads' });
+    // The start's update of TASK-0005 is queued nowhere; the pending creates on GitHub are acknowledged, never pushed.
+    expect(await board.outbox()).toEqual(imported);
+    const round = await board.sync(1, github);
+    expect([round.plan.push, round.plan.ack.length]).toEqual([[], 3]);
+    await board.sync(2, gitlab);
+    await board.expectSettled(1, github);
+    await board.expectSettled(2, gitlab);
+    expect([github.numbers(), github.calls]).toEqual([[1, 2], []]);
+  });
+
+  it("pushes later changes of a repository's items only to it, and new board items to every started connection (AC2)", async () => {
+    const repos = await twoRepositoriesWithIssues();
+    const { board, github, gitlab } = repos;
+    await startGitlab(repos);
+    await syncBoth(repos);
+
+    // A GitLab item and a GitHub item change: each goes to its own repository, the other connection acknowledges it.
+    await board.json(['update', 'TASK-0005', '--title', 'Retry failed uploads']);
+    await board.json(['update', 'TASK-0002', '--title', 'Export the backlog as CSV']);
+    let [toGithub, toGitlab] = await syncBoth(repos);
+    expect([toGithub.plan.push.map((op) => [op.op, op.item_id]), toGithub.plan.ack.length]).toEqual([[['update', 'TASK-0002']], 1]);
+    expect([toGitlab.plan.push.map((op) => [op.op, op.item_id]), toGitlab.plan.ack.length]).toEqual([[['update', 'TASK-0005']], 1]);
+    expect([github.issue(1).title, gitlab.issue(2).title]).toEqual(['Export the backlog as CSV', 'Retry failed uploads']);
+    expect([github.numbers(), gitlab.numbers()]).toEqual([[1, 2], [1, 2, 3]]);
+
+    // An item created on the board after the starts fans out to both.
+    const added = await board.json(['add', 'task', '--title', 'Document the CSV format']);
+    expect(added.sync_pending.map((entry: { connection_id: number }) => entry.connection_id)).toEqual([1, 2]);
+    [toGithub, toGitlab] = await syncBoth(repos);
+    for (const round of [toGithub, toGitlab]) expect(round.plan.push.map((op) => [op.op, op.item_id])).toEqual([['create', 'TASK-0007']]);
+    expect([github.issue(3).title, gitlab.issue(4).title]).toEqual(['Document the CSV format', 'Document the CSV format']);
+
+    // A new GitLab issue pulled to the board stays on GitLab: nothing is queued for GitHub, now or when it changes.
+    gitlab.open({ title: 'Upload progress bar' });
+    const pulled = await board.sync(2, gitlab);
+    expect(pulled.pull.created).toEqual([{ item_id: 'TASK-0008', external_ref: 'acme/app#5' }]);
+    expect(await board.outbox()).toEqual([]);
+    await board.json(['update', 'TASK-0008', '--title', 'Show upload progress']);
+    [toGithub, toGitlab] = await syncBoth(repos);
+    expect([toGithub.plan.push, toGithub.plan.ack.length]).toEqual([[], 1]);
+    expect(toGitlab.plan.push.map((op) => [op.op, op.item_id])).toEqual([['update', 'TASK-0008']]);
+    expect([github.numbers(), gitlab.issue(5).title]).toEqual([[1, 2, 3], 'Show upload progress']);
+  });
+});
+
 describe('sync end to end: idempotency (TASK-0025 AC6)', () => {
   it('after a full sync of both connections, plan has nothing left and a second sync makes no MCP call and changes nothing', async () => {
     const repos = await twoRepositories();
@@ -807,12 +905,10 @@ describe('sync end to end: idempotency (TASK-0025 AC6)', () => {
     gitlab.close(2);
     gitlab.open({ title: 'Upload size limit', labels: ['bug'] });
     // What GitLab's pull brings reaches the board after GitHub's turn: it waits in GitHub's outbox for the next round.
+    // Each new issue stays in its repository (BUG-0019): GitLab's pulled issue queues no create for GitHub.
     await board.sync(1, github);
     await board.sync(2, gitlab);
-    expect(await board.outbox()).toEqual([
-      [1, 'TASK-0001', 'status', ['status']],
-      [1, 'BUG-0002', 'create', []],
-    ]);
+    expect(await board.outbox()).toEqual([[1, 'TASK-0001', 'status', ['status']]]);
     await syncBoth(repos);
     const issues = (repo: FakeRepository) => repo.numbers().map((number) => [repo.issue(number).title, repo.issue(number).state]);
     expect(issues(github)).toEqual([
@@ -820,14 +916,12 @@ describe('sync end to end: idempotency (TASK-0025 AC6)', () => {
       ['Retry uploads', 'closed'],
       ['As a user I resume uploads', 'closed'],
       ['Upload progress bar', 'open'],
-      ['Upload size limit', 'open'],
     ]);
     expect(issues(gitlab)).toEqual([
       ['Upload hangs at 99%', 'closed'],
       ['Retry uploads', 'closed'],
       ['As a user I resume uploads', 'closed'],
       ['Upload size limit', 'open'],
-      ['Upload progress bar', 'open'],
     ]);
     expect(fieldsOf(github, 2)).toMatchObject({ body: 'Three times.', state: 'closed' });
     expect(await board.item('TASK-0001')).toMatchObject({ status: 'done', description: 'Three times.' });

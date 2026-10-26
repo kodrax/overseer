@@ -174,6 +174,11 @@ export interface Ctx {
   actor?: string;
   /** Connection whose remote changes this write applies (an import of its issues): the sync outbox skips it. */
   origin_connection?: number;
+  /**
+   * The write brings issues of `origin_connection`'s repository to the board (sync start, sync pull creates): those
+   * items stay in that repository, so the sync outbox queues nothing for any connection.
+   */
+  keep_in_origin?: boolean;
   /** Seqs of the sync outbox entries this write queued, collected for its `sync_pending` (shared by nested writes). */
   queued?: Set<number>;
 }
