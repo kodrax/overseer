@@ -100,9 +100,10 @@ function formatStatus({ connections, source_of_truth }: SyncStatus): string {
 }
 
 const MAPPING_HELP = `
-The mapping file is one JSON object keyed by dimension; each one maps local values to the repository's label, issue
-type or state. A missing dimension, a missing local value or null leaves the value unmapped. Example:
-  {"kind": {"task": "Task", "bug": "Bug", "story": "Feature"}, "status": {"done": "closed"}, "priority": {"must": "P1"}}
+The mapping file is one JSON object keyed by dimension; each one maps local values to the repository's label or state
+(push sends mapped values as labels, never issue types). A missing dimension, a missing local value or null leaves the
+value unmapped. Example:
+  {"kind": {"task": "type: task", "bug": "bug", "story": "type: feature"}, "status": {"done": "closed"}, "priority": {"must": "P1"}}
 The "mapping" object of sync mapping <connection> --json is accepted as is.
 
 ${MAPPING_DIMENSIONS.map((dimension) => `${dimension}: ${MAPPING_LOCAL_VALUES[dimension].join(', ')}`).join('\n')}
@@ -353,7 +354,7 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
   // `--json` is read from optsWithGlobals: commander gives it to `mapping` when it comes after a subcommand's name.
   const mapping = sync
     .command('mapping')
-    .description("a connection's kind, status and priority mapping onto the repository's labels, issue types or states (local database only, no network)")
+    .description("a connection's kind, status and priority mapping onto the repository's labels or states (local database only, no network)")
     .argument('<connection>', 'connection id (see sync connections)')
     .option('--json', 'print JSON')
     .addHelpText('after', MAPPING_HELP)
@@ -364,11 +365,11 @@ export function registerSyncCommands(program: Command, rt: CliRuntime): void {
     });
   mapping
     .command('set')
-    .description('map one local kind, status or priority value to a remote label, issue type or state, replacing its earlier remote value')
+    .description('map one local kind, status or priority value to a remote label or state, replacing its earlier remote value')
     .argument('<connection>', 'connection id (see sync connections)')
     .requiredOption('--dimension <dimension>', MAPPING_DIMENSIONS.join(' | '))
     .requiredOption('--local <value>', 'local value of the dimension (see sync mapping --help)')
-    .requiredOption('--remote <value>', 'label, issue type or state in the repository')
+    .requiredOption('--remote <value>', 'label or state in the repository')
     .option('--json', 'print JSON')
     .action(async (connectionId: string, options: { dimension: string; local: string; remote: string }, command: Command) => {
       await rt.withService(command, 'write', (service, { json }) => {

@@ -270,7 +270,7 @@ export class OverseerService {
   readonly semantic: SemanticIndex;
   /** The project's GitHub/GitLab repository connections. */
   readonly connections: Connections;
-  /** Each connection's kind/status/priority mapping onto the repository's labels, issue types or states. */
+  /** Each connection's kind/status/priority mapping onto the repository's labels or states. */
   readonly mappings: ConnectionMappings;
   /** Pending local item changes per connection with auto-sync on; every history event of an item is recorded there. */
   readonly outbox: SyncOutbox;

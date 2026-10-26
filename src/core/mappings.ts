@@ -18,7 +18,7 @@ export const MAPPING_LOCAL_VALUES: Record<MappingDimension, readonly string[]> =
 const MAX_REMOTE_VALUE = 255;
 const remoteValueSchema = z.string().trim().min(1).max(MAX_REMOTE_VALUE);
 
-/** Remote label, issue type or state per local value of one dimension; null when unmapped. */
+/** Remote label or state per local value of one dimension; null when unmapped. */
 export type DimensionMapping = Record<string, string | null>;
 
 /** A connection's whole mapping: every dimension with every local value, unmapped ones null. */
@@ -70,7 +70,7 @@ const dimensionSchema = (dimension: MappingDimension) =>
 const mappingSchema = strictObject({ kind: dimensionSchema('kind'), status: dimensionSchema('status'), priority: dimensionSchema('priority') }, 'dimension');
 
 /**
- * Each connection's kind/status/priority mapping onto the repository's labels, issue types or states (the
+ * Each connection's kind/status/priority mapping onto the repository's labels or states (the
  * `connection_mappings` rows): one remote value per connection, dimension and local value. Only the local database
  * is read and written; nothing goes into item history. An unknown connection gives NOT_FOUND before anything else.
  */
