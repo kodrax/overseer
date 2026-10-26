@@ -61,7 +61,7 @@ export const importRequestSchema = importInputSchema.extend({
     .unknown()
     .optional()
     .describe(
-      'Raw response of the GitHub MCP list_issues tool ({"issues": [...]}) or of the GitLab MCP list_work_items ({"items": [...]}) or get_work_item tool, as returned (object or JSON text); pass this or items.',
+      'Raw response of the GitHub MCP list_issues tool ({"issues": [...]}) or of the GitLab MCP list_issues ([...] REST issues, with descriptions), list_work_items ({"items": [...]}) or get_work_item tool, as returned (object or JSON text); pass this or items.',
     ),
 });
 
@@ -169,7 +169,7 @@ function remoteTime(value: string | null | undefined, fallback: string): string 
 
 /** The raw GitHub/GitLab MCP responses the payload adapters map. */
 export const RAW_PAYLOAD_FORMATS =
-  'a GitHub MCP list_issues response ({"issues": [...]}) or array of GitHub issues, or a GitLab MCP list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item response or array of work items';
+  'a GitHub MCP list_issues response ({"issues": [...]}) or array of GitHub issues, or a GitLab MCP list_issues response (an array of REST issues), list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item response or array of work items';
 
 const PAYLOAD_FORMATS = `ImportItems ([...] or {"items": [...]}), ${RAW_PAYLOAD_FORMATS}`;
 
@@ -202,20 +202,27 @@ const githubIssueSchema = z.object({
 });
 
 /**
- * Work items of zereight/gitlab-mcp list_work_items / get_work_item (index.ts listWorkItems, getWorkItem): widgets
- * flattened to `type`, `labels`, `assignees`, `milestone` and the hierarchy widget's `parent {iid, project, webUrl}`.
+ * GitLab issues of zereight/gitlab-mcp: list_issues / get_issue return GitLab REST v4 issues (index.ts listIssues,
+ * schemas.ts GitLabIssueSchema: `id`, `iid` and `project_id` as strings, `description` null when empty, `state`
+ * opened/closed, `labels` as strings or `{name}`, `assignees` `{username}`, `milestone` `{title}`, `issue_type`,
+ * `web_url`, `references.full`); list_work_items / get_work_item return work items (index.ts listWorkItems,
+ * getWorkItem): widgets flattened to `type`, `labels` `{title}`, `assignees`, `milestone` and the hierarchy widget's
+ * `parent {iid, project, webUrl}`; list_work_items has no `description` (nor `id`).
  */
-const gitlabWorkItemSchema = z.object({
+const gitlabIssueSchema = z.object({
   iid: z.union([z.string(), z.number().int()]),
   id: z.union([z.string(), z.number()]).nullish(),
   title: z.string(),
   state: z.string(),
   description: z.string().nullish(),
   type: named('name').nullish(),
+  issue_type: z.string().nullish(),
   webUrl: z.string().nullish(),
   web_url: z.string().nullish(),
-  labels: z.array(named('title')).nullish(),
-  assignees: z.array(named('username')).nullish(),
+  references: z.object({ full: z.string().nullish() }).nullish(),
+  labels: z.array(z.union([named('title'), named('name')])).nullish(),
+  // gitlab-mcp's GitLabUserSchema leaves username optional: a user without one is left out.
+  assignees: z.array(z.union([z.string(), z.object({ username: z.string().nullish() }).transform((user) => user.username ?? null)])).nullish(),
   milestone: named('title').nullish(),
   createdAt: z.string().nullish(),
   created_at: z.string().nullish(),
@@ -285,26 +292,27 @@ function fromGithub(issues: readonly z.infer<typeof githubIssueSchema>[], repo: 
   return mapped;
 }
 
-function fromGitlab(workItems: readonly z.infer<typeof gitlabWorkItemSchema>[], repo: string): MappedPayload {
-  const items = workItems.map((workItem) => {
-    const url = workItem.webUrl ?? workItem.web_url ?? '';
-    const path = gitlabPath(url, repo);
-    const typeHint = GITLAB_TYPES[(workItem.type ?? '').toLowerCase()];
-    const parent = workItem.parent;
+function fromGitlab(issues: readonly z.infer<typeof gitlabIssueSchema>[], repo: string): MappedPayload {
+  const items = issues.map((issue) => {
+    const url = issue.webUrl ?? issue.web_url ?? '';
+    // REST issues name their project in references.full (`group/project#11`); work items only in their URL.
+    const path = /^(.+)#\d+$/.exec(issue.references?.full ?? '')?.[1] ?? gitlabPath(url, repo);
+    const typeHint = GITLAB_TYPES[(issue.type ?? issue.issue_type ?? '').toLowerCase()];
+    const parent = issue.parent;
     return {
-      external_id: `${path}#${workItem.iid}`,
+      external_id: `${path}#${issue.iid}`,
       url,
-      title: workItem.title,
+      title: issue.title,
       // list_work_items items have no description (nor id): omit body so a re-import keeps the stored one.
-      // get_work_item and REST issues (with id) leave out or null an empty description.
-      ...(workItem.id === undefined || workItem.id === null ? {} : { body: workItem.description ?? '' }),
-      state: remoteState(workItem.state),
-      labels: workItem.labels ?? [],
+      // REST issues and get_work_item (with id) leave out or null an empty description.
+      ...(issue.id === undefined || issue.id === null ? {} : { body: issue.description ?? '' }),
+      state: remoteState(issue.state),
+      labels: issue.labels ?? [],
       ...(typeHint ? { type_hint: typeHint } : {}),
-      assignees: workItem.assignees ?? [],
-      milestone: workItem.milestone ?? null,
-      created_at: workItem.createdAt ?? workItem.created_at ?? null,
-      updated_at: workItem.updatedAt ?? workItem.updated_at ?? null,
+      assignees: (issue.assignees ?? []).filter((username) => username !== null),
+      milestone: issue.milestone ?? null,
+      created_at: issue.createdAt ?? issue.created_at ?? null,
+      updated_at: issue.updatedAt ?? issue.updated_at ?? null,
       parent_external_id: parent ? `${parent.project ?? gitlabPath(parent.webUrl, path)}#${parent.iid}` : null,
     };
   });
@@ -331,7 +339,7 @@ export function mapImportPayload(payload: unknown, source: ImportSource, repo: s
   else if (typeof data === 'object' && data !== null && 'items' in data && Array.isArray(data.items)) [entries, container] = [data.items, 'gitlab'];
 
   const github = container === 'gitlab' ? undefined : z.array(githubIssueSchema).safeParse(entries).data;
-  const gitlab = github || container === 'github' ? undefined : z.array(gitlabWorkItemSchema).safeParse(entries).data;
+  const gitlab = github || container === 'github' ? undefined : z.array(gitlabIssueSchema).safeParse(entries).data;
   const format: ImportSource | undefined = entries.length === 0 ? (container ?? source) : github ? 'github' : gitlab ? 'gitlab' : undefined;
   if (format === undefined) throw new OverseerError('INVALID_INPUT', `Unrecognized import format; accepted formats: ${formats}.`);
   if (format !== source) {

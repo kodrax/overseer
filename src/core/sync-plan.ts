@@ -128,6 +128,11 @@ export interface SyncPlanInput {
   /** The items of the outbox entries. */
   items: ReadonlyMap<string, Item>;
   refs: readonly PlanRemoteRef[];
+  /**
+   * The description of each item whose remote ref's snapshot has no body (synced from a listing without bodies, GitLab
+   * `list_work_items`): the pull compares a listed body against it instead ({@link computeSyncPlan}).
+   */
+  descriptions: ReadonlyMap<string, string>;
   /** Deleted items by ID. */
   tombstones: ReadonlyMap<string, PlanTombstone>;
   /** External IDs of issues whose item was deleted locally (connection refs and imported refs). */
@@ -272,7 +277,8 @@ export function uniqueIssues(issues: readonly ImportItem[], warnings: string[]):
  *   close/reopen when the state changes. A pending create with a remote ref updates every field. A delete closes the
  *   issue of the deleted item.
  * - pull: each linked issue's fields that differ from the snapshot and have no pending local change; each issue no
- *   item has → create.
+ *   item has → create. A listed body whose snapshot has none (synced from a listing without bodies) is compared with
+ *   the item's description instead, so a description edited in the repository reaches the board.
  * - a field with a pending local change whose remote value also differs from the snapshot, unless both sides hold the
  *   same value now, is a conflict the source of truth resolves: this connection → the remote value wins and the field
  *   is pulled; the board or another connection → the local value wins and the field is pushed. The op names the
@@ -432,6 +438,8 @@ export function computeSyncPlan(input: SyncPlanInput): SyncPlan {
       continue;
     }
     const base = baseOf(ref);
+    const description = input.descriptions.get(ref.item_id);
+    if (!('body' in base) && description !== undefined) base.body = description;
     const skipped = localChanges.get(ref.item_id);
     const replaced = pulledOver.get(ref.item_id);
     const fields = SYNCED_FIELDS.filter(
@@ -478,6 +486,13 @@ export function loadSyncPlanInput(service: OverseerService, connectionId: number
   const refs = (
     db.prepare('SELECT item_id, external_ref, url, state, synced_fields FROM item_remote_refs WHERE connection_id = ? ORDER BY item_id').all(connection.id) as unknown as RemoteRefRow[]
   ).map((row) => ({ ...row, synced_fields: JSON.parse(row.synced_fields) as SyncedFields }));
+  const descriptions = new Map<string, string>();
+  const description = db.prepare('SELECT description FROM items WHERE id = ?');
+  for (const ref of refs) {
+    if ('body' in ref.synced_fields) continue;
+    const row = description.get(ref.item_id) as { description: string } | undefined;
+    if (row) descriptions.set(ref.item_id, row.description);
+  }
   const tombstones = new Map<string, PlanTombstone>();
   const deletedIssues = new Set<string>();
   const prefix = `${connection.host}:`;
@@ -501,6 +516,7 @@ export function loadSyncPlanInput(service: OverseerService, connectionId: number
     outbox,
     items,
     refs,
+    descriptions,
     tombstones,
     deleted_issues: deletedIssues,
     imported,

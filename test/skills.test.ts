@@ -107,13 +107,35 @@ describe('skill templates', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(start).toMatch(/after its mapping \(so the seeded issues get its labels\)/);
     expect(start).toMatch(/through the connection's\s+`mcp_server`/);
-    expect(start).toMatch(/GitLab `list_work_items` \(all states\)/);
+    expect(start).toMatch(/GitLab `list_issues` \(`scope: all`,\s+`state: all`\), every page as in \[Sync\]\(#sync\) step 1/);
     expect(start).toMatch(/until the last page and join the pages' issues/);
     expect(start).toMatch(/Tell the user which case applied, from `from`/);
     expect(start).toMatch(/`board` — the repository had no issues, so the board seeds it: `queued` creates, by kind/);
     expect(start).toMatch(/`repository` — the repository's issues came to the board: `created` new items and `linked`/);
     expect(start).toMatch(/before the start are never pushed/);
     expect(start).toMatch(/`CONFLICT` means sync already started on this connection: go straight to \[Sync\]\(#sync\)/);
+  });
+
+  it('overseer-sync fetches every GitLab listing with list_issues, every page, never list_work_items; import names list_issues too (BUG-0018 AC1)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const section = (from: string, to: string) => text.slice(text.indexOf(from), to ? text.indexOf(to) : undefined);
+    const start = section('## 4. Start sync', '## 5. Source of truth');
+    const sync = section('\n## Sync\n', '\n### Several connections\n');
+    const several = section('\n### Several connections\n', '');
+    expect(start).toMatch(/GitLab `list_issues` \(`scope: all`,\s+`state: all`\)/);
+    expect(sync).toMatch(/- \*\*GitLab\*\* — `list_issues` \(`project_id`, `scope: all`, `state: all`, `per_page: 100`\) with `page`\s+1, 2, … until a page has fewer than 100 issues\./);
+    expect(sync).toMatch(/Never `list_work_items` for a sync: its items have\s+no descriptions/);
+    expect(several).toMatch(/Fetch each connection's listing right before its turn, as in\s+\[Sync\]\(#sync\) step 1 \(GitLab: `list_issues`, every page\)/);
+    // list_work_items is named only to rule it out.
+    expect(text.match(/`list_work_items`/g)).toHaveLength(1);
+    expect(section('## 2. Choose the MCP server', '## 3. ')).toMatch(/GitLab: e\.g\. `list_labels`, `list_issues`/);
+
+    const importSkill = readFileSync(join(skillsDir, 'overseer-import', 'SKILL.md'), 'utf8');
+    expect(importSkill).toMatch(/- \*\*GitLab\*\* — `list_issues` with `project_id: "<group\/project>"`, `scope: "all"`, `state: "all"`,\s+`per_page: 100`/);
+    expect(importSkill).toMatch(/`list_work_items` or `get_work_item` answer is accepted too/);
+    const guide = readFileSync(join(skillsDir, 'overseer-import', 'references', 'integrations.md'), 'utf8');
+    expect(guide).toMatch(/`core` is the default and holds `list_issues` \/\s+`get_issue`, the listing the import and sync steps call \(REST issues with their descriptions/);
+    expect(guide).toMatch(/overseer still accepts their answers, but list results carry\s+no descriptions/);
   });
 
   const mappingSection = () => {

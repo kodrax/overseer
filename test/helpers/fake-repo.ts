@@ -3,6 +3,9 @@ import type { PushOp } from '../../src/core/sync-plan.js';
 
 export type FakeHost = 'github' | 'gitlab';
 
+/** The zereight/gitlab-mcp tool a GitLab listing comes from: REST issues with descriptions, or work items without. */
+export type GitlabListing = 'list_issues' | 'list_work_items';
+
 /** One issue as the fake repository keeps it. */
 export interface FakeIssue {
   number: number;
@@ -32,7 +35,8 @@ const START = Date.UTC(2026, 9, 1);
 /**
  * An in-memory GitHub or GitLab repository for end-to-end sync tests: no network. It renders its issues as the raw MCP
  * listings `sync start`, `sync plan` and `sync pull` take (the shapes of test/fixtures/import/: GitHub `list_issues`
- * `{issues, totalCount, pageInfo}` of MinimalIssue, GitLab `list_work_items` `{items, pageInfo}` without descriptions)
+ * `{issues, totalCount, pageInfo}` of MinimalIssue; GitLab `list_issues`, an array of REST issues with descriptions,
+ * or `list_work_items` `{items, pageInfo}` without descriptions, by `gitlabListing`)
  * and applies `sync plan` push ops the way the overseer-sync skill's MCP calls would (GitHub `issue_write`, GitLab
  * `create_issue` / `update_issue`: only the op's `fields`, from its `issue`; a closed create is closed by a second
  * call), returning the results `sync confirm` takes. Milestones are kept by title (the real servers take their number
@@ -43,6 +47,8 @@ export class FakeRepository {
   readonly calls: McpCall[] = [];
   /** Push ops whose call failed (the issue is gone): they give no result. */
   readonly failed: PushOp[] = [];
+  /** The GitLab listing `listing` renders; the overseer-sync skill fetches `list_issues`. */
+  gitlabListing: GitlabListing = 'list_issues';
   private readonly issues = new Map<number, FakeIssue>();
   private next = 1;
   private tick = 0;
@@ -133,6 +139,30 @@ export class FakeRepository {
         totalCount: issues.length,
         pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
       };
+    }
+    if (this.gitlabListing === 'list_issues') {
+      const user = (username: string) => ({ username, id: String(1000 + username.length), name: username, avatar_url: null, web_url: `https://gitlab.com/${username}` });
+      return issues.map((issue) => ({
+        id: String(200_000_000 + issue.number),
+        iid: String(issue.number),
+        project_id: '88083972',
+        title: issue.title,
+        // GitLab REST answers null for an empty description.
+        description: issue.body === '' ? null : issue.body,
+        state: issue.state === 'open' ? 'opened' : 'closed',
+        author: user('octocat'),
+        assignees: issue.assignee ? [user(issue.assignee)] : [],
+        labels: issue.labels,
+        milestone: issue.milestone
+          ? { id: '5101', iid: '1', title: issue.milestone, description: '', state: 'active', web_url: `https://gitlab.com/${this.repository}/-/milestones/1` }
+          : null,
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+        closed_at: issue.state === 'closed' ? issue.updated_at : null,
+        web_url: this.url(issue.number),
+        references: { short: `#${issue.number}`, relative: `#${issue.number}`, full: this.ref(issue.number) },
+        issue_type: 'issue',
+      }));
     }
     return {
       items: issues.map((issue) => ({

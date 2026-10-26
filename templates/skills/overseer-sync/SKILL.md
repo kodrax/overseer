@@ -48,7 +48,7 @@ The same prefix tells which servers this session has: the `<server>` part of the
 For each confirmed repository:
 
 1. Find this session's servers that have the host's tools (GitHub: e.g. `list_label`, `list_issues`;
-   GitLab: e.g. `list_labels`, `list_work_items`), by the `<server>` part of their tool names. None: show
+   GitLab: e.g. `list_labels`, `list_issues`), by the `<server>` part of their tool names. None: show
    the setup for this harness from `../overseer-import/references/integrations.md` (the `overseer-import`
    skill folder next to this one), ask the user to authenticate, and stop: connect nothing.
 2. Ask which MCP server reaches the repository. Offer the server(s) found; when this harness does not
@@ -115,9 +115,9 @@ For each confirmed repository:
 Once per connection, after its mapping (so the seeded issues get its labels):
 
 1. Fetch the listing: every issue of the repository, open and closed, through the connection's
-   `mcp_server` — GitHub `list_issues` (`state: all`), GitLab `list_work_items` (all states). Follow the
-   pagination (`after` / `endCursor`) until the last page and join the pages' issues into one array,
-   raw answers unchanged, as in [Sync](#sync) step 1. Save it to a temporary file.
+   `mcp_server` — GitHub `list_issues` (`state: all`), GitLab `list_issues` (`scope: all`,
+   `state: all`), every page as in [Sync](#sync) step 1 until the last page and join the pages' issues
+   into one array, raw answers unchanged. Save it to a temporary file.
 2. `overseer sync start <id> <file> --json` → `from`, `queued`, `by_kind`, `created`, `linked`,
    `warnings`. `CONFLICT` means sync already started on this connection: go straight to [Sync](#sync).
 3. Tell the user which case applied, from `from`:
@@ -150,10 +150,14 @@ those connections (the `overseer` skill's rule 11). Pull before pushing, so the 
 changes.
 
 1. Fetch the listing: every issue of the repository, open and closed, through the connection's
-   `mcp_server` (see [MCP server](#mcp-server)) — GitHub `list_issues` (`state: all`), GitLab
-   `list_work_items` (all states). Follow the pagination (`after` / `endCursor`) until the last page and
-   join the pages' issues (or items) into one array, raw answers unchanged; a missing page makes its
-   issues look absent. Save it to a temporary file.
+   `mcp_server` (see [MCP server](#mcp-server)):
+   - **GitHub** — `list_issues` (`state: all`), following the pagination (`after` / `endCursor`)
+     until the last page.
+   - **GitLab** — `list_issues` (`project_id`, `scope: all`, `state: all`, `per_page: 100`) with `page`
+     1, 2, … until a page has fewer than 100 issues. Never `list_work_items` for a sync: its items have
+     no descriptions, so description edits would not sync.
+   Join the pages' issues into one array, raw answers unchanged; a missing page makes its issues look
+   absent. Save it to a temporary file.
 2. `overseer sync pull <id> <file> --json` → `{created, updated, conflicts, warnings}`. It applies only the
    pull operations of `overseer sync plan <id> <file>`: issues no item has become items; remote changes
    to title, body, labels, state, assignee and milestone reach their items, except fields also changed
@@ -192,7 +196,8 @@ changes.
 ### Several connections
 
 Sync one connection at a time, each completely (pull, then push) before planning the next, so each plan
-starts from what the previous one applied:
+starts from what the previous one applied. Fetch each connection's listing right before its turn, as in
+[Sync](#sync) step 1 (GitLab: `list_issues`, every page):
 
 1. `overseer sync source-of-truth --json`. When `source_of_truth` is a connection id, sync that
    connection first: its plan resolves every conflict for the issue's value (`winner: "remote"`), so

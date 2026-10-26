@@ -119,8 +119,9 @@ function formatMapping({ mapping }: ConnectionMapping): string {
 
 const PLAN_HELP = `
 The listing is the raw answer of the connection's MCP server: a GitHub list_issues response ({"issues": [...]}) or an
-array of GitHub issues, or a GitLab list_work_items response ({"items": [...], "pageInfo": {...}}), get_work_item
-response or array of work items. Join the pages into one array to plan against every issue. Nothing is written.
+array of GitHub issues, or a GitLab list_issues response (an array of REST issues, with descriptions), list_work_items
+response ({"items": [...], "pageInfo": {...}}), get_work_item response or array of work items. Join the pages into one
+array to plan against every issue. Nothing is written.
 `;
 
 const START_HELP = `

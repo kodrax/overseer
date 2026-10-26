@@ -10,6 +10,7 @@ import {
   labelStatus,
   linkImportedParent,
   openStatus,
+  SYNCED_FIELDS,
   type SyncedField,
   type SyncedFields,
   translateLabels,
@@ -139,10 +140,11 @@ function applyUpdate(
  * planned fields (fields with a pending local change are not planned, unless this connection is the source of truth
  * and overwrites them) and refreshes their snapshot. Each overwritten local value gets an `overwrite` event (field,
  * the local value, the issue's) after the item's update events, and the plan's overwritten list replaces the
- * connection's latest pull overwrites (`sync status`). Conflicts are left
- * untouched and returned. Events are recorded via `sync:<host>`; the outbox skips this connection and queues the
- * others, except for created items, which stay in this repository (see neverCreatedOn) and queue nothing. Applying
- * the same listing again changes nothing.
+ * connection's latest pull overwrites (`sync status`). A snapshot without a body (synced from a listing without
+ * bodies) whose item's description now matches the listed body takes that body as its base, so later edits on both
+ * sides resolve as conflicts. Conflicts are left untouched and returned. Events are recorded via `sync:<host>`; the
+ * outbox skips this connection and queues the others, except for created items, which stay in this repository (see
+ * neverCreatedOn) and queue nothing. Applying the same listing again changes nothing.
  */
 export function pullSync(service: OverseerService, connectionId: number | string, payload: unknown, ctx: Ctx): SyncPullResult {
   const input = loadSyncPlanInput(service, connectionId, payload);
@@ -150,7 +152,9 @@ export function pullSync(service: OverseerService, connectionId: number | string
   const connection = service.connections.require(input.connection_id);
   const issues = uniqueIssues(input.issues, []);
   const result: SyncPullResult = { created: [], updated: [], conflicts: plan.conflicts, warnings: [...plan.warnings] };
-  if (plan.pull.length === 0) return result;
+  // Linked issues listed with a body whose snapshot has none: their base body once the item's description matches.
+  const unbased = input.refs.filter((ref) => !('body' in ref.synced_fields) && issues.get(ref.external_ref)?.body !== undefined);
+  if (plan.pull.length === 0 && unbased.length === 0) return result;
   const pullCtx: Ctx = { ...ctx, via: `sync:${connection.host}`, origin_connection: connection.id };
   const createCtx: Ctx = { ...pullCtx, keep_in_origin: true };
   const now = nowIso();
@@ -173,9 +177,21 @@ export function pullSync(service: OverseerService, connectionId: number | string
       }
     }
     writeRemoteRefs(service.db, connection.id, created, now, result.warnings);
-    service.connections.recordOverwrites(connection.id, 'pull', now, overwrites);
+    // A pull with no operations (only snapshot bodies to set) keeps the latest pull overwrites, as before.
+    if (plan.pull.length > 0) service.connections.recordOverwrites(connection.id, 'pull', now, overwrites);
     // Parents after every create, so a parent issue may come anywhere in the listing.
     for (const { remote } of created) linkImportedParent(service, connection.host, remote, connection.id, createCtx, now, result.warnings);
+    const snapshotOf = service.db.prepare('SELECT i.description, r.synced_fields FROM item_remote_refs r JOIN items i ON i.id = r.item_id WHERE r.item_id = ? AND r.connection_id = ?');
+    const setSnapshot = service.db.prepare('UPDATE item_remote_refs SET synced_fields = ? WHERE item_id = ? AND connection_id = ?');
+    for (const ref of unbased) {
+      const row = snapshotOf.get(ref.item_id, connection.id) as { description: string; synced_fields: string };
+      const snapshot = JSON.parse(row.synced_fields) as SyncedFields;
+      const body = issues.get(ref.external_ref)!.body ?? '';
+      if ('body' in snapshot || row.description !== body.slice(0, DESCRIPTION_MAX)) continue;
+      const based: SyncedFields = { ...snapshot, body };
+      const ordered = Object.fromEntries(SYNCED_FIELDS.filter((field) => field in based).map((field) => [field, based[field]]));
+      setSnapshot.run(JSON.stringify(ordered), ref.item_id, connection.id);
+    }
   });
   return result;
 }
