@@ -6,12 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-26
+
 ### Added
 
 - Write results (`create_item`, batch included, `update_item`, `delete_item`, `link_items`, `import_items` and their `--json` commands) carry `sync_pending: [{connection_id, host, repository}]` naming each connection with auto-sync on and a started sync that the write queued changes for, one list per write; the `overseer` and `overseer-ship` skills then run the `overseer-sync` Sync step once per request, or say the changes stay in the outbox (TASK-0023).
 - Overwritten conflicting edits are recorded: `sync pull` adds an `overwrite` history event (field, the local value, the issue's) when the repository wins a conflict, `sync confirm` accepts the plan op's `overwritten` and records the issue's replaced value the same way, and `sync status` lists each connection's overwritten fields of its latest pull and confirm (TASK-0024).
 - The `overseer-sync` connect flow proposes a label (name in the repository's style, colour) for each kind, status and priority left unmapped, creates the ones the user confirms through the connection's MCP server (GitHub `label_write`, gitlab-mcp `create_label`) and only then imports the mapping; without a label-creation tool, or when a creation fails, it says so and leaves those values unmapped. `integrations.md` documents the tools and permissions (TASK-0028).
-- End-to-end sync tests drive the CLI against a fake GitHub and GitLab repository (`test/helpers/fake-repo.ts`) that renders raw MCP listings and applies push ops as the skill's MCP calls would: both directions, deletes, conflicts by source of truth, one item on two connections, both `sync start` cases and a settled plan after each sync; three bugs they found are marked `it.fails` (TASK-0025).
+- End-to-end sync tests drive the CLI against a fake GitHub and GitLab repository (`test/helpers/fake-repo.ts`) that renders raw MCP listings and applies push ops as the skill's MCP calls would: both directions, deletes, conflicts by source of truth, one item on two connections, both `sync start` cases and a settled plan after each sync (TASK-0025). Sync was then piloted against real GitHub and GitLab repositories (TASK-0073); the bugs the tests and the pilot found are fixed below.
 
 ### Changed
 
@@ -67,7 +69,8 @@ First release.
 - **Ship workflow**: `overseer worktree start`/`finish`/`list` for per-item branches and worktrees, `overseer pr draft` for pull request titles and bodies, and `overseer pr opened`.
 - **Sync commands (early, manual)**: repository connections, source of truth, kind/status/priority mapping, outbox, `sync plan`, `sync pull` and `sync confirm`, driven by the `overseer-sync` skill through the harness's GitHub or GitLab MCP server.
 
-[Unreleased]: https://github.com/kodrax/overseer/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kodrax/overseer/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kodrax/overseer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kodrax/overseer/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kodrax/overseer/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kodrax/overseer/releases/tag/v0.1.0
