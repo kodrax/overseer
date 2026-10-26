@@ -347,22 +347,21 @@ describe('sync end to end: repository to board (TASK-0025 AC2)', () => {
     await board.expectSettled(2, gitlab);
   });
 
-  // BUG: import matches issues to items by items.external_ref only, never by the remote refs of the import's
-  // connection. An item pushed to GitHub first keeps external_ref github:…, so the deleted list of its GitLab issue
-  // finds no item ("deleted remotely but no item has this issue; nothing deleted").
-  it.fails('BUG: the import deleted list of a GitLab issue deletes its item when the item was pushed to GitHub first', async () => {
+  // BUG-0014: import matched issues to items by items.external_ref only. An item pushed to GitHub first keeps
+  // external_ref github:…, so the deleted list of its GitLab issue found no item. The connection's remote ref comes first.
+  it('the import deleted list of a GitLab issue deletes its item when the item was pushed to GitHub first', async () => {
     const repos = await twoRepositories();
     const { board, gitlab } = repos;
     await board.json(['add', 'task', '--title', 'Retry uploads']);
     await syncBoth(repos);
     const imported = await board.json(['import', '-', '--source', 'gitlab', '--repo', 'acme/app'], JSON.stringify({ deleted: [gitlab.remove(1)] }));
     expect(imported).toMatchObject({ deleted: ['TASK-0001'], warnings: [] });
+    expect(await board.outbox()).toEqual([[1, 'TASK-0001', 'delete', []]]);
   });
 
-  // BUG: same cause. Importing the GitLab listing (the import skill passes `deleted` next to the page) creates a
-  // second item for every GitLab issue whose item has a GitHub external_ref, queued as a create for GitHub: the next
-  // GitHub sync opens a duplicate issue.
-  it.fails('BUG: importing the GitLab listing links its issues to their items instead of creating duplicates', async () => {
+  // BUG-0014: same cause. Importing the GitLab listing created a second item for every GitLab issue whose item has a
+  // GitHub external_ref, queued as a create for GitHub.
+  it('importing the GitLab listing links its issues to their items instead of creating duplicates', async () => {
     const repos = await twoRepositories();
     const { board, gitlab } = repos;
     await board.json(['add', 'task', '--title', 'Retry uploads']);
@@ -370,6 +369,17 @@ describe('sync end to end: repository to board (TASK-0025 AC2)', () => {
     const imported = await board.json(['import', '-', '--source', 'gitlab', '--repo', 'acme/app'], JSON.stringify(gitlab.listing()));
     expect(imported).toMatchObject({ created: [], warnings: [] });
     expect(await board.outbox()).toEqual([]);
+
+    // An edit in GitLab updates the same item, keeps its GitHub external_ref and goes to GitHub only (no create).
+    gitlab.edit(1, { title: 'Retry failed uploads' });
+    const updated = await board.json(['import', '-', '--source', 'gitlab', '--repo', 'acme/app'], JSON.stringify(gitlab.listing()));
+    expect(updated).toMatchObject({ created: [], updated: ['TASK-0001'], warnings: [] });
+    expect(await board.json(['show', 'TASK-0001'])).toMatchObject({ item: { title: 'Retry failed uploads', external_ref: 'github:acme/demo#1' } });
+    expect(await board.outbox()).toEqual([[1, 'TASK-0001', 'update', ['title']]]);
+    await board.sync(1, repos.github);
+    expect(repos.github.issue(1).title).toBe('Retry failed uploads');
+    await board.expectSettled(1, repos.github);
+    await board.expectSettled(2, gitlab);
   });
 });
 

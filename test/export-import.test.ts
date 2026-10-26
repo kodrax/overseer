@@ -318,15 +318,25 @@ describe('import into a connected repository, with remote closures and deletions
     expect(remoteRefs(service)).toEqual([]);
   });
 
-  it('keeps a remote ref that links the issue to another item, with a warning (AC1)', async () => {
+  it('finds an issue by the connection remote ref before the external_ref, and keeps the item external_ref (BUG-0014)', async () => {
     const service = openService();
+    // BUG-0001 has the issue as external_ref (imported before the connection existed); TASK-0001 was pushed and is
+    // linked to the same issue through its remote ref on the connection. The remote ref wins.
+    await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue()] }, ctx);
+    const untouched = service.getItem('BUG-0001').item;
     const connection = service.connections.add({ host: 'github', repository: 'acme/demo' });
     await service.createItem({ kind: 'task', title: 'Pushed earlier' }, ctx);
-    service.db.prepare('INSERT INTO item_remote_refs(item_id, connection_id, external_ref) VALUES (?, ?, ?)').run('TASK-0001', connection.id, 'acme/demo#7');
-    const result = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue()] }, ctx);
-    expect(result.created).toEqual(['BUG-0001']);
-    expect(result.warnings).toEqual([`BUG-0001: acme/demo#7 is already linked to TASK-0001 in connection ${connection.id}; remote ref not written.`]);
-    expect(remoteRefs(service)).toMatchObject([{ item_id: 'TASK-0001', external_ref: 'acme/demo#7' }]);
+    service.db.prepare('INSERT INTO item_remote_refs(item_id, connection_id, external_ref, state) VALUES (?, ?, ?, ?)').run('TASK-0001', connection.id, 'acme/demo#7', 'open');
+    const result = await service.importItems({ source: 'github', repo: 'acme/demo', items: [issue({ state: 'closed' })] }, ctx);
+    expect(result).toMatchObject({ created: [], updated: ['TASK-0001'], warnings: [] });
+    expect(service.getItem('TASK-0001').item).toMatchObject({ status: 'done', external_ref: null, external_url: null, external_state: null });
+    expect(service.getItem('BUG-0001').item).toEqual(untouched);
+    expect(remoteRefs(service)).toMatchObject([{ item_id: 'TASK-0001', external_ref: 'acme/demo#7', state: 'closed' }]);
+
+    // Without a connection for the repository, the external_ref alone decides, as before.
+    const other = await service.importItems({ source: 'github', repo: 'acme/other', items: [issue({ external_id: 'acme/other#1', url: 'https://github.com/acme/other/issues/1' })] }, ctx);
+    const again = await service.importItems({ source: 'github', repo: 'acme/other', items: [issue({ external_id: 'acme/other#1', url: 'https://github.com/acme/other/issues/1' })] }, ctx);
+    expect(again.unchanged).toEqual(other.created);
   });
 
   it('deletes the items of deleted issues through deleteItem, children first, and warns for the rest (AC2)', async () => {
