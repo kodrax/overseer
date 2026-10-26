@@ -287,6 +287,16 @@ describe('sync source-of-truth', () => {
     const help = await cli(root, ['sync', 'source-of-truth', '--help']);
     expect(help.out).not.toMatch(/\bset\b/);
   });
+
+  it('sync mapping help names labels or states, never issue types as targets (BUG-0016)', async () => {
+    const root = tempDir();
+    for (const args of [['sync', 'mapping', '--help'], ['sync', 'mapping', 'set', '--help'], ['sync', '--help']]) {
+      const help = (await cli(root, args)).out.replace(/\s+/g, ' ');
+      expect(help, args.join(' ')).not.toMatch(/issue type or state|issue types or states/);
+      expect(help, args.join(' ')).not.toMatch(/"task": "Task"/);
+    }
+    expect((await cli(root, ['sync', 'mapping', 'set', '--help'])).out).toMatch(/label or state in the repository/);
+  });
 });
 
 describe('connections service', () => {
