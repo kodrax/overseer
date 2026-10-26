@@ -442,7 +442,7 @@ Every item change made on this side (CLI, MCP tools, the web board, batch create
 - **Operation**: `create` (also an item created by an import), `update`, `status` or `delete`. `changed_fields` names the item fields that changed; linking or unlinking an item is an update of `links` on the source item, and deleting an item also updates the `links` of the items that linked to it. A comment changes no field and queues nothing.
 - **One entry per item and connection**: later changes merge into the pending entry. Changed fields are joined; the operation is `status` while only the status changed, else `update`. A pending `create` stays a `create` with `changed_fields: []`, since the push sends the whole item. A delete replaces the entry (`delete`, `changed_fields: []`); a create followed by a delete before any push leaves no entry.
 - **New seq on every change**: a merged entry moves to the end with a new `seq`, so a push that read the entry before the latest change cannot acknowledge that change by mistake.
-- **Imports**: changes that come from importing a connection's issues (same host and repository as `import --source --repo`) are not queued for that connection, only for the others; this includes the deletions of an import's `deleted` list, which also drop that connection's pending entry for the deleted item. Issues of a repository without a connection are queued for every connection with auto-sync on.
+- **Imports**: changes that come from importing a connection's issues (same host and repository as `import --source --repo`) are not queued for that connection, only for the others; this includes the deletions of an import's `deleted` list, which also drop that connection's pending entry for the deleted item. Issues of a repository without a connection are queued for every connection with auto-sync on. An item imported from a connected repository is still never created on another connection: `sync plan` lists its entries there under `ack` (see [several connections](#several-connections)).
 
 `overseer sync outbox ack <seq...> --json` removes the given entries once their push is confirmed and prints `{"acked": [<seq>, …]}`. If any seq is not pending (never existed, already acknowledged, or replaced by a later change), it gives `NOT_FOUND` naming them and removes nothing; a seq that is not a positive integer gives `INVALID_INPUT`. `sync connection remove` deletes the connection's pending entries with it.
 
@@ -463,9 +463,9 @@ overseer itself makes no network call. The `overseer` and `overseer-ship` skills
 - **Queue**: in one transaction, every item of every kind and status (open or closed) without a remote ref on the connection gets one pending `create` in the connection's outbox, whatever its auto-sync flag (`queued`, `by_kind`). A pending update or status entry of such an item becomes the create; a pending create stays. Items already linked to an issue there are skipped.
 - **Then**: `sync plan` gives one `create` push per seeded item (a closed item's create has `issue.state: "closed"`, so the push closes the new issue), the agent runs them through the MCP server, and [`sync confirm`](#sync-confirm) links each item to its issue.
 
-**Repository with issues** (`from: "repository"`): its issues come to the board and the items already on the board are never pushed.
+**Repository with issues** (`from: "repository"`): its issues come to the board, the items already on the board are never pushed, and its issues are never created on the other connections ([several connections](#several-connections)).
 
-- **Issues**: in one transaction, the issues are upserted as `import` does: an issue no item has creates one (`created`), an item imported from it earlier is updated from it (`linked`), and each gets its remote ref on the connection with the snapshot of its synced fields. History records these changes via `sync:<host>`; other connections with auto-sync on queue them as usual.
+- **Issues**: in one transaction, the issues are upserted as `import` does: an issue no item has creates one (`created`), an item imported from it earlier is updated from it (`linked`), and each gets its remote ref on the connection with the snapshot of its synced fields. History records these changes via `sync:<host>`; the outbox queues them for no connection, this one or any other.
 - **Labels**: each issue's labels are read through the connection's mapping, as [`sync pull`](#sync-pull) reads them: mapped labels set the kind, priority and status instead of becoming tags, so a closed issue labelled with the label mapped to `cancelled` starts `cancelled`.
 - **Nothing queued**: no outbox entry is queued for existing local items (`queued: 0`), and their pending create, update and status entries on the connection are dropped. The connection records the highest item ID per kind (`sync_start_baseline`).
 - **Then**: an item that existed before the start and has no issue on the connection is never pushed as a create: when it changes, `sync plan` lists its entry under `ack`. Items created after the start get a `create` push as usual, and items linked to an issue get updates.
@@ -474,6 +474,15 @@ overseer itself makes no network call. The `overseer` and `overseer-ship` skills
 - **Source of truth**: either way, when the board is the [source of truth](#source-of-truth), the connection becomes it in the same transaction; otherwise it stays.
 
 It reads only the project database and the listing given: no GitHub or GitLab call. An unknown connection gives `NOT_FOUND` before the file is read. It has no MCP tool; `sync start --help` describes the listing.
+
+#### Several connections
+
+Each repository's existing issues stay in that repository; only new board items fan out.
+
+- **Items from a repository**: an item a connection's `sync start` created or linked, an item its [`sync pull`](#sync-pull) created, and an item imported from its repository came from that connection (its `external_ref` names the repository and it was recorded via `import:<host>` or `sync:<host>`). Another connection never gets a `create` for it, even when it changes later: its entries there come under `ack` in `sync plan`. With a GitHub and a GitLab connection both started from repositories with issues, the GitLab issues stay on GitLab and the GitHub issues on GitHub.
+- **New board items**: an item created on the board after the starts is queued for and pushed to every connection with auto-sync on, then updated on each.
+- **Already in both**: an item that has an issue on both connections (pushed to the other before its repository was connected) gets updates on both.
+- **Removed connection**: its items no longer come from a connected repository. Like any board item, their next change gives a `create` on the other connections, except on one whose start from a repository with issues came after them.
 
 ### Sync plan
 
@@ -502,7 +511,7 @@ It reads only the project database and the listing given: no GitHub or GitLab ca
 
 - A pending `create` whose item already has a remote ref on the connection (a push not acknowledged yet) updates every synced field of that issue; it never opens a second one.
 - A `delete` closes the deleted item's issue: `fields: ["state"]`, `issue` with the listing's values and `state: "closed"`, or the tombstone's title and `null` body and labels when the listing lacks the issue.
-- An entry that changes nothing on the issue (only unsynced fields, values the issue already has, fields the issue won as source of truth, a deleted item without an issue on the connection or with a closed one, an item gone since, an item without an issue that existed before a [sync start from a repository with issues](#sync-start)) needs no remote call: its `seq` is in `ack` (ascending), to acknowledge with `sync outbox ack`. It gives no warning.
+- An entry that changes nothing on the issue (only unsynced fields, values the issue already has, fields the issue won as source of truth, a deleted item without an issue on the connection or with a closed one, an item gone since, an item without an issue that existed before a [sync start from a repository with issues](#sync-start) or came from another connection's repository (see [several connections](#several-connections))) needs no remote call: its `seq` is in `ack` (ascending), to acknowledge with `sync outbox ack`. It gives no warning.
 
 **Pull** operations, one per listed issue to apply to the board: `{"op", "external_ref", "url", "item_id", "fields", "issue"}`.
 
@@ -531,7 +540,7 @@ It has no MCP tool; `sync plan --help` lists the accepted listings.
   - **Status**: a mapped status label wins over the plain state when it agrees with it and the item's kind has that status: on a closed issue a delivered or closed status (a closed issue labelled with the label mapped to `cancelled` becomes `cancelled`, not `done`), on an open issue any other (`in_progress`, `review`, …). A label that disagrees with the state (`in_progress` on a closed issue) is ignored and the state decides as it would without a mapping.
   - **Several values**: when the labels name several values of one dimension, or one label is the remote value of several local values, the first in the local-value order of the mapping table wins (`must` before `could`; `done` before `cancelled`).
 - **Conflicts**: the plan's conflicts are returned unchanged; neither the item nor the snapshot of those fields is touched.
-- **History and outbox**: each change is an event via `sync:<host>` (`sync:github`, `sync:gitlab`). The outbox skips the pulled connection, which already holds the change, and queues it for every other connection with auto-sync on, as `import` does.
+- **History and outbox**: each change is an event via `sync:<host>` (`sync:github`, `sync:gitlab`). The outbox skips the pulled connection, which already holds the change, and queues it for every other connection with auto-sync on, as `import` does. A created item queues nothing: it came from this repository and stays there (see [several connections](#several-connections)).
 - **Overwritten**: when the pulled connection is the source of truth, each field of the plan's `overwritten` (a local edit the issue's value replaces) also gets an `overwrite` event via `sync:<host>` after the item's update events: `field` is the synced field, `old_value` the overwritten local value and `new_value` the issue's winning value. It queues nothing. The pull's overwritten fields replace the connection's latest pull entries in [`sync status`](#sync-status).
 - **Idempotent**: the same listing applied again changes nothing and records nothing. An unknown connection gives `NOT_FOUND` before the file is read; a listing of the other host or an unknown format gives `INVALID_INPUT` and writes nothing.
 

@@ -282,6 +282,20 @@ describe('skill templates', () => {
     expect(several).toMatch(/`overwritten` list/);
   });
 
+  it('overseer-sync and the README say each repository keeps its existing issues and only new board items fan out (BUG-0019 AC3)', () => {
+    const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const several = text.slice(text.indexOf('\n### Several connections\n'));
+    expect(several).toMatch(/Each repository's existing issues stay in that repository/);
+    expect(several).toMatch(/never created on another\s+connection, even when it changes later; its entries there come under `ack`/);
+    expect(several).toMatch(/Only new board items fan\s+out: an item created on the board after the starts is pushed to every started connection\./);
+    expect(text).toMatch(/its\s+issues are never created in the other connected repositories/);
+    const readme = readFileSync(join(import.meta.dirname, '../README.md'), 'utf8');
+    const section = readme.slice(readme.indexOf('\n#### Several connections\n'), readme.indexOf('\n### Sync plan\n'));
+    expect(section).toMatch(/^\n#### Several connections\n\nEach repository's existing issues stay in that repository; only new board items fan out\./);
+    expect(section).toMatch(/Another connection never gets a `create` for it, even when it changes later/);
+    expect(section).toMatch(/created on the board after the starts is queued for and pushed to every connection/);
+  });
+
   it('overseer-sync passes the plan op overwritten to sync confirm and reports the overwritten fields of sync status (TASK-0024)', () => {
     const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
     const sync = text.slice(text.indexOf('\n## Sync\n'));

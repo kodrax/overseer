@@ -35,9 +35,9 @@ export interface SyncStart {
  *   update or status entry of such an item becomes the create, since the push sends the whole item).
  * - The listing has issues (the repository comes to the board): its issues are upserted as `import` does (an issue no
  *   item has creates one, an item imported from it is updated and linked), each with its remote ref on the connection;
- *   nothing is queued for it, and pending create, update and status entries of items without an issue there are
- *   dropped. The highest item ID per kind is recorded as `sync_start_baseline`: `sync plan` never pushes a create for
- *   those items (see existedBeforeSyncStart).
+ *   nothing is queued for any connection (those items stay in this repository: see neverCreatedOn), and pending
+ *   create, update and status entries of items without an issue here are dropped. The highest item ID per kind is
+ *   recorded as `sync_start_baseline`: `sync plan` never pushes a create for those items (see existedBeforeSyncStart).
  * Once started (either way), the connection becomes the source of truth when the board is; otherwise it stays as it is.
  */
 export function startSync(service: OverseerService, connectionId: number | string, payload: unknown, ctx: Ctx): SyncStart {
@@ -60,8 +60,8 @@ export function startSync(service: OverseerService, connectionId: number | strin
     let next: string;
     // The one branch point for repositories that already have issues.
     if (issues.length > 0) {
-      // The repository already holds these issues: the outbox records the upserts for the other connections only.
-      upsertIssues(service, connection.host, issues, connection.id, { ...ctx, via: `sync:${connection.host}`, origin_connection: connection.id }, now, upsert);
+      // The repository already holds these issues and keeps them: the outbox queues nothing, for no connection.
+      upsertIssues(service, connection.host, issues, connection.id, { ...ctx, via: `sync:${connection.host}`, origin_connection: connection.id, keep_in_origin: true }, now, upsert);
       db.prepare(
         "DELETE FROM sync_outbox WHERE connection_id = ? AND operation <> 'delete' AND item_id NOT IN (SELECT item_id FROM item_remote_refs WHERE connection_id = ?)",
       ).run(connection.id, connection.id);
@@ -69,7 +69,7 @@ export function startSync(service: OverseerService, connectionId: number | strin
         (db.prepare('SELECT kind, next_seq - 1 AS last FROM counters ORDER BY kind').all() as { kind: Kind; last: number }[]).map((row) => [row.kind, Number(row.last)]),
       );
       db.prepare('UPDATE connections SET sync_start_baseline = ? WHERE id = ?').run(JSON.stringify(baseline), connection.id);
-      next = `Items created from now on get a create push; items that existed before the start and have no issue on the connection are never pushed (sync plan lists their entries under ack). Run sync plan ${connection.id} <listing>, run its ops through ${server}, then record the results with sync confirm ${connection.id} <results>.`;
+      next = `Items created from now on get a create push; items that existed before the start and have no issue on the connection are never pushed (sync plan lists their entries under ack), and the repository's issues are never created on the other connections. Run sync plan ${connection.id} <listing>, run its ops through ${server}, then record the results with sync confirm ${connection.id} <results>.`;
     } else {
       const items = (
         db

@@ -660,7 +660,8 @@ export class OverseerService {
 
   /**
    * Appends a history event and records the change in the sync outbox, in the caller's transaction. Every item write
-   * goes through here, so this is where outbox entries come from (`ctx.origin_connection` is left out).
+   * goes through here, so this is where outbox entries come from (`ctx.origin_connection` is left out; with
+   * `ctx.keep_in_origin` nothing is queued).
    */
   addEvent(
     itemId: string,
@@ -674,7 +675,7 @@ export class OverseerService {
     this.db
       .prepare('INSERT INTO events(item_id, at, actor, via, action, field, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(itemId, at, this.actor(ctx), ctx.via, action, field, eventValue(oldValue), eventValue(newValue));
-    this.outbox.record(itemId, action, field, ctx.origin_connection, ctx.queued);
+    if (!ctx.keep_in_origin) this.outbox.record(itemId, action, field, ctx.origin_connection, ctx.queued);
   }
 
   /** `ctx` collecting the outbox entries a write queues; a nested write (an import deleting items) adds to its caller's. */

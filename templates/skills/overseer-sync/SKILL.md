@@ -126,7 +126,8 @@ Once per connection, after its mapping (so the seeded issues get its labels):
      through the MCP server → confirm → outbox ack → status), so the queued creates become issues (a
      closed item's new issue is closed).
    - `repository` — the repository's issues came to the board: `created` new items and `linked` existing
-     ones. The items already on the board before the start are never pushed to this repository.
+     ones. The items already on the board before the start are never pushed to this repository, and its
+     issues are never created in the other connected repositories.
    Report the `warnings`.
 
 ## 5. Source of truth
@@ -202,5 +203,10 @@ starts from what the previous one applied:
 When the board is the source of truth, every plan keeps the board's values; sync the connections by id.
 Show the user each plan's `overwritten` list: item, issue, field, the winning value and the value it
 replaces.
+
+Each repository's existing issues stay in that repository: an item a connection's `sync start` or
+`sync pull` brought to the board (or imported from its repository) is never created on another
+connection, even when it changes later; its entries there come under `ack`. Only new board items fan
+out: an item created on the board after the starts is pushed to every started connection.
 
 <!-- managed-by: overseer-cli -->

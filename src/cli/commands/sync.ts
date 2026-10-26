@@ -128,9 +128,10 @@ The listing is the raw answer of the connection's MCP server, as for sync plan; 
 An empty repository is seeded from the board: every item of every kind and status without an issue on the connection
 gets one pending create in its outbox (whatever the auto-sync flag); then run sync plan, push the creates and sync
 confirm. A repository with issues comes to the board instead: its issues are created or linked as import does, nothing
-is queued, and sync plan never pushes a create for an item that existed before the start (its entries go to ack);
-items created later get create pushes as usual. Either way the connection records its sync start time, once: a second
-start gives CONFLICT.
+is queued for any connection, and sync plan never pushes a create for an item that existed before the start (its
+entries go to ack); items created later get create pushes as usual. The repository's issues stay in it: no other
+connection ever gets a create for them. Either way the connection records its sync start time, once: a second start
+gives CONFLICT.
 `;
 
 const CONFIRM_HELP = `
@@ -183,9 +184,10 @@ function formatPlan(connectionId: number, { push, pull, conflicts, ack, overwrit
 const PULL_HELP = `
 The listing is the raw answer of the connection's MCP server, as for sync plan; join every page into one array.
 Only the plan's pull operations are applied, in one transaction, with events via sync:<host>; the changes are queued
-in the outbox of the other connections, not this one. A local edit the issue's value overwrites (this connection is
-the source of truth) also gets an overwrite event naming the field, the local value and the issue's, and sync status
-lists it. Applying the same listing again changes nothing.
+in the outbox of the other connections, not this one, except a created item's: it stays in this repository and is
+never created on another connection. A local edit the issue's value overwrites (this connection is the source of
+truth) also gets an overwrite event naming the field, the local value and the issue's, and sync status lists it.
+Applying the same listing again changes nothing.
 `;
 
 /** Counts line, then a table of created and updated items, the conflicts left untouched and a `warning:` line per warning. */
