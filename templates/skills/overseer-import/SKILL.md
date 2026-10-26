@@ -20,9 +20,10 @@ them; only pass them to overseer unchanged.**
 3. Fetch every page (open and closed issues) and pass each raw answer to overseer as it arrives:
    - **GitHub** — `list_issues` with `owner`, `repo`, `perPage: 100`, `since: <last import ISO>`,
      no `state` (returns open and closed).
-   - **GitLab** — `list_work_items` with `project_id: "<group/project>"`, `state: "all"`, `first: 100`,
-     `updated_after: <last import>`. List results carry no descriptions: for each item whose body is
-     needed, call `get_work_item` (`project_id`, `work_item_iid`) and pass that answer the same way.
+   - **GitLab** — `list_issues` with `project_id: "<group/project>"`, `scope: "all"`, `state: "all"`,
+     `per_page: 100`, `updated_after: <last import>`: REST issues with their descriptions. A
+     `list_work_items` or `get_work_item` answer is accepted too, but list results carry no
+     descriptions (they leave stored ones alone).
 4. Pass each answer unchanged, as the tool returned it: `import_items({ source, repo, payload: <answer> })`,
    or save it and pipe it: `overseer import - --source github|gitlab --repo <repo> --json`. Map no fields,
    build no ImportItems, and drop nothing: overseer maps types and states, resolves parents and skips pull
@@ -36,8 +37,9 @@ them; only pass them to overseer unchanged.**
    `deleted`; an item with children is kept with a warning. Never guess deletions.
 6. Loop until the last page: take the cursor from the answer (`pageInfo.endCursor` while
    `pageInfo.hasNextPage` is true), call the list tool again with `after: <cursor>`, and pass that page too.
-   A server that answers a plain array (no `pageInfo`) pages with `page: 2, 3, …`; stop at a page shorter
-   than `perPage`. Stop when `hasNextPage` is false or a page is empty.
+   A server that answers a plain array (no `pageInfo`, e.g. GitLab `list_issues`) pages with
+   `page: 2, 3, …`; stop at a page shorter than `perPage` / `per_page`. Stop when `hasNextPage` is false
+   or a page is empty.
 7. Report the totals overseer returned across all pages: `created` / `updated` / `unchanged` / `deleted`
    with IDs, every `warnings` entry (skipped pull requests, unresolved parents, items not deleted) and
    `possible_duplicates` (imported item ↔ existing item with similarity). Propose links (`duplicates`,

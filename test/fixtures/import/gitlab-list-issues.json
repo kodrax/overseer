@@ -1,0 +1,151 @@
+[
+  {
+    "id": "207992601",
+    "iid": "1",
+    "project_id": "88083972",
+    "title": "Checkout as a guest",
+    "description": "As a shopper I check out without an account.",
+    "state": "opened",
+    "author": {
+      "username": "alice",
+      "id": "1001",
+      "name": "Alice",
+      "avatar_url": null,
+      "web_url": "https://gitlab.com/alice"
+    },
+    "assignees": [
+      {
+        "username": "alice",
+        "id": "1001",
+        "name": "Alice",
+        "avatar_url": null,
+        "web_url": "https://gitlab.com/alice"
+      },
+      {
+        "username": "bob",
+        "id": "1002",
+        "name": "Bob",
+        "avatar_url": null,
+        "web_url": "https://gitlab.com/bob"
+      }
+    ],
+    "labels": [
+      "feature",
+      "priority: must"
+    ],
+    "milestone": {
+      "id": "5101",
+      "iid": "1",
+      "title": "M1",
+      "description": "",
+      "state": "active",
+      "web_url": "https://gitlab.com/acme/demo/-/milestones/1"
+    },
+    "created_at": "2026-09-01T10:00:00.000Z",
+    "updated_at": "2026-09-03T12:00:00.000Z",
+    "closed_at": null,
+    "web_url": "https://gitlab.com/acme/demo/-/work_items/1",
+    "references": {
+      "short": "#1",
+      "relative": "#1",
+      "full": "acme/demo#1"
+    },
+    "time_stats": {
+      "time_estimate": 0,
+      "total_time_spent": 0,
+      "human_time_estimate": null,
+      "human_total_time_spent": null
+    },
+    "confidential": false,
+    "due_date": null,
+    "discussion_locked": null,
+    "weight": null,
+    "issue_type": "issue"
+  },
+  {
+    "id": "207992602",
+    "iid": "2",
+    "project_id": "88083972",
+    "title": "Persist the cart in local storage",
+    "description": "Write the cart to localStorage on every change.",
+    "state": "opened",
+    "author": {
+      "username": "alice",
+      "id": "1001",
+      "name": "Alice",
+      "avatar_url": null,
+      "web_url": "https://gitlab.com/alice"
+    },
+    "assignees": [],
+    "labels": [
+      "frontend"
+    ],
+    "milestone": null,
+    "created_at": "2026-09-01T10:05:00.000Z",
+    "updated_at": "2026-09-02T09:00:00.000Z",
+    "closed_at": null,
+    "web_url": "https://gitlab.com/acme/demo/-/issues/2",
+    "references": {
+      "short": "#2",
+      "relative": "#2",
+      "full": "acme/demo#2"
+    },
+    "time_stats": {
+      "time_estimate": 0,
+      "total_time_spent": 0,
+      "human_time_estimate": null,
+      "human_total_time_spent": null
+    },
+    "confidential": false,
+    "due_date": null,
+    "discussion_locked": null,
+    "weight": null,
+    "issue_type": "task"
+  },
+  {
+    "id": "207992603",
+    "iid": "3",
+    "project_id": "88083972",
+    "title": "Checkout fails on Safari",
+    "description": null,
+    "state": "closed",
+    "author": {
+      "username": "bob",
+      "id": "1002",
+      "name": "Bob",
+      "avatar_url": null,
+      "web_url": "https://gitlab.com/bob"
+    },
+    "assignees": [
+      {
+        "username": "bob",
+        "id": "1002",
+        "name": "Bob",
+        "avatar_url": null,
+        "web_url": "https://gitlab.com/bob"
+      }
+    ],
+    "labels": [],
+    "milestone": null,
+    "created_at": "2026-09-02T08:00:00.000Z",
+    "updated_at": "2026-09-04T16:30:00.000Z",
+    "closed_at": "2026-09-04T16:30:00.000Z",
+    "web_url": "https://gitlab.com/acme/demo/-/issues/3",
+    "references": {
+      "short": "#3",
+      "relative": "#3",
+      "full": "acme/demo#3"
+    },
+    "time_stats": {
+      "time_estimate": 0,
+      "total_time_spent": 0,
+      "human_time_estimate": null,
+      "human_total_time_spent": null
+    },
+    "confidential": false,
+    "due_date": null,
+    "discussion_locked": null,
+    "weight": null,
+    "issue_type": "incident"
+  }
+]

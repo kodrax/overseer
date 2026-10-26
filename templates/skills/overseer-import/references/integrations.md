@@ -128,8 +128,10 @@ Server: https://github.com/zereight/gitlab-mcp, run locally over stdio with
   `GITLAB_READ_ONLY_MODE` / `--read-only` are deprecated.
 - Toolsets: `GITLAB_TOOLSETS=core,workitems,labels,milestones` (CLI flag
   `--toolsets=core,workitems,labels,milestones`). `core` is the default and holds `list_issues` /
-  `get_issue` and `list_labels`; `workitems` is opt-in and adds `list_work_items` / `get_work_item`,
-  the tools the import steps call, and `list_work_item_statuses`; `labels` adds `get_label` and
+  `get_issue`, the listing the import and sync steps call (REST issues with their descriptions;
+  `scope: all`, `state: all`, `page` / `per_page` ≤100), and `list_labels`; `workitems` is opt-in and
+  adds `list_work_items` / `get_work_item` (overseer still accepts their answers, but list results carry
+  no descriptions) and `list_work_item_statuses`; `labels` adds `get_label` and
   `milestones` adds `list_milestones`, `list_group_milestones` and `get_milestone`, which
   `overseer sync inspect` reads (https://github.com/zereight/gitlab-mcp/blob/main/docs/tools/index.md).
   Read-only mode hides the write tools of every toolset. Their parameters may differ from the

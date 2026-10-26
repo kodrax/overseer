@@ -29,6 +29,12 @@ import { tempRepo, tempUserConfig } from './helpers/tmp.js';
  *   parent {iid, title, type, project, webUrl}), from https://github.com/zereight/gitlab-mcp/blob/main/index.ts
  *   (listWorkItems, getWorkItem); work item state is the GraphQL WorkItemState OPEN/CLOSED
  *   (https://docs.gitlab.com/api/graphql/reference/#workitemstate).
+ * - gitlab-list-issues.json: zereight/gitlab-mcp list_issues (project_id, scope all, state all, page/per_page), as
+ *   2.3.11 answers it (build/index.js listIssues and the "list_issues" handler, build/schemas.js GitLabIssueSchema):
+ *   the JSON text of an array of GitLab REST issues, ids coerced to strings, description null when empty, state
+ *   opened/closed, labels as strings, assignees and author {username, id, name, avatar_url, web_url}, milestone {id,
+ *   iid, title, description, state, web_url} or null, references {short, relative, full}, issue_type
+ *   issue|incident|test_case|task; the TASK-0073 pilot got the same shape (with numeric ids, also accepted).
  */
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', 'import', name), 'utf8');
 
@@ -155,6 +161,31 @@ describe('import of raw GitLab MCP responses', () => {
     expect(reopened.created).toEqual(['TASK-0002']);
     expect(item('TASK-0002')).toMatchObject({ status: 'backlog', external_state: 'open', external_ref: 'gitlab:acme/demo#6' });
   });
+
+  it('maps list_issues REST issues: description as body, group/project#IID, issue types, first assignee, milestone title (BUG-0018)', async () => {
+    const repo = tempRepo();
+    const listed = await cli(repo, ['import', '-', '--source', 'gitlab', '--repo', 'acme/demo', '--json'], fixture('gitlab-list-issues.json'));
+    expect(listed.code).toBe(0);
+    expect(listed.json<ImportResult>()).toMatchObject({ created: ['US-0001', 'TASK-0001', 'BUG-0001'], warnings: [] });
+    expect(board(repo)).toEqual([
+      ['BUG-0001', 'bug', 'done', 'Checkout fails on Safari', '', [], 'bob', null, null, 'gitlab:acme/demo#3', 'https://gitlab.com/acme/demo/-/issues/3', 'closed'],
+      ['TASK-0001', 'task', 'backlog', 'Persist the cart in local storage', 'Write the cart to localStorage on every change.', ['frontend'], null, null, null, 'gitlab:acme/demo#2', 'https://gitlab.com/acme/demo/-/issues/2', 'open'],
+      ['US-0001', 'story', 'backlog', 'Checkout as a guest', 'As a shopper I check out without an account.', ['feature', 'priority: must'], 'alice', 'M1', null, 'gitlab:acme/demo#1', 'https://gitlab.com/acme/demo/-/work_items/1', 'open'],
+    ]);
+
+    // The same issues over import_items, as the parsed answer: numeric ids, label objects ({name}, with_labels_details)
+    // and an assignee without a username (gitlab-mcp's GitLabUserSchema leaves it optional) map alike.
+    const service = openService();
+    const issues = JSON.parse(fixture('gitlab-list-issues.json'));
+    issues[0] = { ...issues[0], id: 207992601, iid: 1, project_id: 88083972, labels: [{ id: '1', name: 'feature', color: '#fff' }, 'priority: must'], assignees: [{ id: '9' }, ...issues[0].assignees] };
+    const result = await service.importItems({ source: 'gitlab', repo: 'acme/demo', payload: issues }, ctx);
+    expect(result).toMatchObject({ created: ['US-0001', 'TASK-0001', 'BUG-0001'], warnings: [] });
+    expect(service.getItem('US-0001').item).toMatchObject({ description: 'As a shopper I check out without an account.', tags: ['feature', 'priority: must'], assignee: 'alice', external_ref: 'gitlab:acme/demo#1' });
+
+    // A REST issue answer is GitLab's, whatever source is given.
+    const mismatch = await cli(tempRepo(), ['import', '-', '--source', 'github', '--repo', 'acme/demo', '--json'], fixture('gitlab-list-issues.json'));
+    expect(mismatch.json()).toEqual({ error: { code: 'INVALID_INPUT', message: 'The payload is a GitLab response but source is github.' } });
+  });
 });
 
 describe('import_items payload', () => {
@@ -192,7 +223,7 @@ describe('import_items payload', () => {
 });
 
 describe('import of an unknown format', () => {
-  const accepted = /^Unrecognized import format; accepted formats: ImportItems .*GitHub MCP list_issues.*GitLab MCP list_work_items.*get_work_item/;
+  const accepted = /^Unrecognized import format; accepted formats: ImportItems .*GitHub MCP list_issues.*GitLab MCP list_issues.*list_work_items.*get_work_item/;
 
   it('fails with INVALID_INPUT naming the accepted formats and writes nothing (CLI)', async () => {
     const repo = tempRepo();

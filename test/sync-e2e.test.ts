@@ -153,25 +153,31 @@ describe('fake repository', () => {
   const keys = (entries: object[]) => new Set(entries.flatMap((entry) => Object.keys(entry)));
 
   it('renders listings in the shapes of the recorded MCP answers, which the payload adapters map', () => {
-    for (const [host, files, container] of [
-      ['github', ['github-list-issues.json', 'github-list-issues-rest.json'], 'issues'],
-      ['gitlab', ['gitlab-list-work-items.json'], 'items'],
+    for (const [host, gitlabListing, files, container] of [
+      ['github', 'list_issues', ['github-list-issues.json', 'github-list-issues-rest.json'], 'issues'],
+      ['gitlab', 'list_issues', ['gitlab-list-issues.json'], null],
+      ['gitlab', 'list_work_items', ['gitlab-list-work-items.json'], 'items'],
     ] as const) {
       const repo = new FakeRepository(host, 'acme/demo');
+      repo.gitlabListing = gitlabListing;
       repo.open({ title: 'Open', body: 'Text', labels: ['bug'], assignee: 'ana', milestone: 'W4' });
       repo.close(repo.open({ title: 'Closed' }));
-      const listing = repo.listing() as Record<string, object[]>;
+      const listing = repo.listing() as Record<string, object[]> | object[];
       const recorded = files.map(fixture);
-      // Top-level keys of the MCP answer (list_issues {issues, totalCount, pageInfo}, list_work_items {items, pageInfo}).
-      expect(Object.keys(listing)).toEqual(Object.keys(recorded[0]));
-      const known = keys(recorded.flatMap((answer) => (Array.isArray(answer) ? answer : answer[container])));
+      // Top-level keys of the MCP answer (GitHub list_issues {issues, totalCount, pageInfo}, GitLab list_work_items
+      // {items, pageInfo}); GitLab list_issues answers an array.
+      expect(Array.isArray(listing) ? [] : Object.keys(listing)).toEqual(Array.isArray(recorded[0]) ? [] : Object.keys(recorded[0]));
+      const entries = (answer: Record<string, object[]> | object[]) => (Array.isArray(answer) ? answer : answer[container!]!);
+      const known = keys(recorded.flatMap(entries));
       // MinimalIssue also has state_reason (github-mcp-server pkg/github/minimal_types.go); the fixtures have no closed reason.
       if (host === 'github') known.add('state_reason');
-      expect([...keys(listing[container]!)].filter((key) => !known.has(key))).toEqual([]);
+      expect([...keys(entries(listing))].filter((key) => !known.has(key))).toEqual([]);
+      const body = gitlabListing === 'list_issues' ? [{ body: 'Text' }, { body: '' }] : [{}, {}];
       expect(mapImportPayload(listing, host, 'acme/demo').items).toEqual([
-        expect.objectContaining({ external_id: 'acme/demo#1', url: repo.url(1), title: 'Open', state: 'open', labels: ['bug'], assignees: ['ana'], milestone: 'W4' }),
-        expect.objectContaining({ external_id: 'acme/demo#2', url: repo.url(2), title: 'Closed', state: 'closed', labels: [], assignees: [], milestone: null }),
+        expect.objectContaining({ external_id: 'acme/demo#1', url: repo.url(1), title: 'Open', state: 'open', labels: ['bug'], assignees: ['ana'], milestone: 'W4', ...body[0] }),
+        expect.objectContaining({ external_id: 'acme/demo#2', url: repo.url(2), title: 'Closed', state: 'closed', labels: [], assignees: [], milestone: null, ...body[1] }),
       ]);
+      if (gitlabListing === 'list_work_items') expect(mapImportPayload(listing, host, 'acme/demo').items.map((item) => 'body' in item)).toEqual([false, false]);
     }
   });
 });
@@ -947,5 +953,127 @@ describe('sync end to end: idempotency (TASK-0025 AC6)', () => {
     expect([github.calls.length, gitlab.calls.length]).toEqual(calls);
     expect(await board.json(['list', '--all'])).toEqual(items);
     expect(await board.outbox()).toEqual([]);
+  });
+});
+
+// BUG-0018: gitlab-mcp list_work_items has no descriptions, so GitLab descriptions never reached the board and a local
+// description push replaced a GitLab edit unseen. The skill now lists GitLab issues with list_issues (REST, with
+// descriptions), and a snapshot written from a list_work_items listing gets its body from the first listing that has one.
+describe('sync end to end: GitLab descriptions (BUG-0018)', () => {
+  it('brings the descriptions of a list_issues listing to the board on sync start and pull, edits included (AC1, AC2)', async () => {
+    const board = new Board();
+    const gitlab = new FakeRepository('gitlab', 'acme/app');
+    gitlab.open({ title: 'Retry uploads', body: 'Three times.' });
+    await board.connect('gitlab', 'acme/app');
+    expect(await board.json(['sync', 'start', '1', '-'], JSON.stringify(gitlab.listing()))).toMatchObject({ from: 'repository', created: 1, queued: 0 });
+    expect(await board.item('TASK-0001')).toMatchObject({ description: 'Three times.' });
+
+    gitlab.open({ title: 'Upload size limit', body: 'At most 2 GB.' });
+    gitlab.edit(1, { body: 'Three times, with backoff.' });
+    const round = await board.sync(1, gitlab);
+    expect(round.pull).toMatchObject({
+      created: [{ item_id: 'TASK-0002', external_ref: 'acme/app#2' }],
+      updated: [{ item_id: 'TASK-0001', external_ref: 'acme/app#1', fields: ['body'] }],
+      conflicts: [],
+    });
+    expect([(await board.item('TASK-0001')).description, (await board.item('TASK-0002')).description]).toEqual(['Three times, with backoff.', 'At most 2 GB.']);
+    expect([round.plan.push, gitlab.calls]).toEqual([[], []]);
+    await board.expectSettled(1, gitlab);
+  });
+
+  it('lets GitLab win a description changed on both sides when it is the source of truth, recorded as overwritten (AC2)', async () => {
+    const board = new Board();
+    const gitlab = new FakeRepository('gitlab', 'acme/app');
+    await board.connect('gitlab', 'acme/app');
+    await board.json(['sync', 'start', '1', '-'], JSON.stringify(gitlab.listing()));
+    expect(await board.json(['sync', 'source-of-truth'])).toMatchObject({ source_of_truth: 1 });
+    await board.json(['add', 'task', '--title', 'Rename settings', '--description', 'Old text.']);
+    await board.sync(1, gitlab);
+
+    await board.json(['update', 'TASK-0001', '--description', 'Board text.']);
+    gitlab.edit(1, { body: 'GitLab text.' });
+    const plan = await board.plan(1, gitlab.listing());
+    expect([plan.conflicts, plan.push, plan.ack.length]).toEqual([[], [], 1]);
+    expect(plan.overwritten).toEqual([
+      { item_id: 'TASK-0001', external_ref: 'acme/app#1', field: 'body', winner: 'remote', value: 'GitLab text.', overwritten: 'Board text.' },
+    ]);
+    expect(plan.pull).toEqual([expect.objectContaining({ op: 'update', item_id: 'TASK-0001', fields: ['body'], overwritten: { body: 'Board text.' } })]);
+
+    await board.sync(1, gitlab);
+    expect([(await board.item('TASK-0001')).description, gitlab.issue(1).body]).toEqual(['GitLab text.', 'GitLab text.']);
+    expect((await board.history('TASK-0001')).at(-1)).toEqual({ via: 'sync:gitlab', action: 'overwrite', field: 'body', old_value: 'Board text.', new_value: 'GitLab text.' });
+    expect(await board.overwritten(1)).toEqual([
+      { step: 'pull', item_id: 'TASK-0001', external_ref: 'acme/app#1', field: 'body', winner: 'remote', value: 'GitLab text.', overwritten: 'Board text.' },
+    ]);
+    await board.expectSettled(1, gitlab);
+  });
+
+  it('pushes the board description over a GitLab edit when another connection is the source of truth, recorded as overwritten (AC2)', async () => {
+    const repos = await twoRepositories();
+    const { board, github, gitlab } = repos;
+    await board.json(['add', 'task', '--title', 'Retry uploads', '--description', 'Old text.']);
+    await syncBoth(repos);
+
+    await board.json(['update', 'TASK-0001', '--description', 'Board text.']);
+    gitlab.edit(1, { body: 'GitLab text.' });
+    await board.sync(1, github);
+    const plan = await board.plan(2, gitlab.listing());
+    expect([plan.conflicts, plan.pull]).toEqual([[], []]);
+    expect(plan.overwritten).toEqual([
+      { item_id: 'TASK-0001', external_ref: 'acme/app#1', field: 'body', winner: 'local', value: 'Board text.', overwritten: 'GitLab text.' },
+    ]);
+    expect(plan.push).toEqual([expect.objectContaining({ op: 'update', fields: ['body'], overwritten: { body: 'GitLab text.' } })]);
+
+    await board.sync(2, gitlab);
+    expect([(await board.item('TASK-0001')).description, github.issue(1).body, gitlab.issue(1).body]).toEqual(['Board text.', 'Board text.', 'Board text.']);
+    expect((await board.history('TASK-0001')).at(-1)).toEqual({ via: 'sync:gitlab', action: 'overwrite', field: 'body', old_value: 'GitLab text.', new_value: 'Board text.' });
+    expect(await board.overwritten(2)).toEqual([
+      { step: 'confirm', item_id: 'TASK-0001', external_ref: 'acme/app#1', field: 'body', winner: 'local', value: 'Board text.', overwritten: 'GitLab text.' },
+    ]);
+    await board.expectSettled(1, github);
+    await board.expectSettled(2, gitlab);
+  });
+
+  it('after list_work_items syncs, the first list_issues sync pulls the missing descriptions and pushes nothing; later edits on both sides are conflicts (AC1-AC3)', async () => {
+    const board = new Board();
+    const gitlab = new FakeRepository('gitlab', 'acme/app');
+    gitlab.gitlabListing = 'list_work_items';
+    gitlab.open({ title: 'Retry uploads', body: 'Three times.' });
+    gitlab.open({ title: 'Upload size limit' });
+    await board.connect('gitlab', 'acme/app');
+    expect(await board.json(['sync', 'start', '1', '-'], JSON.stringify(gitlab.listing()))).toMatchObject({ from: 'repository', created: 2, queued: 0 });
+    await board.json(['add', 'task', '--title', 'Resume uploads', '--description', 'From the last byte.']);
+    await board.sync(1, gitlab);
+    await board.expectSettled(1, gitlab);
+    // list_work_items has no descriptions: the pulled items have none.
+    const descriptions = async () => Promise.all(['TASK-0001', 'TASK-0002', 'TASK-0003'].map(async (id) => (await board.item(id)).description));
+    expect(await descriptions()).toEqual(['', '', 'From the last byte.']);
+    const calls = gitlab.calls.length;
+
+    gitlab.gitlabListing = 'list_issues';
+    const plan = await board.plan(1, gitlab.listing());
+    expect([plan.push, plan.ack, plan.conflicts, plan.overwritten]).toEqual([[], [], [], []]);
+    expect(plan.pull).toEqual([expect.objectContaining({ op: 'update', item_id: 'TASK-0001', fields: ['body'], issue: expect.objectContaining({ body: 'Three times.' }) })]);
+    const round = await board.sync(1, gitlab);
+    expect(round.pull.updated).toEqual([{ item_id: 'TASK-0001', external_ref: 'acme/app#1', fields: ['body'] }]);
+    expect(await descriptions()).toEqual(['Three times.', '', 'From the last byte.']);
+    expect(gitlab.calls.length).toBe(calls);
+    await board.expectSettled(1, gitlab);
+
+    // TASK-0002's snapshot took the listed body as its base: a description changed on both sides is a conflict.
+    await board.json(['update', 'TASK-0002', '--description', 'Board text.']);
+    gitlab.edit(2, { body: 'GitLab text.' });
+    const conflict = await board.plan(1, gitlab.listing());
+    expect([conflict.conflicts, conflict.push]).toEqual([[], []]);
+    expect(conflict.overwritten).toEqual([
+      { item_id: 'TASK-0002', external_ref: 'acme/app#2', field: 'body', winner: 'remote', value: 'GitLab text.', overwritten: 'Board text.' },
+    ]);
+    await board.sync(1, gitlab);
+    expect(await descriptions()).toEqual(['Three times.', 'GitLab text.', 'From the last byte.']);
+    await board.expectSettled(1, gitlab);
+
+    // A list_work_items listing is still accepted, and its missing bodies change nothing.
+    gitlab.gitlabListing = 'list_work_items';
+    await board.expectSettled(1, gitlab);
   });
 });

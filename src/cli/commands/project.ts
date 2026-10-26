@@ -99,7 +99,7 @@ export function registerProjectCommands(program: Command, rt: CliRuntime): void 
   program
     .command('import')
     .description(
-      'import GitHub/GitLab issues from a file or stdin (-): a JSON array of ImportItem, or a raw GitHub list_issues / GitLab list_work_items or get_work_item MCP response; an object form may add "deleted": [external_id, ...] to delete the items of removed issues',
+      'import GitHub/GitLab issues from a file or stdin (-): a JSON array of ImportItem, or a raw GitHub list_issues / GitLab list_issues, list_work_items or get_work_item MCP response; an object form may add "deleted": [external_id, ...] to delete the items of removed issues',
     )
     .argument('<file>', 'JSON file, or - for stdin')
     .requiredOption('--source <source>', `issue source: ${IMPORT_SOURCES.join(' | ')}`)
