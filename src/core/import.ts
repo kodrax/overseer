@@ -441,6 +441,29 @@ export function writeRemoteRefs(db: Database, connectionId: number, synced: read
   }
 }
 
+/** The item of an issue and how it was found: through the remote ref of `connectionId`, else its external_ref. */
+export interface IssueItemMatch {
+  id: string;
+  /** True when found through the connection's remote ref while the item's external_ref names another issue. */
+  viaRemoteRef: boolean;
+}
+
+/**
+ * Finds the item of an issue (import, sync start, deleted list): with `connectionId`, first the item whose remote ref
+ * on that connection is the issue, then the item whose external_ref is `<source>:<external_id>`. An item pushed to
+ * another repository first keeps that external_ref, so its issue here is known only through the remote ref.
+ */
+export function findIssueItem(db: Database, connectionId: number | undefined, externalRef: string, externalId: string): IssueItemMatch | undefined {
+  if (connectionId !== undefined) {
+    const ref = db
+      .prepare('SELECT r.item_id, i.external_ref FROM item_remote_refs r JOIN items i ON i.id = r.item_id WHERE r.connection_id = ? AND r.external_ref = ?')
+      .get(connectionId, externalId);
+    if (ref) return { id: String(ref.item_id), viaRemoteRef: ref.external_ref !== externalRef };
+  }
+  const row = db.prepare('SELECT id FROM items WHERE external_ref = ?').get(externalRef);
+  return row ? { id: String(row.id), viaRemoteRef: false } : undefined;
+}
+
 /**
  * Deletes the item of each issue in `deleted` (service.deleteItem: tombstone and delete event), children before their
  * parents so a deleted subtree goes at once. An item that still has children, an issue also in `items` and an issue
@@ -451,6 +474,7 @@ function deleteRemoved(
   deleted: readonly string[],
   upserted: ReadonlySet<string>,
   refOf: (externalId: string) => string,
+  connectionId: number | undefined,
   ctx: Ctx,
   result: ImportResult,
 ): void {
@@ -461,7 +485,7 @@ function deleteRemoved(
       result.warnings.push(`${externalId}: listed in items and in deleted; not deleted.`);
       continue;
     }
-    const row = db.prepare('SELECT id FROM items WHERE external_ref = ?').get(refOf(externalId));
+    const row = findIssueItem(db, connectionId, refOf(externalId), externalId);
     if (!row) {
       result.warnings.push(`${externalId}: deleted remotely but no item has this issue; nothing deleted.`);
       continue;
@@ -546,15 +570,26 @@ export function insertImportedItem(
 }
 
 /**
- * Sets the parent of the item of `remote` to the item of its parent issue, both found by their `<source>:` external_ref.
+ * Sets the parent of the item of `remote` to the item of its parent issue, both found by {@link findIssueItem} (the
+ * remote ref on `connectionId`, else the `<source>:` external_ref).
  * A parent issue without an item, a parent of a kind the child cannot have, or another local parent leaves the parent
  * as it is, with a warning. Returns the child's ID when its parent was set, else null.
  */
-export function linkImportedParent(service: OverseerService, source: ImportSource, remote: ImportItem, ctx: Ctx, now: string, warnings: string[]): string | null {
+export function linkImportedParent(
+  service: OverseerService,
+  source: ImportSource,
+  remote: ImportItem,
+  connectionId: number | undefined,
+  ctx: Ctx,
+  now: string,
+  warnings: string[],
+): string | null {
   if (!remote.parent_external_id) return null;
   const db = service.db;
-  const child = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(`${source}:${remote.external_id}`);
-  const parent = db.prepare('SELECT id, kind FROM items WHERE external_ref = ?').get(`${source}:${remote.parent_external_id}`);
+  const childMatch = findIssueItem(db, connectionId, `${source}:${remote.external_id}`, remote.external_id);
+  const parentMatch = findIssueItem(db, connectionId, `${source}:${remote.parent_external_id}`, remote.parent_external_id);
+  const child = childMatch && db.prepare('SELECT * FROM items WHERE id = ?').get(childMatch.id);
+  const parent = parentMatch && db.prepare('SELECT id, kind FROM items WHERE id = ?').get(parentMatch.id);
   if (!child) return null;
   const childId = String(child.id);
   const childKind = child.kind as Kind;
@@ -588,8 +623,11 @@ export type IssueUpsert = Pick<ImportResult, 'created' | 'updated' | 'unchanged'
 
 /**
  * Upserts issues of `source` into the board in the caller's transaction (import and sync start): an issue no item has
- * (by its `<source>:` external_ref) creates one; a known issue updates its item's title, description, tags, assignee,
- * milestone, URL and state. With `connectionId`, the labels are read through that connection's mapping
+ * ({@link findIssueItem}: the remote ref on `connectionId`, else the `<source>:` external_ref) creates one; a known
+ * issue updates its item's title, description, tags, assignee, milestone, status, URL and state. An item found
+ * through a remote ref while its external_ref names another issue (pushed to another repository first) keeps its
+ * external_ref, URL, state and synced time: the issue's URL, state and synced fields go to its remote ref only.
+ * With `connectionId`, the labels are read through that connection's mapping
  * ({@link translateLabels}): mapped labels set the priority and, when they agree with the state, the status
  * ({@link labelStatus}) instead of becoming tags, and each item gets its remote ref there. Without a mapped status
  * label the status changes only with the open/closed state. Parents are linked after every upsert. An issue listed
@@ -623,15 +661,15 @@ export function upsertIssues(
       const warning = descriptionCutWarning(id, remote);
       if (warning) result.warnings.push(warning);
     };
-    const existing = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(externalRef);
-    if (!existing) {
+    const match = findIssueItem(db, connectionId, externalRef, remote.external_id);
+    if (!match) {
       const id = insertImportedItem(service, remote, source, mapping, importCtx, now, result.warnings);
       result.created.push(id);
       synced.push({ id, remote });
       continue;
     }
 
-    const row = getRow(db, String(existing.id))!;
+    const row = getRow(db, match.id)!;
     const current = toItem(row);
     const mapped = translateLabels(remote.labels ?? [], mapping);
     const kindWarning = kindLabelWarning(row.id, row.kind, mapped);
@@ -644,23 +682,27 @@ export function upsertIssues(
       ...(mapped.priority ? { priority: mapped.priority } : {}),
       assignee: remote.assignees?.[0] ?? null,
       milestone: remote.milestone ?? null,
-      external_url: remote.url,
+      // The external_* columns describe the item's own external_ref; an issue found through a remote ref keeps them.
+      ...(match.viaRemoteRef ? {} : { external_url: remote.url }),
     };
     const changes = (Object.keys(incoming) as (keyof Item)[]).filter(
       (field) => JSON.stringify(current[field] ?? null) !== JSON.stringify(incoming[field] ?? null),
     );
-    const stateChanged = current.external_state !== remote.state;
+    const knownState = match.viaRemoteRef
+      ? (db.prepare('SELECT state FROM item_remote_refs WHERE item_id = ? AND connection_id = ?').get(match.id, connectionId!)?.state as string | null | undefined)
+      : current.external_state;
+    const stateChanged = knownState !== remote.state;
     const status =
       labelStatus(row.kind, remote.state, mapped.statuses) ??
       (stateChanged ? (remote.state === 'closed' ? closedStatus(row.kind, source, remote.state_reason) : openStatus(row.kind, [])) : current.status);
     if (changes.length === 0 && !stateChanged && status === current.status) {
-      db.prepare('UPDATE items SET external_synced_at = ? WHERE rid = ?').run(now, row.rid);
+      if (!match.viaRemoteRef) db.prepare('UPDATE items SET external_synced_at = ? WHERE rid = ?').run(now, row.rid);
       result.unchanged.push(row.id);
       synced.push({ id: row.id, remote });
       continue;
     }
-    const sets: string[] = ['external_synced_at = ?', 'updated_at = ?'];
-    const params: (string | number | null)[] = [now, now];
+    const sets: string[] = match.viaRemoteRef ? ['updated_at = ?'] : ['external_synced_at = ?', 'updated_at = ?'];
+    const params: (string | number | null)[] = match.viaRemoteRef ? [now] : [now, now];
     for (const field of changes) {
       const value = incoming[field];
       sets.push(`${field} = ?`);
@@ -668,7 +710,7 @@ export function upsertIssues(
       service.addEvent(row.id, importCtx, now, 'update', field, current[field], value);
       if (field === 'description') cutWarning(row.id);
     }
-    if (stateChanged) {
+    if (stateChanged && !match.viaRemoteRef) {
       sets.push('external_state = ?');
       params.push(remote.state);
     }
@@ -694,7 +736,7 @@ export function upsertIssues(
 
   // Parents are resolved after all upserts so a parent may appear anywhere in the batch (or a previous import).
   for (const remote of items) {
-    const childId = linkImportedParent(service, source, remote, importCtx, now, result.warnings);
+    const childId = linkImportedParent(service, source, remote, connectionId, importCtx, now, result.warnings);
     if (childId === null) continue;
     const unchangedIndex = result.unchanged.indexOf(childId);
     if (unchangedIndex >= 0) {
@@ -728,7 +770,7 @@ export async function importItems(service: OverseerService, raw: unknown, ctx: C
 
   tx(db, () => {
     const seen = upsertIssues(service, source, input.items, connectionId, importCtx, now, result);
-    deleteRemoved(service, input.deleted ?? [], seen, refOf, importCtx, result);
+    deleteRemoved(service, input.deleted ?? [], seen, refOf, connectionId, importCtx, result);
     service.setMeta(`last_import:${source}:${input.repo}`, now);
   });
 

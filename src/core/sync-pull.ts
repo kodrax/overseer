@@ -175,7 +175,7 @@ export function pullSync(service: OverseerService, connectionId: number | string
     writeRemoteRefs(service.db, connection.id, created, now, result.warnings);
     service.connections.recordOverwrites(connection.id, 'pull', now, overwrites);
     // Parents after every create, so a parent issue may come anywhere in the listing.
-    for (const { remote } of created) linkImportedParent(service, connection.host, remote, createCtx, now, result.warnings);
+    for (const { remote } of created) linkImportedParent(service, connection.host, remote, connection.id, createCtx, now, result.warnings);
   });
   return result;
 }
