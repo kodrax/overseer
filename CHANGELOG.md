@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - The `overseer-sync` skill, the README and the `sync mapping` help map kinds to labels only, as push sends them: issue types from `sync inspect` are information, never mapping targets, and a kind without a matching label gets a new label proposal (BUG-0016).
+- Issues reaching the board through `sync pull`, `sync start` and `import` of a connected repository read their labels through that connection's mapping: a mapped kind, priority or status label sets the field instead of being stored as a tag (a closed issue labelled with the label mapped to `cancelled` becomes `cancelled`, a `priority: could` issue gets `could` instead of `should`), so a later push touching labels keeps the issue's priority label and one connection's mapped labels no longer reach another repository through tags. A status label counts when it agrees with the issue's state; several values go by the mapping table's order; an import without a connection is unchanged (BUG-0017, BUG-0015).
 
 ## [0.2.0] - 2026-10-24
 

@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { runCli } from '../src/cli/index.js';
+import { type LabelMapping, labelStatus, translateLabels } from '../src/core/import.js';
+import { MAPPING_DIMENSIONS, MAPPING_LOCAL_VALUES } from '../src/core/mappings.js';
 import type { OverseerService } from '../src/core/service.js';
 import { planSync } from '../src/core/sync-plan.js';
 import { pullSync, type SyncPullResult } from '../src/core/sync-pull.js';
@@ -297,6 +299,39 @@ describe('sync pull CLI', () => {
     const unknown = await cli(root, ['sync', 'pull', '9', 'missing.json', '--json']);
     expect(unknown.code).toBe(1);
     expect(JSON.parse(unknown.out).error).toEqual({ code: 'NOT_FOUND', message: 'No connection with id 9.' });
+  });
+});
+
+describe('labels read through a connection mapping (BUG-0017)', () => {
+  /** A whole mapping: `pairs` over every local value unmapped. */
+  const mappingOf = (pairs: { [D in keyof LabelMapping]?: Record<string, string> }): LabelMapping =>
+    Object.fromEntries(
+      MAPPING_DIMENSIONS.map((dimension) => [dimension, { ...Object.fromEntries(MAPPING_LOCAL_VALUES[dimension].map((local) => [local, null])), ...pairs[dimension] }]),
+    ) as LabelMapping;
+
+  it('turns mapped labels into values, keeps the others as tags in order, and picks by local-value order', () => {
+    const mapping = mappingOf({
+      kind: { bug: 'type: bug' },
+      status: { done: 'resolved', cancelled: 'resolved', in_progress: 'doing', review: 'closed' },
+      priority: { must: 'P1', could: 'P3' },
+    });
+    expect(translateLabels(['ui', 'P3', 'type: bug', 'P1', 'resolved', 'closed', 'api'], mapping)).toEqual({
+      kind: 'bug',
+      priority: 'must',
+      statuses: ['done', 'cancelled'],
+      // A status mapped to a state is no label.
+      tags: ['ui', 'closed', 'api'],
+    });
+    expect(translateLabels(['ui', 'P3'], undefined)).toEqual({ statuses: [], tags: ['ui', 'P3'] });
+  });
+
+  it("gives the first mapped status the kind has that agrees with the issue's state", () => {
+    expect(labelStatus('task', 'closed', ['done', 'cancelled'])).toBe('done');
+    expect(labelStatus('task', 'closed', ['in_progress', 'cancelled'])).toBe('cancelled');
+    expect(labelStatus('task', 'open', ['cancelled'])).toBeUndefined();
+    expect(labelStatus('requirement', 'open', ['in_progress'])).toBeUndefined();
+    expect(labelStatus('requirement', 'closed', ['verified'])).toBe('verified');
+    expect(labelStatus('epic', 'open', ['backlog', 'in_progress'])).toBe('in_progress');
   });
 });
 

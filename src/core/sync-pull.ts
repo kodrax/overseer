@@ -5,10 +5,14 @@ import {
   descriptionCutWarning,
   type ImportItem,
   insertImportedItem,
+  kindLabelWarning,
+  type LabelMapping,
+  labelStatus,
   linkImportedParent,
   openStatus,
   type SyncedField,
   type SyncedFields,
+  translateLabels,
   writeRemoteRefs,
 } from './import.js';
 import { columnValue, getRow, toItem, writeFts } from './items.js';
@@ -26,7 +30,7 @@ export interface SyncPullResult {
   warnings: string[];
 }
 
-/** Item fields an issue field fills; `state` sets the status. */
+/** Item fields an issue field fills; `labels` also sets the priority and status, `state` the status. */
 const ITEM_FIELDS: Record<Exclude<SyncedField, 'state'>, keyof Item> = {
   title: 'title',
   body: 'description',
@@ -36,14 +40,28 @@ const ITEM_FIELDS: Record<Exclude<SyncedField, 'state'>, keyof Item> = {
 };
 
 /**
- * Applies one pull update: the planned issue fields to the item (title, body as description, labels as tags,
- * assignee, milestone; the state closes or reopens the status only when the item's status is on the other side),
- * with an event per changed field, then the remote ref's snapshot of those fields.
+ * Applies one pull update: the planned issue fields to the item (title, body as description, labels through the
+ * connection's mapping as tags and priority, assignee, milestone), with an event per changed field, then the remote
+ * ref's snapshot of those fields. When `state` or `labels` is pulled, a mapped status label that agrees with the
+ * issue's state sets the status ({@link labelStatus}; a pull of labels alone only when the item's status is already on
+ * the issue's side). Otherwise the state closes or reopens the status only when the item's status is on the other side.
  */
-function applyUpdate(service: OverseerService, connectionId: number, host: ImportSource, op: PullOp, remote: ImportItem, ctx: Ctx, now: string, warnings: string[]): void {
+function applyUpdate(
+  service: OverseerService,
+  connectionId: number,
+  host: ImportSource,
+  mapping: LabelMapping,
+  op: PullOp,
+  remote: ImportItem,
+  ctx: Ctx,
+  now: string,
+  warnings: string[],
+): void {
   const db = service.db;
   const row = getRow(db, op.item_id!)!;
   const current = toItem(row);
+  // Labels keep the listing's order, as import stores them.
+  const mapped = translateLabels(remote.labels ?? [], mapping);
   const incoming: Partial<Record<keyof Item, unknown>> = {};
   for (const field of op.fields) {
     if (field === 'state') continue;
@@ -51,41 +69,46 @@ function applyUpdate(service: OverseerService, connectionId: number, host: Impor
       incoming.description = (op.issue.body ?? '').slice(0, DESCRIPTION_MAX);
       const warning = descriptionCutWarning(row.id, { body: op.issue.body, url: op.url });
       if (warning) warnings.push(warning);
+    } else if (field === 'labels') {
+      incoming.tags = mapped.tags;
+      if (mapped.priority) incoming.priority = mapped.priority;
+      const warning = kindLabelWarning(row.id, current.kind, mapped);
+      if (warning) warnings.push(warning);
     } else {
-      // Labels keep the listing's order, as import stores them.
-      incoming[ITEM_FIELDS[field]] = field === 'labels' ? (remote.labels ?? []) : op.issue[field];
+      incoming[ITEM_FIELDS[field]] = op.issue[field];
     }
   }
   const changes = (Object.keys(incoming) as (keyof Item)[]).filter((field) => JSON.stringify(current[field] ?? null) !== JSON.stringify(incoming[field] ?? null));
   const sets: string[] = [];
   const params: (string | number | null)[] = [];
-  let statusChanged = false;
   for (const field of changes) {
     sets.push(`${field} = ?`);
     params.push(columnValue(incoming[field]));
     service.addEvent(row.id, ctx, now, 'update', field, current[field], incoming[field]);
   }
-  if (op.fields.includes('state')) {
-    const closed = DELIVERED_STATUSES[current.kind].includes(current.status) || CLOSED_STATUSES[current.kind].includes(current.status);
-    const status =
-      op.issue.state === 'closed' && !closed
-        ? closedStatus(current.kind, host, remote.state_reason)
-        : op.issue.state === 'open' && closed
-          ? openStatus(current.kind, remote.labels ?? [])
-          : current.status;
-    if (status !== current.status) {
-      statusChanged = true;
-      sets.push('status = ?', 'status_changed_at = ?');
-      params.push(status, now);
-      const delivered = DELIVERED_STATUSES[current.kind].includes(status);
-      if (delivered && !current.delivered_at) {
-        sets.push('delivered_at = ?');
-        params.push(now);
-      } else if (!delivered && current.delivered_at) {
-        sets.push('delivered_at = NULL');
-      }
-      service.addEvent(row.id, ctx, now, 'status', 'status', current.status, status);
+  const closed = DELIVERED_STATUSES[current.kind].includes(current.status) || CLOSED_STATUSES[current.kind].includes(current.status);
+  const statePulled = op.fields.includes('state');
+  const labelsPulled = op.fields.includes('labels') && closed === (op.issue.state === 'closed');
+  const fromLabels = statePulled || labelsPulled ? labelStatus(current.kind, op.issue.state, mapped.statuses) : undefined;
+  const status =
+    fromLabels ??
+    (statePulled && op.issue.state === 'closed' && !closed
+      ? closedStatus(current.kind, host, remote.state_reason)
+      : statePulled && op.issue.state === 'open' && closed
+        ? openStatus(current.kind, remote.labels ?? [])
+        : current.status);
+  const statusChanged = status !== current.status;
+  if (statusChanged) {
+    sets.push('status = ?', 'status_changed_at = ?');
+    params.push(status, now);
+    const delivered = DELIVERED_STATUSES[current.kind].includes(status);
+    if (delivered && !current.delivered_at) {
+      sets.push('delivered_at = ?');
+      params.push(now);
+    } else if (!delivered && current.delivered_at) {
+      sets.push('delivered_at = NULL');
     }
+    service.addEvent(row.id, ctx, now, 'status', 'status', current.status, status);
   }
   if (current.external_ref === `${host}:${op.external_ref}`) {
     sets.push('external_url = ?', 'external_state = ?', 'external_synced_at = ?');
@@ -136,11 +159,11 @@ export function pullSync(service: OverseerService, connectionId: number | string
     for (const op of plan.pull) {
       const remote = issues.get(op.external_ref)!;
       if (op.op === 'create') {
-        const id = insertImportedItem(service, remote, connection.host, pullCtx, now, result.warnings);
+        const id = insertImportedItem(service, remote, connection.host, input.mapping, pullCtx, now, result.warnings);
         created.push({ id, remote });
         result.created.push({ item_id: id, external_ref: op.external_ref });
       } else {
-        applyUpdate(service, connection.id, connection.host, op, remote, pullCtx, now, result.warnings);
+        applyUpdate(service, connection.id, connection.host, input.mapping, op, remote, pullCtx, now, result.warnings);
         for (const entry of overwrites) {
           if (entry.item_id === op.item_id) service.addEvent(entry.item_id, pullCtx, now, 'overwrite', entry.field, entry.overwritten, entry.value);
         }

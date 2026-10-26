@@ -2,8 +2,22 @@ import { z } from 'zod';
 import { type Database, nowIso, tx } from './db.js';
 import { OverseerError } from './errors.js';
 import { columnValue, getRow, toItem, writeFts } from './items.js';
+import { type ConnectionMapping, isMappedLabel, MAPPING_LOCAL_VALUES, type MappingDimension } from './mappings.js';
 import { normalizeRepositoryPath } from './remotes.js';
-import { type Ctx, IMPORT_SOURCES, type ImportSource, type Item, KINDS, type Kind, PARENT_KINDS, parseInput } from './schema.js';
+import {
+  CLOSED_STATUSES,
+  type Ctx,
+  DELIVERED_STATUSES,
+  IMPORT_SOURCES,
+  type ImportSource,
+  type Item,
+  KINDS,
+  type Kind,
+  PARENT_KINDS,
+  type Priority,
+  parseInput,
+  STATUSES,
+} from './schema.js';
 import type { OverseerService } from './service.js';
 
 /** Longest item description an issue body fills; a longer body is cut with a warning. */
@@ -91,6 +105,61 @@ const CANCELLING_REASONS = ['not_planned', 'duplicate'];
 export function closedStatus(kind: Kind, source: ImportSource, reason: string | null | undefined): string {
   if (kind === 'requirement') return 'implemented';
   return source === 'github' && CANCELLING_REASONS.includes((reason ?? '').toLowerCase()) ? 'cancelled' : 'done';
+}
+
+/** A connection's mapping, as the labels of its issues are read through it. */
+export type LabelMapping = ConnectionMapping['mapping'];
+
+/** What an issue's labels say through its connection's mapping. */
+export interface MappedIssueLabels {
+  /** The kind a label maps to; the first in local-value order when labels map to several. */
+  kind?: Kind;
+  /** The priority a label maps to; the first in local-value order (must, should, could, wont) when labels map to several. */
+  priority?: Priority;
+  /** Every status a label maps to, in local-value order; {@link labelStatus} picks the one the item gets. */
+  statuses: string[];
+  /** The labels that are no mapped label of the connection, in the issue's order: the item's tags. */
+  tags: string[];
+}
+
+/**
+ * Reads an issue's labels through the mapping of the connection it comes from: a label that is a mapped kind, priority
+ * or status label (not a status mapped to a state) names that local value and is not a tag; the other labels are the
+ * tags. A remote value several local values share names the first of them in local-value order (the README's table).
+ * Without a mapping (an import from a repository with no connection) every label is a tag.
+ */
+export function translateLabels(labels: readonly string[], mapping: LabelMapping | undefined): MappedIssueLabels {
+  if (!mapping) return { statuses: [], tags: [...labels] };
+  const present = new Set(labels);
+  const mapped = new Set<string>();
+  const named = (dimension: MappingDimension): string[] =>
+    MAPPING_LOCAL_VALUES[dimension].filter((local) => {
+      const remote = mapping[dimension][local] ?? null;
+      if (remote === null || !isMappedLabel(dimension, remote) || !present.has(remote)) return false;
+      mapped.add(remote);
+      return true;
+    });
+  const [kind] = named('kind') as Kind[];
+  const [priority] = named('priority') as Priority[];
+  const statuses = named('status');
+  return { ...(kind ? { kind } : {}), ...(priority ? { priority } : {}), statuses, tags: labels.filter((label) => !mapped.has(label)) };
+}
+
+/**
+ * The status mapped labels give an item of `kind` whose issue is in `state`: the first of `statuses` (local-value order)
+ * that `kind` has and that agrees with the state (a closed issue: delivered and closed statuses; an open issue: the
+ * others). Undefined when none does: the state alone decides ({@link closedStatus}, {@link openStatus}).
+ */
+export function labelStatus(kind: Kind, state: 'open' | 'closed', statuses: readonly string[]): string | undefined {
+  const closed = state === 'closed';
+  return statuses.find(
+    (status) => STATUSES[kind].includes(status) && (DELIVERED_STATUSES[kind].includes(status) || CLOSED_STATUSES[kind].includes(status)) === closed,
+  );
+}
+
+/** The warning for mapped labels naming another kind than an existing item's, which never changes. */
+export function kindLabelWarning(id: string, kind: Kind, labels: MappedIssueLabels): string | null {
+  return labels.kind && labels.kind !== kind ? `${id}: its issue's labels map to kind ${labels.kind}; it stays a ${kind} (an item's kind never changes).` : null;
 }
 
 function remoteTime(value: string | null | undefined, fallback: string): string {
@@ -423,32 +492,46 @@ export function descriptionCutWarning(id: string, remote: Pick<ImportItem, 'body
 }
 
 /**
- * Creates the item of an issue no item has (import and sync pull): kind from the issue type or labels, status from the
- * state (and an in-progress label), the issue's title, body, labels as tags, first assignee, milestone and URL, and
- * external_ref `<source>:<external_id>`. Returns the new ID; a body cut to DESCRIPTION_MAX adds a warning.
+ * Creates the item of an issue no item has (import, sync start and sync pull) with the issue's labels read through
+ * `mapping`, the mapping of the connection it comes from ({@link translateLabels}): kind from a mapped kind label, else
+ * the issue type, else the labels; priority from a mapped priority label, else `should`; status from a mapped status
+ * label that agrees with the state ({@link labelStatus}), else from the state (and an in-progress label); tags are the
+ * labels that are no mapped label. Then the issue's title, body, first assignee, milestone and URL, and external_ref
+ * `<source>:<external_id>`. Returns the new ID; a body cut to DESCRIPTION_MAX adds a warning.
  */
-export function insertImportedItem(service: OverseerService, remote: ImportItem, source: ImportSource, ctx: Ctx, now: string, warnings: string[]): string {
+export function insertImportedItem(
+  service: OverseerService,
+  remote: ImportItem,
+  source: ImportSource,
+  mapping: LabelMapping | undefined,
+  ctx: Ctx,
+  now: string,
+  warnings: string[],
+): string {
   const labels = remote.labels ?? [];
-  const kind = importKind(remote);
-  const status = remote.state === 'closed' ? closedStatus(kind, source, remote.state_reason) : openStatus(kind, labels);
+  const mapped = translateLabels(labels, mapping);
+  const kind = mapped.kind ?? importKind(remote);
+  const status =
+    labelStatus(kind, remote.state, mapped.statuses) ?? (remote.state === 'closed' ? closedStatus(kind, source, remote.state_reason) : openStatus(kind, labels));
   const id = service.insertItem(
     {
       kind,
       title: remote.title,
       description: (remote.body ?? '').slice(0, DESCRIPTION_MAX),
       status,
+      priority: mapped.priority ?? 'should',
       req_type: kind === 'requirement' ? (labels.some((label) => /nfr|non-functional|performance|security/i.test(label)) ? 'non_functional' : 'functional') : null,
       asked_by: null,
       source: remote.url,
       recorded_via: ctx.via,
-      tags: labels,
+      tags: mapped.tags,
       assignee: remote.assignees?.[0] ?? null,
       milestone: remote.milestone ?? null,
       external_ref: `${source}:${remote.external_id}`,
       external_url: remote.url,
       external_state: remote.state,
       external_synced_at: now,
-      delivered_at: status === 'done' || status === 'implemented' ? now : null,
+      delivered_at: DELIVERED_STATUSES[kind].includes(status) ? now : null,
       created_at: remoteTime(remote.created_at, now),
       updated_at: now,
       status_changed_at: now,
@@ -506,9 +589,12 @@ export type IssueUpsert = Pick<ImportResult, 'created' | 'updated' | 'unchanged'
 /**
  * Upserts issues of `source` into the board in the caller's transaction (import and sync start): an issue no item has
  * (by its `<source>:` external_ref) creates one; a known issue updates its item's title, description, tags, assignee,
- * milestone, URL and state. Parents are linked after every upsert; with `connectionId`, each item gets its remote ref
- * there. An issue listed twice uses its first entry, with a warning. Adds the item IDs and warnings to `result` and
- * returns the external_refs seen.
+ * milestone, URL and state. With `connectionId`, the labels are read through that connection's mapping
+ * ({@link translateLabels}): mapped labels set the priority and, when they agree with the state, the status
+ * ({@link labelStatus}) instead of becoming tags, and each item gets its remote ref there. Without a mapped status
+ * label the status changes only with the open/closed state. Parents are linked after every upsert. An issue listed
+ * twice uses its first entry, with a warning. Adds the item IDs and warnings to `result` and returns the
+ * external_refs seen.
  */
 export function upsertIssues(
   service: OverseerService,
@@ -520,6 +606,7 @@ export function upsertIssues(
   result: IssueUpsert,
 ): Set<string> {
   const db = service.db;
+  const mapping = connectionId === undefined ? undefined : service.mappings.get(connectionId).mapping;
   const refOf = (externalId: string) => `${source}:${externalId}`;
   /** Item of each upserted issue, for its remote ref. */
   const synced: { id: string; remote: ImportItem }[] = [];
@@ -538,7 +625,7 @@ export function upsertIssues(
     };
     const existing = db.prepare('SELECT * FROM items WHERE external_ref = ?').get(externalRef);
     if (!existing) {
-      const id = insertImportedItem(service, remote, source, importCtx, now, result.warnings);
+      const id = insertImportedItem(service, remote, source, mapping, importCtx, now, result.warnings);
       result.created.push(id);
       synced.push({ id, remote });
       continue;
@@ -546,11 +633,15 @@ export function upsertIssues(
 
     const row = getRow(db, String(existing.id))!;
     const current = toItem(row);
+    const mapped = translateLabels(remote.labels ?? [], mapping);
+    const kindWarning = kindLabelWarning(row.id, row.kind, mapped);
+    if (kindWarning) result.warnings.push(kindWarning);
     const incoming: Partial<Item> = {
       title: remote.title,
       // A missing body keeps the stored description; an explicit "" or null clears it.
       ...(remote.body === undefined ? {} : { description }),
-      tags: remote.labels ?? [],
+      tags: mapped.tags,
+      ...(mapped.priority ? { priority: mapped.priority } : {}),
       assignee: remote.assignees?.[0] ?? null,
       milestone: remote.milestone ?? null,
       external_url: remote.url,
@@ -559,7 +650,10 @@ export function upsertIssues(
       (field) => JSON.stringify(current[field] ?? null) !== JSON.stringify(incoming[field] ?? null),
     );
     const stateChanged = current.external_state !== remote.state;
-    if (changes.length === 0 && !stateChanged) {
+    const status =
+      labelStatus(row.kind, remote.state, mapped.statuses) ??
+      (stateChanged ? (remote.state === 'closed' ? closedStatus(row.kind, source, remote.state_reason) : openStatus(row.kind, [])) : current.status);
+    if (changes.length === 0 && !stateChanged && status === current.status) {
       db.prepare('UPDATE items SET external_synced_at = ? WHERE rid = ?').run(now, row.rid);
       result.unchanged.push(row.id);
       synced.push({ id: row.id, remote });
@@ -577,19 +671,18 @@ export function upsertIssues(
     if (stateChanged) {
       sets.push('external_state = ?');
       params.push(remote.state);
-      const status = remote.state === 'closed' ? closedStatus(row.kind, source, remote.state_reason) : openStatus(row.kind, []);
-      if (status !== current.status) {
-        sets.push('status = ?', 'status_changed_at = ?');
-        params.push(status, now);
-        const delivered = status === 'done' || status === 'implemented';
-        if (delivered && !current.delivered_at) {
-          sets.push('delivered_at = ?');
-          params.push(now);
-        } else if (!delivered && current.delivered_at) {
-          sets.push('delivered_at = NULL');
-        }
-        service.addEvent(row.id, importCtx, now, 'status', 'status', current.status, status);
+    }
+    if (status !== current.status) {
+      sets.push('status = ?', 'status_changed_at = ?');
+      params.push(status, now);
+      const delivered = DELIVERED_STATUSES[row.kind].includes(status);
+      if (delivered && !current.delivered_at) {
+        sets.push('delivered_at = ?');
+        params.push(now);
+      } else if (!delivered && current.delivered_at) {
+        sets.push('delivered_at = NULL');
       }
+      service.addEvent(row.id, importCtx, now, 'status', 'status', current.status, status);
     }
     db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE rid = ?`).run(...params, row.rid);
     if (changes.some((field) => field === 'title' || field === 'description' || field === 'tags')) {
