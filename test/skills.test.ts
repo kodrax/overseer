@@ -131,6 +131,29 @@ describe('skill templates', () => {
     expect(map).toMatch(/Show the full proposal/);
   });
 
+  it('overseer-sync and the README map kinds to labels only; issue types are information, never targets (BUG-0016 AC1)', () => {
+    const skill = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
+    const map = mappingSection();
+    expect(skill).not.toMatch(/issue types? \(else labels\)/i);
+    expect(skill.split('\n').find((l) => l.startsWith('description:'))).not.toMatch(/issue type/);
+    expect(map).toMatch(/map kinds to existing labels only/);
+    expect(map).toMatch(/`issue_types` are information only, never mapping targets/);
+    expect(map).not.toMatch(/"(Feature|Task|Bug)"/);
+    const readme = readFileSync(fileURLToPath(new URL('../README.md', import.meta.url)), 'utf8');
+    const section = readme.slice(readme.indexOf('### Kind, status and priority mapping'));
+    const intro = section.slice(0, section.indexOf('| Dimension'));
+    expect(intro).not.toMatch(/issue types or states/);
+    expect(intro).toMatch(/issue types listed by `sync inspect` are information only, never mapping targets/);
+    expect(readme).not.toMatch(/map one local value to a label, issue type or state/);
+    expect(readme).not.toMatch(/--local task --remote Task/);
+  });
+
+  it('overseer-sync proposes a new kind label in step 5 for an issue type without a matching label (BUG-0016 AC2)', () => {
+    const map = mappingSection();
+    expect(map).toMatch(/a kind whose issue type has no matching label stays out here and gets a new kind label in step 5/);
+    expect(map.indexOf('stays out here')).toBeLessThan(map.indexOf('5. Propose a label for each kind'));
+  });
+
   it('overseer-sync creates only confirmed labels through MCP, then imports the mapping (TASK-0028 AC2)', () => {
     const map = mappingSection();
     expect(map).toMatch(/ask the user to confirm all of it, a subset, or none/);

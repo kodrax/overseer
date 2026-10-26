@@ -1,6 +1,6 @@
 ---
 name: overseer-sync
-description: Connect the overseer board to the project's GitHub or GitLab repositories and map overseer kinds, statuses and priorities onto their labels, issue types and states (proposing missing labels and creating them once the user confirms), using the GitHub/GitLab MCP servers configured in this harness. Use when asked to connect, link or set up sync between overseer and GitHub or GitLab.
+description: Connect the overseer board to the project's GitHub or GitLab repositories and map overseer kinds, statuses and priorities onto their labels and states (proposing missing labels and creating them once the user confirms), using the GitHub/GitLab MCP servers configured in this harness. Use when asked to connect, link or set up sync between overseer and GitHub or GitLab.
 ---
 
 # overseer-sync
@@ -75,17 +75,20 @@ For each confirmed repository:
 4. Propose a mapping from those names only, in the `sync mapping import` format, and show it as a table:
    ```json
    {
-     "kind": {"story": "Feature", "task": "Task", "bug": "Bug"},
+     "kind": {"story": "type: feature", "task": "type: task", "bug": "bug"},
      "status": {"in_progress": "status: in progress", "done": "closed", "cancelled": "closed"},
      "priority": {"must": "priority: high", "should": "priority: medium"}
    }
    ```
    Local values: `kind` requirement, epic, story, task, bug; `status` proposed, approved, implemented,
    verified, deferred, rejected, obsolete, open, in_progress, done, cancelled, backlog, ready, review;
-   `priority` must, should, could, wont. Map kinds to issue types (else labels), statuses to the
-   states `open` / `closed` or existing status labels, priorities to existing priority labels. Several
-   local values may share one remote value. Leave a value out when nothing existing fits; never map to a
-   name the repository lacks here (step 5 proposes new labels for those values).
+   `priority` must, should, could, wont. Push sends every mapped value as a label (it never sets an issue
+   type), so map kinds to existing labels only, statuses to the states `open` / `closed` or existing
+   status labels, priorities to existing priority labels. `issue_types` are information only, never
+   mapping targets: a kind whose issue type has no matching label stays out here and gets a new kind
+   label in step 5. Several local values may share one remote value. Leave a value out when nothing
+   existing fits; never map to a name the repository lacks here (step 5 proposes new labels for those
+   values).
 5. Propose a label for each kind, status and priority value still unmapped: a name in the repository's
    existing label style when its labels have one (prefix, separator and case, e.g. `type/task`,
    `Priority: Must`), else `kind: <kind>`, `status: <status>` and `priority: <priority>` (`kind: task`,

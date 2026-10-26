@@ -24,6 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `overseer sync source-of-truth set`, and the `overseer-sync` skill's question asking which source of truth to use (TASK-0066).
 
+### Fixed
+
+- The `overseer-sync` skill and the README map kinds to labels only, as push sends them: issue types from `sync inspect` are information, never mapping targets, and a kind without a matching label gets a new label proposal (BUG-0016).
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

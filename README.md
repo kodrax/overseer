@@ -233,7 +233,7 @@ overseer export                             # writes docs/overseer/
 | `sync source-of-truth` | the source of truth and why: `board` until sync starts on a connection, then that connection with its host and repository (see [Source of truth](#source-of-truth)) |
 | `sync inspect <file\|-> --source github\|gitlab` | labels, issue types, milestones, sub-issue support and boards of a repository, from a bundle of raw MCP responses (see [Tracking setup](#tracking-setup)) |
 | `sync mapping <connection>` | a connection's kind, status and priority mapping, every local value listed and unmapped ones marked (see [Kind, status and priority mapping](#kind-status-and-priority-mapping)) |
-| `sync mapping set <connection> --dimension kind\|status\|priority --local <value> --remote <value>` | map one local value to a label, issue type or state, replacing its earlier remote value |
+| `sync mapping set <connection> --dimension kind\|status\|priority --local <value> --remote <value>` | map one local value to a label or state, replacing its earlier remote value |
 | `sync mapping import <connection> <file\|->` | replace a connection's whole mapping with a JSON mapping, all or nothing |
 | `sync outbox [<connection>]` | local item changes waiting to be pushed, per connection with auto-sync on (see [Outbox](#outbox)) |
 | `sync outbox ack <seq...>` | remove outbox entries once their push is confirmed, all or nothing |
@@ -407,7 +407,7 @@ The bundle is one JSON object keyed by MCP tool name. Each value is the tool's r
 
 ### Kind, status and priority mapping
 
-Each connection maps overseer's kinds, statuses and priorities onto the repository's labels, issue types or states, so import and push can translate them. Each local value has at most one remote value per connection; two local values may share one (`done` and `cancelled` → `closed`). The local values are:
+Each connection maps overseer's kinds, statuses and priorities onto the repository's labels (statuses also onto the states `open` and `closed`), so import and push can translate them. Push sends every mapped value as a label and never sets an issue type, so issue types listed by `sync inspect` are information only, never mapping targets. Each local value has at most one remote value per connection; two local values may share one (`done` and `cancelled` → `closed`). The local values are:
 
 | Dimension | Local values |
 |---|---|
@@ -415,7 +415,7 @@ Each connection maps overseer's kinds, statuses and priorities onto the reposito
 | `status` | every kind's statuses: `proposed`, `approved`, `implemented`, `verified`, `deferred`, `rejected`, `obsolete`, `open`, `in_progress`, `done`, `cancelled`, `backlog`, `ready`, `review` |
 | `priority` | `must`, `should`, `could`, `wont` |
 
-`overseer sync mapping set <connection> --dimension kind --local task --remote Task --json` stores one pair and prints `{"connection_id", "dimension", "local_value", "remote_value", "previous_value"}`; `previous_value` is the remote value it replaced, else `null`. The remote value is trimmed. A dimension or local value not in the table (`--local feature`, `--local Task`) gives `INVALID_INPUT` listing the valid values; a remote value that is blank or longer than 255 characters gives `INVALID_INPUT` too.
+`overseer sync mapping set <connection> --dimension kind --local task --remote "type: task" --json` stores one pair and prints `{"connection_id", "dimension", "local_value", "remote_value", "previous_value"}`; `previous_value` is the remote value it replaced, else `null`. The remote value is trimmed. A dimension or local value not in the table (`--local feature`, `--local Task`) gives `INVALID_INPUT` listing the valid values; a remote value that is blank or longer than 255 characters gives `INVALID_INPUT` too.
 
 `overseer sync mapping <connection> --json` prints `{"connection_id", "mapping": {"kind": {…}, "status": {…}, "priority": {…}}}` with every local value in the table's order; an unmapped one is `null`. Without `--json`, a table with one row per dimension and local value, `(unmapped)` for those without a remote value.
 
