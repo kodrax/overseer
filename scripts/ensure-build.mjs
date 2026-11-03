@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const hashFile = join(root, 'dist', '.build-hash');
-const INPUT_DIRS = ['src', 'web'];
+const INPUT_DIRS = ['src', 'web', 'design/system'];
 const INPUT_FILES = ['package.json', 'package-lock.json', 'tsconfig.json', 'tsdown.config.ts', 'vite.config.ts'];
 
 /** Tracked and untracked, not ignored, files under the input directories, plus the input files, sorted. */

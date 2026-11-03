@@ -42,6 +42,7 @@
     "build": "tsdown && vite build",
     "postbuild": "node scripts/ensure-build.mjs --record",
     "test": "vitest run",
+    "tokens": "node scripts/generate-tokens-css.mjs",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p web && tsc --noEmit -p test/web",
     "calibrate": "OVERSEER_CALIBRATE=1 vitest run test/calibrate.test.ts",
     "measure:capture": "node scripts/measure-capture.mjs",

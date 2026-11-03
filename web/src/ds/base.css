@@ -1,0 +1,101 @@
+/* overseer — base styles shared by every board view: resets, type, form controls and the logo. Values come from
+   tokens.css; class prefix ov-. Component styles live in design/system/components/bundle.css. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd,
+figure,
+blockquote {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* bundle.css covers button, a, input and [tabindex]; the same ring on every other interactive element. */
+:where(select, textarea, summary):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
+
+/* Type ----------------------------------------------------------------- */
+.ov-h1 { font: var(--type-h1); letter-spacing: var(--tracking-h1); color: var(--ink); }
+.ov-h2 { font: var(--type-h2); letter-spacing: var(--tracking-h2); color: var(--ink); }
+.ov-h3 { font: var(--type-h3); letter-spacing: var(--tracking-h3); color: var(--ink); }
+.ov-body { font: var(--type-body); }
+.ov-body-sm { font: var(--type-body-sm); }
+.ov-label { font: var(--type-label); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-muted); }
+.ov-code { font: var(--type-code); }
+.ov-muted { color: var(--ink-muted); }
+.ov-faint { color: var(--ink-faint); }
+.ov-link { color: var(--signal-ink); text-decoration: none; }
+.ov-link:hover { text-decoration: underline; }
+
+/* Form controls: sunken wells with a line-strong edge, 32px high ----------- */
+.ov-input {
+  height: 32px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+  color: var(--ink);
+  font: var(--type-body-sm);
+}
+textarea.ov-input { height: auto; min-height: 32px; padding: 6px var(--space-2); resize: vertical; }
+/* ink-faint never sits on sunken: placeholders on inputs use ink-muted. */
+.ov-input::placeholder { color: var(--ink-muted); opacity: 1; }
+.ov-input:disabled { background: transparent; border-color: var(--line); color: var(--ink-faint); }
+.ov-input--mono { font: var(--type-code); }
+.ov-check { width: 16px; height: 16px; margin: 0; accent-color: var(--signal); }
+.ov-btn--icon { width: 32px; padding: 0; justify-content: center; font-size: 15px; }
+
+/* BoardCard and column additions ------------------------------------------ */
+.ov-card { position: relative; }
+.ov-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.ov-card-rel { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+.ov-col-head h2 { margin: 0; font: inherit; letter-spacing: inherit; color: inherit; }
+.ov-col.is-over { border-color: var(--signal); }
+.ov-col-foot { padding: 0 var(--space-1); font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+
+/* Logo: symbol + wordmark ------------------------------------------------ */
+.ov-lockup { display: inline-flex; align-items: center; color: var(--ink); text-decoration: none; white-space: nowrap; }
+.ov-symbol { flex: none; position: relative; }
+.ov-symbol-ring { fill: none; stroke: var(--ink); }
+.ov-symbol-fill { fill: var(--signal); }
+.ov-wordmark { font-family: var(--font-mono); font-weight: 600; line-height: 1; letter-spacing: -0.02em; color: var(--ink); }
