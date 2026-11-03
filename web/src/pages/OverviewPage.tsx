@@ -30,25 +30,27 @@ export function OverviewPage({ project }: { project: ProjectInfo }) {
   return (
     <div className="ov-overview">
       <header className="ov-overview-head">
-        <h1>Overview</h1>
-        <p>Every open item in plain words: what is planned, what is in progress and what is done.</p>
+        <h1 className="ov-h1">Overview</h1>
+        <p className="ov-body ov-muted">Every open item in plain words: what is planned, what is in progress and what is done.</p>
       </header>
       <div className="ov-overview-groups">
         {OVERVIEW_GROUPS.map((group) => {
           const headingId = `overview-${group}`;
           return (
             <section key={group} className="ov-overview-group" aria-labelledby={headingId}>
-              <h2 id={headingId}>
+              <h2 id={headingId} className="ov-h2">
                 {GROUP_LABEL[group]} <span className="ov-overview-count">{groups[group].length}</span>
               </h2>
               {groups[group].length === 0 ? (
-                <p className="ov-overview-empty">{EMPTY[group]}</p>
+                <p className="ov-body-sm ov-muted">{EMPTY[group]}</p>
               ) : (
                 <ul>
                   {groups[group].map(({ item, word }) => (
                     <li key={item.id}>
-                      <a href={itemHref(item.id)}>{item.title}</a>
-                      <span className="ov-overview-meta">
+                      <a href={itemHref(item.id)} className="ov-overview-title">
+                        {item.title}
+                      </a>
+                      <span className="ov-body-sm ov-muted">
                         {KIND_WORD[item.kind]} · {word}
                       </span>
                     </li>
