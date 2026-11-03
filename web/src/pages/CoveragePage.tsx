@@ -1,21 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { CoverageTrack, LintNote, StatusBadge } from '../ds/components';
 import { queryKeys, useProject } from '../hooks';
-import { CoverageBadge, ErrorBox, humanize, ItemLink, KindBadge, Loading, Section, StatusBadge, tableClass, tdClass, thClass } from '../ui';
+import { ErrorBox, ItemLink, Loading, RefRow, Section } from '../ui';
 import type { CoverageState, ItemRef } from '../types';
 
 function RefList({ refs }: { refs: ItemRef[] }) {
-  if (refs.length === 0) return <span className="text-slate-400">—</span>;
+  if (refs.length === 0) return <span className="dash">—</span>;
   return (
-    <ul className="space-y-0.5">
+    <ul className="stack-1">
       {refs.map((r) => (
-        <li key={r.id} className="flex items-center gap-1.5">
-          <ItemLink id={r.id} />
-          <KindBadge kind={r.kind} />
-          <StatusBadge status={r.status} />
-          <span className="truncate" title={r.title}>
-            {r.title}
-          </span>
+        <li key={r.id}>
+          <RefRow id={r.id} status={r.status} title={r.title} />
         </li>
       ))}
     </ul>
@@ -32,64 +28,64 @@ export function CoveragePage() {
   const counts = summary.data?.data.coverage ?? {};
 
   return (
-    <div className="space-y-4">
-      <Section title="Requirement coverage">
+    <div className="stack-4">
+      <h1 className="ov-h1">Coverage</h1>
+      <Section level={2} title="Requirement coverage">
         {summary.isPending ? (
           <Loading />
         ) : summary.isError ? (
           <ErrorBox error={summary.error} />
         ) : (
-          <div className="flex flex-wrap gap-3">
+          <div className="coverage-counts">
             {states.map((state) => (
-              <div
-                key={state}
-                className="min-w-28 rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700"
-              >
-                <div className="text-2xl font-semibold tabular-nums">{counts[state] ?? 0}</div>
-                <CoverageBadge coverage={state} />
+              <div key={state} className="coverage-count">
+                <span className="coverage-number">{counts[state] ?? 0}</span>
+                <CoverageTrack coverage={state} />
               </div>
             ))}
           </div>
         )}
       </Section>
 
-      <Section title={`Drift${drift.data ? ` (${drift.data.data.drift.length})` : ''}`}>
+      <Section level={2} title={`Drift${drift.data ? ` (${drift.data.data.drift.length})` : ''}`}>
         {drift.isPending ? (
           <Loading />
         ) : drift.isError ? (
           <ErrorBox error={drift.error} />
         ) : drift.data.data.drift.length === 0 ? (
-          <p className="text-sm text-slate-500">No drift between requirement statuses and work items.</p>
+          <p className="quiet-note">No drift between requirement statuses and work items.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className={tableClass}>
+          <div className="table-panel">
+            <table className="data-table">
               <thead>
                 <tr>
-                  <th className={thClass}>Requirement</th>
-                  <th className={thClass}>Title</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Coverage</th>
-                  <th className={thClass}>Rule</th>
-                  <th className={thClass}>Message</th>
-                  <th className={thClass}>Work</th>
+                  <th>Requirement</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th>Coverage</th>
+                  <th>Drift</th>
+                  <th>Work</th>
                 </tr>
               </thead>
               <tbody>
                 {drift.data.data.drift.map((d) => (
                   <tr key={`${d.id}:${d.rule}`}>
-                    <td className={tdClass}>
+                    <td>
                       <ItemLink id={d.id} />
                     </td>
-                    <td className={tdClass}>{d.title}</td>
-                    <td className={tdClass}>
+                    <td>{d.title}</td>
+                    <td>
                       <StatusBadge status={d.status} />
                     </td>
-                    <td className={tdClass}>
-                      <CoverageBadge coverage={d.coverage} />
+                    <td>
+                      <CoverageTrack coverage={d.coverage} />
                     </td>
-                    <td className={`${tdClass} font-mono text-xs`}>{d.rule}</td>
-                    <td className={tdClass}>{d.message}</td>
-                    <td className={tdClass}>
+                    <td>
+                      <LintNote tag="DRIFT">
+                        <code>{d.rule}</code> {d.message}
+                      </LintNote>
+                    </td>
+                    <td>
                       <RefList refs={d.work} />
                     </td>
                   </tr>
@@ -100,47 +96,50 @@ export function CoveragePage() {
         )}
       </Section>
 
-      <Section title="Traceability">
+      <Section level={2} title="Traceability">
         {trace.isPending ? (
           <Loading />
         ) : trace.isError ? (
           <ErrorBox error={trace.error} />
         ) : trace.data.data.requirements.length === 0 ? (
-          <p className="text-sm text-slate-500">No requirements.</p>
+          <p className="quiet-note">No requirements.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className={tableClass}>
+          <div className="table-panel">
+            <table className="data-table">
               <thead>
                 <tr>
-                  <th className={thClass}>Requirement</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Coverage</th>
-                  <th className={thClass}>Implemented by</th>
-                  <th className={thClass}>Affected by bugs</th>
+                  <th>Requirement</th>
+                  <th>Status</th>
+                  <th>Coverage</th>
+                  <th>Implemented by</th>
+                  <th>Affected by bugs</th>
                 </tr>
               </thead>
               <tbody>
                 {trace.data.data.requirements.map((r) => (
                   <tr key={r.id}>
-                    <td className={`${tdClass} min-w-56`}>
-                      <ItemLink id={r.id} /> <span>{r.title}</span>
+                    <td>
+                      <span className="id-title">
+                        <ItemLink id={r.id} />
+                        <span>{r.title}</span>
+                      </span>
                     </td>
-                    <td className={tdClass}>
+                    <td>
                       <StatusBadge status={r.status} />
                     </td>
-                    <td className={tdClass}>
-                      <CoverageBadge coverage={r.coverage} />
+                    <td>
+                      <CoverageTrack coverage={r.coverage} />
                     </td>
-                    <td className={tdClass}>
+                    <td>
                       {r.implemented_by.length === 0 ? (
-                        <span className="text-slate-400">—</span>
+                        <span className="dash">—</span>
                       ) : (
-                        <ul className="space-y-1">
+                        <ul className="stack-1">
                           {r.implemented_by.map((w) => (
                             <li key={w.id}>
-                              <RefList refs={[w]} />
+                              <RefRow id={w.id} status={w.status} title={w.title} />
                               {w.children.length > 0 && (
-                                <div className="mt-0.5 ml-5 border-l border-slate-200 pl-2 dark:border-slate-700">
+                                <div className="ref-children">
                                   <RefList refs={w.children} />
                                 </div>
                               )}
@@ -149,17 +148,17 @@ export function CoveragePage() {
                         </ul>
                       )}
                     </td>
-                    <td className={tdClass}>
+                    <td>
                       {r.affected_by.length === 0 ? (
-                        <span className="text-slate-400">—</span>
+                        <span className="dash">—</span>
                       ) : (
-                        <ul className="space-y-0.5">
+                        <ul className="stack-1">
                           {r.affected_by.map((b) => (
-                            <li key={b.id} className="flex items-center gap-1.5">
+                            <li key={b.id} className="ref-row">
                               <ItemLink id={b.id} />
                               <StatusBadge status={b.status} />
-                              {b.severity && <span className="text-xs text-rose-600 dark:text-rose-400">{humanize(b.severity)}</span>}
-                              <span className="truncate" title={b.title}>
+                              {b.severity && <span className="severity">{b.severity}</span>}
+                              <span className="ref-title" title={b.title}>
                                 {b.title}
                               </span>
                             </li>
