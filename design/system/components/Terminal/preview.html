@@ -1,0 +1,17 @@
+<!-- @dsCard group="Docs" height=248 subtitle="CLI output as shown in docs, README and empty states" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Terminal — preview</title></head>
+<body>
+<div class="ov-stack"><pre class="ov-term"><span class="p">$ </span>overseer doctor
+<span class="ok">OK  </span>  runtime     node 24.1.0 (node:sqlite available)
+<span class="ok">OK  </span>  model       Xenova/multilingual-e5-small <span class="dim">(118 MB, cached)</span>
+<span class="warn">WARN</span>  project     overseer is off here <span class="dim">· run overseer enable</span>
+<span class="ok">OK  </span>  claude      user scope, MCP registered
+<span class="fail">FAIL</span>  omp         dist/cli.js not found <span class="dim">· run overseer install</span>
+
+<span class="p">$ </span>overseer coverage "password reset"
+<span class="id">REQ-0001</span>  ▰▰▰▱  delivered   Password reset by email
+<span class="dim">covered · 1 requirement, 2 implementing items</span></pre></div>
+</body>
+</html>

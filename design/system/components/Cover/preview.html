@@ -1,0 +1,55 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overseer</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; width:960px; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .brand { fill:var(--signal); }
+  .deep { fill:var(--ink); }
+  .flag { fill:var(--warn); }
+  .cut { fill:var(--bg); }
+  .blk { rx:var(--radius-md); }
+  .seg { rx:var(--radius-sm); }
+  .words { position:absolute; left:var(--space-6); bottom:var(--space-6); max-width:440px; }
+  .name { margin:0; font-family:var(--font-mono); font-size:88px; line-height:.92; font-weight:600; letter-spacing:-.02em; color:var(--ink); }
+  .tag { margin:var(--space-3) 0 0 4px; font-size:14px; line-height:20px; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      signal 160×232 slab bled off the top (the brand hue, largest) · ink 296×208 bleeding off the right edge (the ledger) · warn 64×24 once (it only ever flags lint and drift) — about 30% of 960×288
+  arrangement one tall signal slab with the ink ledger beside it, bottoms on one line space-6 above the edge, space-4 gutter
+  pattern     the CoverageTrack itself, from "four segments filling from tracked to verified": five rows of four 32×8 segments cut into the ink block, filling 0→4 like a ledger reaching verified (20 units)
+  scales      sides in space-2 multiples; gutter space-4; row pitch space-6; segment gap space-2; corners radius-md, segments radius-sm
+-->
+<rect class="brand blk" x="24" y="-8" width="160" height="232" rx="4"/>
+<rect class="flag blk" x="24" y="240" width="64" height="24" rx="4"/>
+<rect class="deep blk" x="200" y="56" width="296" height="208" rx="4"/>
+<!-- row 0: untracked -->
+<rect class="cut seg" x="232" y="88" width="32" height="8" rx="2"/><rect class="cut seg" x="272" y="88" width="32" height="8" rx="2"/><rect class="cut seg" x="312" y="88" width="32" height="8" rx="2"/><rect class="cut seg" x="352" y="88" width="32" height="8" rx="2"/>
+<!-- row 1: tracked -->
+<rect class="brand seg" x="232" y="112" width="32" height="8" rx="2"/><rect class="cut seg" x="272" y="112" width="32" height="8" rx="2"/><rect class="cut seg" x="312" y="112" width="32" height="8" rx="2"/><rect class="cut seg" x="352" y="112" width="32" height="8" rx="2"/>
+<!-- row 2: in_progress -->
+<rect class="brand seg" x="232" y="136" width="32" height="8" rx="2"/><rect class="brand seg" x="272" y="136" width="32" height="8" rx="2"/><rect class="cut seg" x="312" y="136" width="32" height="8" rx="2"/><rect class="cut seg" x="352" y="136" width="32" height="8" rx="2"/>
+<!-- row 3: delivered -->
+<rect class="brand seg" x="232" y="160" width="32" height="8" rx="2"/><rect class="brand seg" x="272" y="160" width="32" height="8" rx="2"/><rect class="brand seg" x="312" y="160" width="32" height="8" rx="2"/><rect class="cut seg" x="352" y="160" width="32" height="8" rx="2"/>
+<!-- row 4: verified -->
+<rect class="brand seg" x="232" y="184" width="32" height="8" rx="2"/><rect class="brand seg" x="272" y="184" width="32" height="8" rx="2"/><rect class="brand seg" x="312" y="184" width="32" height="8" rx="2"/><rect class="brand seg" x="352" y="184" width="32" height="8" rx="2"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">overseer</h1>
+<p class="tag">A requirements registry and Agile board for coding agents.</p>
+</div>
+</div>
+</body>
+</html>

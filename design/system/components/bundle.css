@@ -1,0 +1,82 @@
+/* overseer — component styles. Every value comes from tokens.css; class prefix ov-. */
+
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 22px; -webkit-font-smoothing: antialiased; }
+.ov-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-4); }
+.ov-stack { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+:where(button, a, input, [tabindex]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ItemId ---------------------------------------------------------------- */
+.ov-id { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0; white-space: nowrap; text-decoration: none; }
+a.ov-id:hover { border-color: var(--line-strong); }
+.ov-id--bug { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
+.ov-id--plain { background: transparent; border-color: transparent; padding: 0; height: auto; }
+
+/* StatusBadge: a progress dot + the status word ----------------------- */
+.ov-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 20px; color: var(--ink); white-space: nowrap; }
+.ov-dot { --p: 0; flex: none; width: 10px; height: 10px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--ink-muted); background: conic-gradient(var(--ink-muted) calc(var(--p) * 1%), transparent 0); }
+.ov-status[data-p="25"] .ov-dot { --p: 25; }
+.ov-status[data-p="50"] .ov-dot { --p: 50; border-color: var(--signal); background: conic-gradient(var(--signal) 50%, transparent 0); }
+.ov-status[data-p="75"] .ov-dot { --p: 75; border-color: var(--signal); background: conic-gradient(var(--signal) 75%, transparent 0); }
+.ov-status[data-p="100"] .ov-dot { border-color: var(--signal); background: var(--signal); }
+.ov-status[data-p="closed"] { color: var(--ink-faint); }
+.ov-status[data-p="closed"] .ov-dot { border: 0; border-radius: 0; height: 1.5px; background: var(--ink-faint); }
+
+/* CoverageTrack: four segments + the coverage word --------------------- */
+.ov-cov { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 13px; line-height: 20px; color: var(--ink); white-space: nowrap; }
+.ov-cov-seg { display: inline-flex; gap: 3px; }
+.ov-cov-seg i { display: block; width: 14px; height: 6px; box-sizing: border-box; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--sunken); }
+.ov-cov-seg i.on { border-color: var(--signal); background: var(--signal); }
+.ov-cov[data-cov="untracked"] { color: var(--ink-muted); }
+.ov-cov[data-cov="verified"] { color: var(--signal-ink); font-weight: 500; }
+.ov-cov[data-cov="not_applicable"] { color: var(--ink-faint); }
+.ov-cov[data-cov="not_applicable"] .ov-cov-seg i { border-style: dashed; border-color: var(--line-strong); background: transparent; }
+
+/* Button ---------------------------------------------------------------- */
+.ov-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-3); border-radius: var(--radius-md); border: 1px solid transparent; font-family: var(--font-sans); font-size: 13px; line-height: 20px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.ov-btn--primary { background: var(--signal); color: var(--on-signal); }
+.ov-btn--primary:hover { filter: brightness(1.08); }
+.ov-btn--quiet { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+.ov-btn--quiet:hover { background: var(--surface); }
+.ov-btn:disabled { cursor: not-allowed; background: transparent; color: var(--ink-faint); border-color: var(--line); filter: none; }
+.ov-btn kbd { font-family: var(--font-mono); font-size: 11px; line-height: 16px; color: inherit; opacity: .8; }
+
+/* BoardCard + column --------------------------------------------------- */
+.ov-col { display: flex; flex-direction: column; gap: var(--space-2); width: 280px; padding: var(--space-3); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.ov-col-head { display: flex; justify-content: space-between; padding: 0 var(--space-1) var(--space-1); font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-muted); }
+.ov-card { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: grab; }
+.ov-card:hover { border-color: var(--line-strong); }
+.ov-card.is-dragging { border-color: var(--line-strong); box-shadow: var(--shadow-lift); transform: rotate(-1deg); cursor: grabbing; }
+.ov-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.ov-card-title { margin: 0; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--ink); }
+.ov-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.ov-card-meta .ov-rel { font-family: var(--font-mono); }
+.ov-tag { font-family: var(--font-mono); font-size: 11px; line-height: 16px; color: var(--ink-muted); }
+.ov-tag::before { content: "#"; color: var(--ink-faint); }
+
+/* SimilarityHint ------------------------------------------------------- */
+.ov-sim { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; line-height: 20px; }
+.ov-sim-verdict { font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.ov-sim-score { font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); }
+.ov-sim-body { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.ov-sim-body span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-sim-note { grid-column: 2 / -1; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.ov-sim[data-verdict="duplicate"] { background: var(--danger-soft); border-color: transparent; }
+.ov-sim[data-verdict="duplicate"] .ov-sim-verdict { color: var(--danger); }
+.ov-sim[data-verdict="related"] .ov-sim-verdict { color: var(--ink); }
+.ov-sim[data-verdict="new"] { background: var(--signal-soft); border-color: transparent; }
+.ov-sim[data-verdict="new"] .ov-sim-verdict { color: var(--signal-ink); }
+
+/* LintNote ------------------------------------------------------------- */
+.ov-lint { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-3); padding: var(--space-2) var(--space-3); background: var(--warn-soft); border-radius: var(--radius-md); font-size: 13px; line-height: 20px; color: var(--ink); }
+.ov-lint-tag { font-family: var(--font-mono); font-size: 11px; line-height: 20px; font-weight: 600; letter-spacing: .06em; color: var(--warn); }
+.ov-lint code { font-family: var(--font-mono); font-size: 12px; }
+.ov-lint-fix { grid-column: 2; color: var(--ink-muted); font-size: 12px; line-height: 16px; }
+
+/* Terminal ------------------------------------------------------------- */
+.ov-term { margin: 0; padding: var(--space-3) var(--space-4); background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius-lg); color: var(--ink); font-family: var(--font-mono); font-size: 13px; line-height: 20px; white-space: pre; overflow-x: auto; }
+.ov-term .p { color: var(--ink-muted); user-select: none; }
+.ov-term .dim { color: var(--ink-muted); }
+.ov-term .ok { color: var(--signal-ink); font-weight: 600; }
+.ov-term .warn { color: var(--warn); font-weight: 600; }
+.ov-term .fail { color: var(--danger); font-weight: 600; }
+.ov-term .id { font-weight: 600; }
