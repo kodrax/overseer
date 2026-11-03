@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The board has an Overview page (`#/overview`) for reviewing the project with a non-technical client: every item that is not closed sits in one of three groups, Planned, In progress or Done, with its kind and state in plain words ("Feature · In review" instead of `story` and `review`). Cancelled, deferred, rejected and obsolete items are left out. It refreshes with live updates like the other pages (TASK-0075).
+
 ### Changed
 
 - The README follows the brand (TASK-0076): its header is the overseer lockup (`docs/assets/logo-{paper,terminal}`, from `design/brand/`, swapped by `prefers-color-scheme`) and the brand's one-line description; the architecture diagram comes in a Paper and a Terminal variant the same way; the web board section shows a Terminal screenshot made from the README's sample data (`node scripts/screenshot-board.mjs`); the prose follows the design system voice. The smoke test also checks `<source srcset>` URLs.

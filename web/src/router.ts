@@ -4,6 +4,7 @@ export type Route =
   | { name: 'board' }
   | { name: 'requirements' }
   | { name: 'coverage' }
+  | { name: 'overview' }
   | { name: 'item'; id: string };
 
 export function parseHash(hash: string): Route {
@@ -11,6 +12,7 @@ export function parseHash(hash: string): Route {
   const parts = path.split('/').filter(Boolean);
   if (parts[0] === 'requirements' && parts.length === 1) return { name: 'requirements' };
   if (parts[0] === 'coverage' && parts.length === 1) return { name: 'coverage' };
+  if (parts[0] === 'overview' && parts.length === 1) return { name: 'overview' };
   if (parts[0] === 'items' && parts.length === 2) return { name: 'item', id: decodeURIComponent(parts[1]!) };
   return { name: 'board' };
 }
