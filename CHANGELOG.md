@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The board has an Overview page (`#/overview`) for reviewing the project with a non-technical client: every item that is not closed sits in one of three groups, Planned, In progress or Done, with its kind and state in plain words ("Feature · In review" instead of `story` and `review`). Cancelled, deferred, rejected and obsolete items are left out. It refreshes with live updates like the other pages (TASK-0075).
+
 ## [0.3.0] - 2026-10-26
 
 ### Added
