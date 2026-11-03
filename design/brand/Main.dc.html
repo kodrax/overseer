@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overseer primary lockup</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#6fd3ca}a:hover{color:#5cc8bf}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; box-sizing: border-box; padding: 48px 56px; display: flex; flex-direction: column; justify-content: space-between; background: {{bg}}; font-family: 'IBM Plex Sans', system-ui, sans-serif;">
+  <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; line-height: 20px; color: {{muted}};">
+    <span>overseer · brand · v1</span>
+    <span>{{themeName}}</span>
+  </div>
+  <div style="display: flex; align-items: center; justify-content: center; gap: 34px;">
+    <svg width="96" height="96" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 11px;"><circle cx="12" cy="12" r="10" fill="none" stroke="{{ink}}" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="{{signal}}"></path></svg>
+    <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 96px; line-height: 1; letter-spacing: -0.02em; color: {{ink}};">overseer</span>
+  </div>
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;">
+    <p style="margin: 0; font-size: 14px; line-height: 22px; color: {{muted}};">A requirements registry and Agile board for coding agents.</p>
+    <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; line-height: 20px; color: {{muted}};">local · opt-in · traceable</p>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["Terminal","Paper"],"default":"Terminal"},"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'Terminal';
+    const paper = theme === 'Paper';
+    return {
+      themeName: paper ? 'Paper' : 'Terminal',
+      bg: paper ? '#f5f3ee' : '#131311',
+      ink: paper ? '#1a1916' : '#ece9e1',
+      muted: paper ? '#5b574e' : '#a7a398',
+      signal: paper ? '#0d7a78' : '#5cc8bf'
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overseer sizes, app icons and clear space</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0a6866}a:hover{color:#0d7a78}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; box-sizing: border-box; padding: 40px; background: #f5f3ee; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-direction: column; gap: 32px;">
+
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">Symbol sizes · px</h2>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+      <div style="background: #131311; border-radius: 6px; padding: 16px 24px; display: flex; align-items: flex-end; gap: 28px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #a7a398;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="96" height="96" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg><span>96</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="64" height="64" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg><span>64</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg><span>48</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg><span>32</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.75" fill="none" stroke="#ece9e1" stroke-width="2.5"></circle><path d="M12 6A6 6 0 0 1 12 18Z" fill="#5cc8bf"></path></svg><span>24 s</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.75" fill="none" stroke="#ece9e1" stroke-width="2.5"></circle><path d="M12 6A6 6 0 0 1 12 18Z" fill="#5cc8bf"></path></svg><span>16 s</span></div>
+      </div>
+      <div style="background: #ffffff; border: 1px solid #dcd8cf; border-radius: 6px; padding: 16px 24px; display: flex; align-items: flex-end; gap: 28px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="96" height="96" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg><span>96</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="64" height="64" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg><span>64</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg><span>48</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg><span>32</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.75" fill="none" stroke="#1a1916" stroke-width="2.5"></circle><path d="M12 6A6 6 0 0 1 12 18Z" fill="#0d7a78"></path></svg><span>24 s</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.75" fill="none" stroke="#1a1916" stroke-width="2.5"></circle><path d="M12 6A6 6 0 0 1 12 18Z" fill="#0d7a78"></path></svg><span>16 s</span></div>
+      </div>
+    </div>
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #5b574e;">s = the small cut, with a heavier ring, for 16–24 px. Favicons ship both themes in one SVG, switched with <code style="font-family: 'IBM Plex Mono', ui-monospace, monospace;">prefers-color-scheme</code>.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; flex: 1 1 auto;">
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">App icons · corner radius ⅛ of the side</h2>
+      <div style="display: flex; gap: 32px; align-items: flex-start;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+          <div style="width: 128px; height: 128px; border-radius: 16px; background: #131311; display: flex; align-items: center; justify-content: center;"><svg width="80" height="80" viewBox="0 0 24 24" role="img" aria-label="App icon, Terminal"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg></div>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">terminal</span>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+          <div style="width: 128px; height: 128px; box-sizing: border-box; border-radius: 16px; background: #ffffff; border: 1px solid #dcd8cf; display: flex; align-items: center; justify-content: center;"><svg width="80" height="80" viewBox="0 0 24 24" role="img" aria-label="App icon, Paper"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg></div>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">paper</span>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+          <div style="width: 128px; height: 128px; border-radius: 16px; background: #0d7a78; display: flex; align-items: center; justify-content: center;"><svg width="80" height="80" viewBox="0 0 24 24" role="img" aria-label="App icon, Signal"><circle cx="12" cy="12" r="10" fill="none" stroke="#ffffff" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#ffffff"></path></svg></div>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">signal</span>
+        </div>
+      </div>
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #5b574e;">Symbol at 62.5% of the tile. Signal is the avatar for GitHub and GitLab.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">Clear space and minimums</h2>
+      <div style="display: flex; gap: 32px; align-items: flex-start;">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="padding: 20px; border: 1px dashed #8a857a; background: #ffffff; display: flex; align-items: center; gap: 14px;">
+            <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 5px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 40px; line-height: 1; letter-spacing: -0.02em; color: #1a1916;">overseer</span>
+          </div>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">x = ½ symbol, every side</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" style="flex: none;"><circle cx="12" cy="12" r="9.75" fill="none" stroke="#1a1916" stroke-width="2.5"></circle><path d="M12 6A6 6 0 0 1 12 18Z" fill="#0d7a78"></path></svg>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">symbol ≥ 16 px</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 2px;"><circle cx="12" cy="12" r="9.75" fill="none" stroke="#1a1916" stroke-width="2.5"></circle><path d="M12 6A6 6 0 0 1 12 18Z" fill="#0d7a78"></path></svg>
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 16px; line-height: 1; letter-spacing: -0.02em; color: #1a1916;">overseer</span>
+            </div>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">lockup ≥ 96 px wide</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
