@@ -89,13 +89,14 @@ textarea.ov-input { height: auto; min-height: 32px; padding: 6px var(--space-2);
 .ov-card { position: relative; }
 .ov-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .ov-card-rel { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+.ov-card-part { display: inline-flex; align-items: center; gap: 6px; }
 .ov-col-head h2 { margin: 0; font: inherit; letter-spacing: inherit; color: inherit; }
 .ov-col.is-over { border-color: var(--signal); }
 .ov-col-foot { padding: 0 var(--space-1); font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 
 /* Logo: symbol + wordmark ------------------------------------------------ */
 .ov-lockup { display: inline-flex; align-items: center; color: var(--ink); text-decoration: none; white-space: nowrap; }
-.ov-symbol { flex: none; position: relative; }
+.ov-symbol { flex: none; position: relative; fill: none; }
 .ov-symbol-ring { fill: none; stroke: var(--ink); }
 .ov-symbol-fill { fill: var(--signal); }
 .ov-wordmark { font-family: var(--font-mono); font-weight: 600; line-height: 1; letter-spacing: -0.02em; color: var(--ink); }

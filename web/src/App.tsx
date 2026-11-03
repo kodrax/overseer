@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, errorText } from './api';
+import { Button, Logo } from './ds/components';
+import { ThemeSwitch } from './ds/theme';
 import { useProject } from './hooks';
 import { NewItemDialog } from './NewItemDialog';
 import { BoardPage } from './pages/BoardPage';
@@ -10,7 +12,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { RequirementsPage } from './pages/RequirementsPage';
 import { hrefFor, useRoute, type Route } from './router';
 import { useToast } from './toast';
-import { buttonClass, ErrorBox, Loading, primaryButtonClass } from './ui';
+import { ErrorBox, Loading } from './ui';
 import type { Kind } from './types';
 
 /** One EventSource for the whole app: every `changed` event invalidates all cached queries. */
@@ -63,57 +65,48 @@ export function App() {
   const defaultKind: Kind = route.name === 'requirements' || route.name === 'coverage' ? 'requirement' : 'story';
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="text-sm font-bold tracking-tight text-sky-700 dark:text-sky-400">overseer</span>
-            <span className="truncate text-sm font-semibold" title={project.data?.root}>
-              {project.data?.project_name ?? '…'}
+    <div className="app">
+      <header className="app-header">
+        <div className="app-brand">
+          <a className="app-home" href={hrefFor({ name: 'board' })}>
+            <Logo size={18} />
+          </a>
+          <span className="app-project" title={project.data?.root}>
+            {project.data?.project_name ?? '…'}
+          </span>
+        </div>
+        <nav className="app-nav" aria-label="Views">
+          {NAV.map(({ route: target, label }) => (
+            <a key={label} href={hrefFor(target)} aria-current={route.name === target.name ? 'page' : undefined}>
+              {label}
+            </a>
+          ))}
+        </nav>
+        <div className="app-tools">
+          <span
+            className="app-live"
+            data-live={connected}
+            title={connected ? 'Receiving live updates' : 'Live updates disconnected; retrying'}
+          >
+            {connected ? 'Live' : 'Offline'}
+          </span>
+          {project.data && !project.data.vec_available && (
+            <span className="app-warn" title="sqlite-vec unavailable: keyword search only">
+              Keyword search only
             </span>
-          </div>
-          <nav className="flex gap-1">
-            {NAV.map(({ route: target, label }) => {
-              const active = route.name === target.name;
-              return (
-                <a
-                  key={label}
-                  href={hrefFor(target)}
-                  className={`rounded px-2 py-1 text-sm font-medium ${
-                    active
-                      ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200'
-                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  {label}
-                </a>
-              );
-            })}
-          </nav>
-          <div className="ml-auto flex items-center gap-2">
-            <span
-              className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"
-              title={connected ? 'Receiving live updates' : 'Live updates disconnected; retrying'}
-            >
-              <span className={`h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-              {connected ? 'Live' : 'Offline'}
-            </span>
-            {project.data && !project.data.vec_available && (
-              <span className="text-xs text-amber-600 dark:text-amber-400" title="sqlite-vec unavailable: keyword search only">
-                Keyword search only
-              </span>
-            )}
-            <button type="button" className={buttonClass} onClick={() => exportMutation.mutate()} disabled={exportMutation.isPending}>
-              {exportMutation.isPending ? 'Exporting…' : 'Export'}
-            </button>
-            <button type="button" className={primaryButtonClass} onClick={() => setNewItemKind(defaultKind)} disabled={!project.data}>
-              New item
-            </button>
-          </div>
+          )}
+          <span className="app-address">{window.location.host}</span>
+          <ThemeSwitch />
+          <Button onClick={() => exportMutation.mutate()} disabled={exportMutation.isPending}>
+            {exportMutation.isPending ? 'Exporting…' : 'Export'}
+          </Button>
+          <Button variant="primary" onClick={() => setNewItemKind(defaultKind)} disabled={!project.data}>
+            New item
+          </Button>
         </div>
       </header>
 
-      <main className="p-4">
+      <main className="app-main">
         {project.isPending ? (
           <Loading />
         ) : project.isError ? (

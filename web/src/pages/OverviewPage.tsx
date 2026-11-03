@@ -28,11 +28,11 @@ export function OverviewPage({ project }: { project: ProjectInfo }) {
   const groups = groupForOverview(byKind);
 
   return (
-    <div className="ov-overview">
-      <header className="ov-overview-head">
+    <div>
+      <div className="page-head">
         <h1 className="ov-h1">Overview</h1>
-        <p className="ov-body ov-muted">Every open item in plain words: what is planned, what is in progress and what is done.</p>
-      </header>
+        <p className="ov-body-sm ov-muted">Every open item in plain words: what is planned, what is in progress and what is done.</p>
+      </div>
       <div className="ov-overview-groups">
         {OVERVIEW_GROUPS.map((group) => {
           const headingId = `overview-${group}`;

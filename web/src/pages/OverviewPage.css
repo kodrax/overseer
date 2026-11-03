@@ -1,7 +1,5 @@
 /* Client overview: values come from the design system tokens (web/src/ds/tokens.css). */
-.ov-overview { display: flex; flex-direction: column; gap: var(--space-6); max-width: 1280px; color: var(--ink); }
-.ov-overview-head { display: flex; flex-direction: column; gap: var(--space-1); }
-.ov-overview-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); align-items: start; }
+.ov-overview-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); align-items: start; max-width: 1280px; }
 .ov-overview-group { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .ov-overview-count { margin-left: var(--space-1); font-weight: 400; color: var(--ink-muted); }
 .ov-overview-group li { display: flex; flex-direction: column; gap: 2px; padding: var(--space-3) 0; border-top: 1px solid var(--line); }

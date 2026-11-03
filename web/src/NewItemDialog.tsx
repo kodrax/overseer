@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { api } from './api';
+import { Button } from './ds/components';
 import { queryKeys, useDebounced } from './hooks';
 import { draftToFields, emptyDraft, ItemFieldsEditor, validateDraft, type Draft } from './itemForm';
 import { navigate } from './router';
 import { useToast } from './toast';
-import { buttonClass, ErrorBox, Field, humanize, inlineControlClass, Modal, primaryButtonClass, SimilarList } from './ui';
+import { ErrorBox, Field, FieldGroup, Modal, SimilarList } from './ui';
 import type { CreateItemInput, CreateItemResult, Kind, ProjectInfo, Relation, SimilarMatch } from './types';
 
 interface LinkDraft {
@@ -102,9 +103,9 @@ export function NewItemDialog({
 
   return (
     <Modal title="New item" onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form onSubmit={onSubmit} className="stack-4">
         <Field label="Kind">
-          <select className={`${inlineControlClass} w-48`} value={kind} onChange={(e) => changeKind(e.target.value as Kind)}>
+          <select className="ov-input kind-select" value={kind} onChange={(e) => changeKind(e.target.value as Kind)}>
             {enums.kinds.map((k) => (
               <option key={k} value={k}>
                 {k}
@@ -123,51 +124,48 @@ export function NewItemDialog({
           enums={enums}
         />
 
-        <div className="space-y-1">
-          <span className="text-xs font-medium tracking-wide text-slate-500 uppercase dark:text-slate-400">Links</span>
+        <FieldGroup label="Links">
           {links.map((link, i) => (
-            <div key={i} className="flex gap-1">
+            <div key={i} className="link-row">
               <select
-                className={`${inlineControlClass} w-44`}
+                className="ov-input"
                 value={link.rel}
                 aria-label="Relation"
                 onChange={(e) => setLinks(links.map((l, j) => (j === i ? { ...l, rel: e.target.value as Relation } : l)))}
               >
                 {enums.relations.map((r) => (
                   <option key={r} value={r}>
-                    {humanize(r)}
+                    {r}
                   </option>
                 ))}
               </select>
               <input
-                className={`${inlineControlClass} w-44 font-mono`}
+                className="ov-input ov-input--mono"
                 placeholder="REQ-0001"
                 aria-label="Target ID"
                 value={link.to}
                 onChange={(e) => setLinks(links.map((l, j) => (j === i ? { ...l, to: e.target.value } : l)))}
               />
-              <button type="button" className={buttonClass} onClick={() => setLinks(links.filter((_, j) => j !== i))}>
+              <Button icon aria-label="Remove link" title="Remove link" onClick={() => setLinks(links.filter((_, j) => j !== i))}>
                 ×
-              </button>
+              </Button>
             </div>
           ))}
-          <button type="button" className={buttonClass} onClick={() => setLinks([...links, { rel: DEFAULT_REL[kind], to: '' }])}>
-            + Add link
-          </button>
-        </div>
+          <div>
+            <Button onClick={() => setLinks([...links, { rel: DEFAULT_REL[kind], to: '' }])}>Add link</Button>
+          </div>
+        </FieldGroup>
 
         {duplicates ? (
-          <div className="space-y-2 rounded-md border border-rose-300 bg-rose-50 p-3 dark:border-rose-700 dark:bg-rose-950/50">
-            <p className="text-sm font-medium text-rose-800 dark:text-rose-200">
-              Possible duplicate: nothing was created. Review the candidates, update an existing item, or create anyway.
-            </p>
+          <div className="duplicate-box">
+            <p>Possible duplicate: nothing was created. Open a match to update it, or create anyway.</p>
             <SimilarList matches={duplicates} onNavigate={onClose} />
           </div>
         ) : (
           hints.length > 0 && (
-            <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/40">
-              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                Similar existing items{similar.data && !similar.data.semantic ? ' (keyword match)' : ''}
+            <div className="stack-2">
+              <p className="ov-label">
+                Similar existing items{similar.data && !similar.data.semantic ? ' · keyword match only' : ''}
               </p>
               <SimilarList matches={hints} onNavigate={onClose} />
             </div>
@@ -177,18 +175,16 @@ export function NewItemDialog({
         {problem && <ErrorBox error={new Error(problem)} />}
         {create.isError && <ErrorBox error={create.error} />}
 
-        <div className="flex justify-end gap-2">
-          <button type="button" className={buttonClass} onClick={onClose}>
-            Cancel
-          </button>
+        <div className="row-end">
+          <Button onClick={onClose}>Cancel</Button>
           {duplicates && (
-            <button type="button" className={buttonClass} disabled={create.isPending} onClick={() => submit(true)}>
+            <Button disabled={create.isPending} onClick={() => submit(true)}>
               Create anyway
-            </button>
+            </Button>
           )}
-          <button type="submit" className={primaryButtonClass} disabled={create.isPending}>
+          <Button type="submit" variant="primary" disabled={create.isPending}>
             {create.isPending ? 'Creating…' : `Create ${kind}`}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

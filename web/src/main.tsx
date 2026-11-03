@@ -6,7 +6,7 @@ import { App } from './App';
 import { applyTheme, storedTheme } from './ds/theme';
 import { ToastProvider } from './toast';
 import './ds/ds.css';
-import './index.css';
+import './app.css';
 
 // Before the first render, so a stored Paper or Terminal choice never flashes the other theme.
 applyTheme(storedTheme());
