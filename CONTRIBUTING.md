@@ -59,6 +59,16 @@ Check a name and title before pushing:
 
 Setup, test and build commands are in the README's [Development](README.md#development) section.
 
+### README diagrams
+
+npm does not render Mermaid, so the README shows each diagram as a PNG. The source is `docs/assets/<name>.mmd`, styled by `docs/assets/mermaid-config.json` (Terminal theme colours from `design/system/tokens.json`). After editing a `.mmd`, regenerate the PNGs and commit both:
+
+```sh
+node scripts/render-diagrams.mjs
+```
+
+It runs `@mermaid-js/mermaid-cli` through `npx` with IBM Plex Sans from `design/system/fonts`. If Puppeteer cannot find its Chromium, point it at an installed Chrome, e.g. `PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome node scripts/render-diagrams.mjs`. The README links the image by its absolute `raw.githubusercontent.com/kodrax/overseer/main/...` URL (npm cannot resolve relative paths), so a new image shows only once it is on `main`; `scripts/smoke-pack.mjs` fails on a Mermaid block or a relative image path in the packed README.
+
 ## Releasing
 
 overseer is published to npm as [`@kodrax/overseer`](https://www.npmjs.com/package/@kodrax/overseer). Pushing a `v*` tag runs `.github/workflows/publish.yml`, which checks that the tag is `v` plus the `package.json` version, runs `npm ci`, the typecheck, the tests and the build, and runs `npm publish`. It authenticates with npm trusted publishing (OIDC), so the repository holds no npm token, and npm adds provenance automatically.
