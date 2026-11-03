@@ -82,14 +82,14 @@ The terminal has no tokens; it has the user's ANSI theme. Map meaning to ANSI na
 
 ## Iconography
 
-overseer has no logo mark yet. Set the name in plain type: `display`, lowercase, `ink` on `bg`. Don't draw or improvise a mark.
+The symbol, wordmark and lockups are defined in `design/brand/` (construction, sizes, contrast, misuse). Use them as drawn there; don't redraw, recolor or improvise a mark.
 
 The CLI's text glyphs above are the icon set. On the board, prefer those same glyphs and words over pictograms. If the board needs UI icons (search, filter, close, drag handle), use one outline set at 16px with a 1.5px stroke, in `ink-muted`, and record the choice here.
 
 ## Repository surfaces (GitHub and GitLab)
 
-- README header: the name in plain type as a heading (`# overseer`), then the one-line description. No banner image until there is a mark.
+- README header: the horizontal lockup of `design/brand/` (Surfaces, "README header"), `docs/assets/logo-paper.png` and `logo-terminal.png` swapped with `<picture>` and `prefers-color-scheme`, then the one-line description.
 - Code blocks show real commands and real output. Screenshots of the board use the Terminal theme at 1280px wide, with sample data from the README (Ana, password reset, the Safari login bug), never real client data.
-- Mermaid diagrams render in each host's own theme; don't hard-code colors in them.
+- Diagrams: npm renders no Mermaid, so each `docs/assets/<name>.mmd` is rendered to a Paper and a Terminal PNG (`node scripts/render-diagrams.mjs`), swapped with `<picture>` and `prefers-color-scheme`, Terminal as the fallback.
 - Exported reports in `docs/overseer/` are plain Markdown: IDs in backticks, statuses verbatim, coverage as the words (optionally with ▰▱), so they read the same on GitHub, GitLab and in a terminal.
 - The social preview image (1280×640), when made, uses the cover composition: the name in Plex Mono with the teal, ink and amber blocks.

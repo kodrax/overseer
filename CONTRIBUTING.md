@@ -59,15 +59,19 @@ Check a name and title before pushing:
 
 Setup, test and build commands are in the README's [Development](README.md#development) section.
 
-### README diagrams
+### README images
 
-npm does not render Mermaid, so the README shows each diagram as a PNG. The source is `docs/assets/<name>.mmd`, styled by `docs/assets/mermaid-config.json` (Terminal theme colours from `design/system/tokens.json`). After editing a `.mmd`, regenerate the PNGs and commit both:
+The README shows only PNGs, linked by absolute `raw.githubusercontent.com/kodrax/overseer/main/docs/assets/...` URLs: npm renders no Mermaid, cannot resolve relative paths, and raw.githubusercontent.com serves SVG as `text/plain`, which browsers refuse in `<img>`. A new or changed image therefore shows only once it is on `main`. `scripts/smoke-pack.mjs` fails on a Mermaid block or a relative image path (`<img src>`, `<source srcset>`, Markdown images) in the packed README. Regenerate an image after changing its source and commit both:
 
-```sh
-node scripts/render-diagrams.mjs
-```
+| Image | Source | Command |
+|---|---|---|
+| `docs/assets/logo-{paper,terminal}.{svg,png}` | the horizontal lockup of `design/brand/` (Surfaces, "README header"), wordmark outlined from `design/system/fonts/IBMPlexMono-600.woff2` | `python3 scripts/render-logos.py` |
+| `docs/assets/<name>-{paper,terminal}.png` | `docs/assets/<name>.mmd`, colours in `docs/assets/mermaid-{paper,terminal}.json` (from `design/system/tokens.json`) | `node scripts/render-diagrams.mjs` |
+| `docs/assets/board-terminal.png` | the board after `npm run build`, 1280 px wide, Terminal theme, seeded with the README's sample data only | `node scripts/screenshot-board.mjs` |
 
-It runs `@mermaid-js/mermaid-cli` through `npx` with IBM Plex Sans from `design/system/fonts`. If Puppeteer cannot find its Chromium, point it at an installed Chrome, e.g. `PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome node scripts/render-diagrams.mjs`. The README links the image by its absolute `raw.githubusercontent.com/kodrax/overseer/main/...` URL (npm cannot resolve relative paths), so a new image shows only once it is on `main`; `scripts/smoke-pack.mjs` fails on a Mermaid block or a relative image path in the packed README.
+- **Python**: `render-logos.py` and `render-diagrams.mjs` need fontTools with brotli, e.g. `python3 -m venv /tmp/ft && /tmp/ft/bin/pip install fonttools brotli`, then run `/tmp/ft/bin/python scripts/render-logos.py` and `PYTHON=/tmp/ft/bin/python node scripts/render-diagrams.mjs`.
+- **Chrome**: `render-logos.py` and `screenshot-board.mjs` run headless Chrome (`CHROME`, default `google-chrome`). `render-diagrams.mjs` runs `@mermaid-js/mermaid-cli` through `npx`; if Puppeteer cannot find its Chromium, point it at an installed Chrome with `PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome`.
+- **Light and dark**: the README swaps the Paper and Terminal variants with `<picture>` and `prefers-color-scheme`. The `<img>` inside is what npm shows: Paper for the logo, Terminal for the diagrams.
 
 ## Releasing
 

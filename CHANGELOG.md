@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The README follows the brand (TASK-0076): its header is the overseer lockup (`docs/assets/logo-{paper,terminal}`, from `design/brand/`, swapped by `prefers-color-scheme`) and the brand's one-line description; the architecture diagram comes in a Paper and a Terminal variant the same way; the web board section shows a Terminal screenshot made from the README's sample data (`node scripts/screenshot-board.mjs`); the prose follows the design system voice. The smoke test also checks `<source srcset>` URLs.
+
 ### Fixed
 
 - The README's architecture diagram is a PNG rendered from `docs/assets/architecture.mmd` (`node scripts/render-diagrams.mjs`) instead of a Mermaid block, so the npm package page shows the picture instead of its source, same as GitHub; the packed-tarball smoke test fails on a Mermaid block or a relative image path in the README (BUG-0020).
