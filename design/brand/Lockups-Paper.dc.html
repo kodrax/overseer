@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overseer lockups on Paper</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0a6866}a:hover{color:#0d7a78}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; box-sizing: border-box; padding: 40px; background: #f5f3ee; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 16px;">
+  <section style="background: #ffffff; border: 1px solid #dcd8cf; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">Horizontal lockup</h2>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 20px;">
+      <svg width="56" height="56" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 7px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 56px; line-height: 1; letter-spacing: -0.02em; color: #1a1916;">overseer</span>
+    </div>
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #5b574e;">The default. Exported reports, light README, print.</p>
+  </section>
+  <section style="background: #ffffff; border: 1px solid #dcd8cf; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">Stacked lockup</h2>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <svg width="88" height="88" viewBox="0 0 24 24" aria-hidden="true" style="flex: none;"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 40px; line-height: 1; letter-spacing: -0.02em; color: #1a1916;">overseer</span>
+    </div>
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #5b574e;">Square spaces: title slides, stickers, cover pages.</p>
+  </section>
+  <section style="background: #ffffff; border: 1px solid #dcd8cf; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">Symbol</h2>
+    <div style="display: flex; align-items: center; justify-content: center;">
+      <svg width="120" height="120" viewBox="0 0 24 24" role="img" aria-label="overseer symbol" style="flex: none;"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg>
+    </div>
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #5b574e;">Favicon, app icon, avatars. Only where the name is already nearby.</p>
+  </section>
+  <section style="background: #ffffff; border: 1px solid #dcd8cf; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">Wordmark</h2>
+    <div style="display: flex; align-items: center; justify-content: center;">
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 56px; line-height: 1; letter-spacing: -0.02em; color: #1a1916;">overseer</span>
+    </div>
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #5b574e;">Running text, footers, credits. IBM Plex Mono 600, −0.02em, always lowercase.</p>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

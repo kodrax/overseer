@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overseer contrast variants</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0a6866}a:hover{color:#0d7a78}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; box-sizing: border-box; padding: 40px; background: #ebe8e1; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 16px;">
+
+  <section style="background: #131311; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #a7a398;">Full color · Terminal</h2>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 13px;">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 4px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 36px; line-height: 1; letter-spacing: -0.02em; color: #ece9e1;">overseer</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #ece9e1;">Default on dark grounds: the board, dark README, terminal docs.</p>
+      <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #a7a398;">ink #ece9e1 · signal #5cc8bf · on bg #131311</p>
+    </div>
+  </section>
+
+  <section style="background: #f5f3ee; border: 1px solid #dcd8cf; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">Full color · Paper</h2>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 13px;">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 4px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0d7a78"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 36px; line-height: 1; letter-spacing: -0.02em; color: #1a1916;">overseer</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #1a1916;">Default on light grounds: exported reports, light README, print.</p>
+      <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">ink #1a1916 · signal #0d7a78 · on bg #f5f3ee</p>
+    </div>
+  </section>
+
+  <section style="background: #ffffff; border: 1px solid #dcd8cf; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #5b574e;">One color · ink</h2>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 13px;">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 4px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#1a1916" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#1a1916"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 36px; line-height: 1; letter-spacing: -0.02em; color: #1a1916;">overseer</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #1a1916;">Single-ink print, stamps, grayscale PDFs, embossing.</p>
+      <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #5b574e;">ink #1a1916 · on any light ground</p>
+    </div>
+  </section>
+
+  <section style="background: #0e0e0c; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #a7a398;">One color · reverse</h2>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 13px;">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 4px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#ece9e1"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 36px; line-height: 1; letter-spacing: -0.02em; color: #ece9e1;">overseer</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #ece9e1;">Dark single-ink: merch, laser etching, photos with a dark area.</p>
+      <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #a7a398;">ink #ece9e1 · on any dark ground</p>
+    </div>
+  </section>
+
+  <section style="background: #5cc8bf; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #0a1c1a;">On signal · Terminal</h2>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 13px;">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 4px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#0a1c1a" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#0a1c1a"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 36px; line-height: 1; letter-spacing: -0.02em; color: #0a1c1a;">overseer</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #0a1c1a;">Brand moments on dark pages: app icon, stickers, release posts.</p>
+      <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #0a1c1a;">on-signal #0a1c1a · on signal #5cc8bf</p>
+    </div>
+  </section>
+
+  <section style="background: #0d7a78; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+    <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #ffffff;">On signal · Paper</h2>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 13px;">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 4px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#ffffff" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#ffffff"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 36px; line-height: 1; letter-spacing: -0.02em; color: #ffffff;">overseer</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #ffffff;">Brand moments on light pages: app icon, social avatar, covers.</p>
+      <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #ffffff;">on-signal #ffffff · on signal #0d7a78</p>
+    </div>
+  </section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
