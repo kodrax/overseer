@@ -568,7 +568,7 @@ A failed MCP call has no result: leave it out and its entry stays pending for th
 
 The page updates live when an agent or the CLI writes to the database, deletions included: a deleted item's card disappears. The server listens on 127.0.0.1 only and rejects requests whose `Host` is not localhost. Writes need a token generated each time the server starts.
 
-<img src="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/board-terminal.png" width="1280" alt="The overseer board in the Terminal theme with the README sample data: the story Reset forgotten password, which implements the requirement Password reset by email asked by Ana, and the bug On Safari the login button does nothing.">
+<img src="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/board-terminal.png" width="1280" alt="The overseer board in the Terminal theme with the README sample data: the bug On Safari the login button does nothing in Backlog, the story Pay with a gift card in Ready, the task Add the gift card field to checkout in progress, and the story Reset forgotten password, which implements REQ-0001, in Review.">
 
 ### MCP tools
 
