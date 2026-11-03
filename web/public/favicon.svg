@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- overseer app icon (design/brand/Sizes.dc.html): tile with a 1/8 corner radius, symbol at 62.5%, small cut. -->
+  <style>
+    .tile { fill: #131311; }
+    .ring { fill: none; stroke: #ece9e1; }
+    .fill { fill: #5cc8bf; }
+    @media (prefers-color-scheme: light) {
+      .tile { fill: #ffffff; stroke: #dcd8cf; stroke-width: 0.25; }
+      .ring { stroke: #1a1916; }
+      .fill { fill: #0d7a78; }
+    }
+  </style>
+  <rect class="tile" x="0.125" y="0.125" width="23.75" height="23.75" rx="3"/>
+  <g transform="translate(4.5 4.5) scale(0.625)">
+    <circle class="ring" cx="12" cy="12" r="9.75" stroke-width="2.5"/>
+    <path class="fill" d="M12 6A6 6 0 0 1 12 18Z"/>
+  </g>
+</svg>

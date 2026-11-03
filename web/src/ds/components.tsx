@@ -168,7 +168,7 @@ export function BoardCard({
   if (meta) parts.push(meta);
   if (relation && relation.ids.length > 0)
     parts.push(
-      <span key="rel" className="ov-card-rel">
+      <span className="ov-card-rel">
         <span>{relation.rel}</span>
         {relation.ids.map((rid) => (
           <span key={rid} className="ov-rel">
@@ -179,7 +179,7 @@ export function BoardCard({
     );
   for (const tag of tags.slice(0, 3))
     parts.push(
-      <span key={`#${tag}`} className="ov-tag">
+      <span className="ov-tag">
         {tag}
       </span>,
     );
@@ -195,7 +195,13 @@ export function BoardCard({
       </p>
       {parts.length > 0 && (
         <div className="ov-card-meta">
-          {parts.flatMap((part, i) => (i === 0 ? [part] : [<span key={`sep${i}`} aria-hidden="true">·</span>, part]))}
+          {/* Each separator travels with the part after it, so a wrapped line never ends in "·". */}
+          {parts.map((part, i) => (
+            <span key={i} className="ov-card-part">
+              {i > 0 && <span aria-hidden="true">·</span>}
+              {part}
+            </span>
+          ))}
         </div>
       )}
     </article>

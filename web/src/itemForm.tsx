@@ -1,5 +1,5 @@
 import type { Enums, Item, ItemFields, Kind, Priority, ReqType } from './types';
-import { Field, humanize, inputClass, ListEditor, selectClass } from './ui';
+import { Field, FieldGroup, ListEditor } from './ui';
 
 /** Form state for item fields; text inputs hold strings, normalized by `draftToFields`. */
 export interface Draft {
@@ -183,11 +183,11 @@ function EnumSelect({
   label: string;
 }) {
   return (
-    <select className={selectClass} value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+    <select className="ov-input" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
       {allowEmpty && <option value="">—</option>}
       {options.map((o) => (
         <option key={o} value={o}>
-          {humanize(o)}
+          {o}
         </option>
       ))}
     </select>
@@ -209,7 +209,7 @@ export function ItemFieldsEditor({
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => onChange({ ...draft, [key]: value });
   const textInput = (key: keyof Draft & string, placeholder?: string) => (
     <input
-      className={inputClass}
+      className="ov-input"
       value={draft[key] as string}
       placeholder={placeholder}
       onChange={(e) => set(key, e.target.value as never)}
@@ -219,13 +219,13 @@ export function ItemFieldsEditor({
   const isWork = WORK_KINDS.includes(kind);
 
   return (
-    <div className="space-y-3">
+    <div className="stack-3">
       <Field label="Title" hint={draft.title.length > 100 ? `${draft.title.length} characters; keep titles under 100` : undefined}>
-        <input className={inputClass} value={draft.title} onChange={(e) => set('title', e.target.value)} required />
+        <input className="ov-input" value={draft.title} onChange={(e) => set('title', e.target.value)} required />
       </Field>
       <Field label="Description">
         <textarea
-          className={`${inputClass} min-h-24`}
+          className="ov-input description-input"
           rows={4}
           value={draft.description}
           placeholder={
@@ -239,7 +239,7 @@ export function ItemFieldsEditor({
         />
       </Field>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="field-grid">
         <Field label="Status">
           <EnumSelect label="Status" value={draft.status} onChange={(v) => set('status', v)} options={enums.statuses[kind] ?? []} />
         </Field>
@@ -290,8 +290,8 @@ export function ItemFieldsEditor({
         <Field label="Asked by">{textInput('asked_by')}</Field>
         <Field label="Delivered in">{textInput('delivered_in', 'Release, PR or commit')}</Field>
         {isRequirement && (
-          <label className="flex items-center gap-2 self-end pb-1 text-sm">
-            <input type="checkbox" checked={draft.in_backlog} onChange={(e) => set('in_backlog', e.target.checked)} />
+          <label className="check check-ink field-check">
+            <input className="ov-check" type="checkbox" checked={draft.in_backlog} onChange={(e) => set('in_backlog', e.target.checked)} />
             In backlog
           </label>
         )}
@@ -303,40 +303,38 @@ export function ItemFieldsEditor({
             {textInput('fit_criterion')}
           </Field>
           <Field label="Rationale">
-            <textarea className={inputClass} rows={2} value={draft.rationale} onChange={(e) => set('rationale', e.target.value)} />
+            <textarea className="ov-input" rows={2} value={draft.rationale} onChange={(e) => set('rationale', e.target.value)} />
           </Field>
         </>
       )}
 
-      <div className="space-y-1">
-        <span className="text-xs font-medium tracking-wide text-slate-500 uppercase dark:text-slate-400">Acceptance criteria</span>
+      <FieldGroup label="Acceptance criteria">
         <ListEditor
           values={draft.acceptance_criteria}
           onChange={(v) => set('acceptance_criteria', v)}
           placeholder="Given … when … then …"
           multiline
         />
-      </div>
+      </FieldGroup>
 
       {kind === 'bug' && (
-        <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <div className="space-y-1">
-            <span className="text-xs font-medium tracking-wide text-slate-500 uppercase dark:text-slate-400">Steps to reproduce</span>
+        <div className="subpanel">
+          <FieldGroup label="Steps to reproduce">
             <ListEditor values={draft.steps} onChange={(v) => set('steps', v)} placeholder="Step" />
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          </FieldGroup>
+          <div className="field-grid-2">
             <Field label="Expected">
-              <textarea className={inputClass} rows={2} value={draft.expected} onChange={(e) => set('expected', e.target.value)} />
+              <textarea className="ov-input" rows={2} value={draft.expected} onChange={(e) => set('expected', e.target.value)} />
             </Field>
             <Field label="Actual">
-              <textarea className={inputClass} rows={2} value={draft.actual} onChange={(e) => set('actual', e.target.value)} />
+              <textarea className="ov-input" rows={2} value={draft.actual} onChange={(e) => set('actual', e.target.value)} />
             </Field>
           </div>
           <Field label="Environment">{textInput('environment', 'Browser, OS, version…')}</Field>
         </div>
       )}
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="field-grid-2">
         <Field label="Tags" hint="Comma-separated">
           {textInput('tags')}
         </Field>
@@ -344,10 +342,9 @@ export function ItemFieldsEditor({
           {textInput('source')}
         </Field>
       </div>
-      <div className="space-y-1">
-        <span className="text-xs font-medium tracking-wide text-slate-500 uppercase dark:text-slate-400">Code references</span>
+      <FieldGroup label="Code references">
         <ListEditor values={draft.code_refs} onChange={(v) => set('code_refs', v)} placeholder="path/to/file.ts:42" />
-      </div>
+      </FieldGroup>
     </div>
   );
 }

@@ -13,15 +13,13 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, errorText } from '../api';
+import { BoardCard, BoardColumn } from '../ds/components';
 import { queryKeys, useStoredChoice } from '../hooks';
 import { itemHref, navigate } from '../router';
 import { useToast } from '../toast';
 import {
   ErrorBox,
-  humanize,
-  inlineControlClass,
   ITEM_ORDERS,
-  KindBadge,
   Loading,
   PriorityAccent,
   PriorityBadge,
@@ -70,7 +68,7 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
     },
     onError: (err, { id, status }, context) => {
       if (context?.previous) queryClient.setQueryData(itemsKey, context.previous);
-      toast.push('error', `Could not move ${id} to ${humanize(status)}: ${errorText(err)}`);
+      toast.push('error', `Could not move ${id} to ${status}: ${errorText(err)}`);
     },
     onSettled: (_data, _err, { id }) => {
       void queryClient.invalidateQueries({ queryKey: ['items'] });
@@ -133,9 +131,10 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <select className={inlineControlClass} value={kind} onChange={(e) => setKind(e.target.value as Kind | '')} aria-label="Kind">
+    <div>
+      <div className="page-head">
+        <h1 className="ov-h1">Board</h1>
+        <select className="ov-input" value={kind} onChange={(e) => setKind(e.target.value as Kind | '')} aria-label="Kind">
           <option value="">All kinds</option>
           {BOARD_KINDS.map((k) => (
             <option key={k} value={k}>
@@ -143,7 +142,7 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
             </option>
           ))}
         </select>
-        <select className={`${inlineControlClass} max-w-64`} value={epic} onChange={(e) => setEpic(e.target.value)} aria-label="Epic">
+        <select className="ov-input toolbar-epic" value={epic} onChange={(e) => setEpic(e.target.value)} aria-label="Epic">
           <option value="">All epics</option>
           {epics.map((ep) => (
             <option key={ep.id} value={ep.id}>
@@ -151,7 +150,7 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
             </option>
           ))}
         </select>
-        <select className={inlineControlClass} value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Tag">
+        <select className="ov-input" value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Tag">
           <option value="">All tags</option>
           {tags.map((t) => (
             <option key={t} value={t}>
@@ -160,20 +159,21 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
           ))}
         </select>
         <input
-          className={`${inlineControlClass} w-56`}
+          className="ov-input toolbar-search"
           placeholder="Filter by ID or title"
+          aria-label="Filter by ID or title"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <select className={inlineControlClass} value={order} onChange={(e) => setOrder(e.target.value as ItemOrder)} aria-label="Order">
+        <select className="ov-input" value={order} onChange={(e) => setOrder(e.target.value as ItemOrder)} aria-label="Order">
           <option value="id">ID order</option>
           <option value="priority">Priority order</option>
         </select>
-        <label className="flex items-center gap-1 text-sm text-slate-600 dark:text-slate-300">
-          <input type="checkbox" checked={showAllDone} onChange={(e) => setShowAllDone(e.target.checked)} />
+        <label className="check">
+          <input className="ov-check" type="checkbox" checked={showAllDone} onChange={(e) => setShowAllDone(e.target.checked)} />
           Show all done
         </label>
-        {items.isFetching && <span className="text-xs text-slate-400">Refreshing…</span>}
+        {items.isFetching && <span className="small-muted">Refreshing…</span>}
         <PriorityLegend priorities={project.enums.priorities} />
       </div>
 
@@ -183,7 +183,7 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
         <ErrorBox error={items.error} />
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
-          <div className="grid auto-cols-[minmax(15rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
+          <div className="board-columns">
             {columns.map((status) => (
               <Column
                 key={status}
@@ -193,7 +193,7 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
               />
             ))}
           </div>
-          <DragOverlay>{dragging ? <CardBody item={dragging} /> : null}</DragOverlay>
+          <DragOverlay>{dragging ? <CardBody item={dragging} dragging /> : null}</DragOverlay>
         </DndContext>
       )}
     </div>
@@ -202,12 +202,12 @@ export function BoardPage({ project }: { project: ProjectInfo }) {
 
 function PriorityLegend({ priorities }: { priorities: Priority[] }) {
   return (
-    <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+    <div className="priority-legend">
       <span>Priority</span>
-      <ul aria-label="Priority legend" className="flex flex-wrap items-center gap-2">
+      <ul aria-label="Priority legend">
         {priorities.map((priority) => (
-          <li key={priority} className="flex items-center gap-1">
-            <PriorityAccent priority={priority} className="h-4 w-1 rounded-sm" />
+          <li key={priority}>
+            <PriorityAccent priority={priority} className="legend-swatch" />
             <PriorityBadge priority={priority} />
           </li>
         ))}
@@ -219,27 +219,11 @@ function PriorityLegend({ priorities }: { priorities: Priority[] }) {
 function Column({ status, items, footer }: { status: string; items: ListedItem[]; footer?: string }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
-    <div
-      ref={setNodeRef}
-      className={`flex min-h-[60vh] flex-col rounded-lg border p-2 ${
-        isOver
-          ? 'border-sky-400 bg-sky-50 dark:border-sky-600 dark:bg-sky-950/40'
-          : 'border-slate-200 bg-slate-100/70 dark:border-slate-700 dark:bg-slate-800/50'
-      }`}
-    >
-      <div className="mb-2 flex items-center justify-between px-1">
-        <h2 className="text-xs font-semibold tracking-wide text-slate-600 uppercase dark:text-slate-300">{humanize(status)}</h2>
-        <span className="rounded-full bg-slate-200 px-1.5 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-          {items.length}
-        </span>
-      </div>
-      <div className="flex flex-1 flex-col gap-2">
-        {items.map((it) => (
-          <Card key={it.id} item={it} />
-        ))}
-      </div>
-      {footer && <p className="mt-2 px-1 text-xs text-slate-400">{footer}</p>}
-    </div>
+    <BoardColumn ref={setNodeRef} title={status.replace(/_/g, ' ')} count={items.length} over={isOver} footer={footer}>
+      {items.map((it) => (
+        <Card key={it.id} item={it} />
+      ))}
+    </BoardColumn>
   );
 }
 
@@ -253,45 +237,27 @@ function Card({ item }: { item: ListedItem }) {
       onClick={() => {
         if (Date.now() - lastDropAt > 250) navigate({ name: 'item', id: item.id });
       }}
-      className={`cursor-grab touch-none ${isDragging ? 'opacity-40' : ''}`}
+      className="board-card"
+      data-source={isDragging}
     >
       <CardBody item={item} />
     </div>
   );
 }
 
-function CardBody({ item }: { item: ListedItem }) {
+function CardBody({ item, dragging = false }: { item: ListedItem; dragging?: boolean }) {
   return (
-    <div className="relative overflow-hidden rounded-md border border-slate-200 bg-white py-2 pr-2 pl-3 text-sm shadow-sm hover:border-sky-300 dark:border-slate-600 dark:bg-slate-800 dark:hover:border-sky-600">
-      <PriorityAccent priority={item.priority} className="absolute inset-y-0 left-0 w-1" />
-      <div className="mb-1 flex items-center gap-1.5">
-        <a
-          href={itemHref(item.id)}
-          className="font-mono text-xs text-sky-700 hover:underline dark:text-sky-400"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {item.id}
-        </a>
-        <KindBadge kind={item.kind} />
-        <span className="ml-auto">
-          <PriorityBadge priority={item.priority} />
-        </span>
-      </div>
-      <div className="leading-snug break-words">{item.title}</div>
-      {(item.assignee || item.implements.length > 0) && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-          {item.assignee && <span>@{item.assignee}</span>}
-          {item.implements.map((rid) => (
-            <span
-              key={rid}
-              className="rounded bg-violet-50 px-1 font-mono text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
-              title={`Implements ${rid}`}
-            >
-              {rid}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
+    <BoardCard
+      id={item.id}
+      href={itemHref(item.id)}
+      onIdClick={(e) => e.stopPropagation()}
+      title={item.title}
+      dragging={dragging}
+      lead={<PriorityAccent priority={item.priority} className="card-accent" />}
+      aside={<PriorityBadge priority={item.priority} />}
+      meta={item.assignee ? <span>@{item.assignee}</span> : undefined}
+      relation={{ rel: 'implements', ids: item.implements }}
+      tags={item.tags}
+    />
   );
 }
