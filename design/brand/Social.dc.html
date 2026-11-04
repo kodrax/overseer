@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overseer social preview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#6fd3ca}a:hover{color:#5cc8bf}
+</style>
+</helmet>
+<div style="width: 1280px; height: 640px; box-sizing: border-box; padding: 80px; background: #131311; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-direction: column; justify-content: space-between;">
+  <div style="display: flex; flex-direction: column; gap: 32px;">
+    <div style="display: flex; align-items: center; gap: 32px;">
+      <svg width="88" height="88" viewBox="0 0 24 24" aria-hidden="true" style="flex: none; position: relative; top: 10px;"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 88px; line-height: 1; letter-spacing: -0.02em; color: #ece9e1;">overseer</span>
+    </div>
+    <p style="margin: 0; max-width: 820px; font-size: 32px; line-height: 44px; font-weight: 400; color: #a7a398;">A requirements registry and Agile board for coding agents.</p>
+  </div>
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 32px;">
+    <div style="display: flex; gap: 8px;" aria-hidden="true">
+      <div style="width: 120px; height: 24px; border-radius: 2px; background: #5cc8bf;"></div>
+      <div style="width: 120px; height: 24px; border-radius: 2px; background: #ece9e1;"></div>
+      <div style="width: 120px; height: 24px; border-radius: 2px; background: #e8b04c;"></div>
+    </div>
+    <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 20px; line-height: 28px; color: #a7a398;">local · opt-in · traceable</p>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

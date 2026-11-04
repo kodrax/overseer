@@ -21,12 +21,6 @@ export function useToast(): ToastApi {
   return ctx;
 }
 
-const toneClass: Record<ToastTone, string> = {
-  info: 'border-sky-300 bg-white dark:border-sky-700 dark:bg-slate-800',
-  success: 'border-emerald-300 bg-white dark:border-emerald-700 dark:bg-slate-800',
-  error: 'border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950',
-};
-
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
@@ -47,30 +41,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-2">
+      <div className="toasts">
         {toasts.map((t) => (
-          <div
-            key={t.id}
-            role={t.tone === 'error' ? 'alert' : 'status'}
-            className={`pointer-events-auto rounded-md border px-3 py-2 text-sm shadow-lg ${toneClass[t.tone]}`}
-          >
-            <div className="flex items-start gap-2">
-              <div className="flex-1 font-medium break-words">{t.title}</div>
-              <button
-                type="button"
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                aria-label="Dismiss"
-                onClick={() => dismiss(t.id)}
-              >
+          <div key={t.id} role={t.tone === 'error' ? 'alert' : 'status'} className="toast" data-tone={t.tone}>
+            <div className="toast-head">
+              <div className="toast-title">{t.title}</div>
+              <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
                 ×
               </button>
             </div>
             {t.lines.length > 0 && (
-              <ul className="mt-1 space-y-0.5 font-mono text-xs text-slate-600 dark:text-slate-300">
+              <ul className="toast-lines">
                 {t.lines.map((line, i) => (
-                  <li key={i} className="break-all">
-                    {line}
-                  </li>
+                  <li key={i}>{line}</li>
                 ))}
               </ul>
             )}

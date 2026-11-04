@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overseer symbol construction</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#6fd3ca}a:hover{color:#5cc8bf}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; box-sizing: border-box; padding: 48px; background: #131311; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; gap: 56px; align-items: center;">
+
+  <figure style="margin: 0; flex: none; width: 600px; height: 600px; box-sizing: border-box; background: #0e0e0c; border: 1px solid #2d2c28; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+    <svg width="552" height="552" viewBox="0 0 24 24" role="img" aria-label="Symbol on a 24 unit grid: ring radius 10 with stroke 2, right-half fill radius 6.5">
+      <defs>
+        <pattern id="grid" width="1" height="1" patternUnits="userSpaceOnUse"><path d="M1 0H0V1" fill="none" stroke="#2d2c28" stroke-width="0.03"></path></pattern>
+      </defs>
+      <rect x="0" y="0" width="24" height="24" fill="url(#grid)"></rect>
+      <circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle>
+      <path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path>
+      <line x1="12" y1="0" x2="12" y2="24" stroke="#6f6c63" stroke-width="0.04" stroke-dasharray="0.2 0.2"></line>
+      <line x1="0" y1="12" x2="24" y2="12" stroke="#6f6c63" stroke-width="0.04" stroke-dasharray="0.2 0.2"></line>
+      <circle cx="12" cy="12" r="11" fill="none" stroke="#6f6c63" stroke-width="0.04" stroke-dasharray="0.2 0.2"></circle>
+      <circle cx="12" cy="12" r="9" fill="none" stroke="#6f6c63" stroke-width="0.04" stroke-dasharray="0.2 0.2"></circle>
+      <circle cx="12" cy="12" r="6.5" fill="none" stroke="#6f6c63" stroke-width="0.04" stroke-dasharray="0.2 0.2"></circle>
+      <line x1="12" y1="5.5" x2="12" y2="3" stroke="#e8b04c" stroke-width="0.06"></line>
+      <text x="12.3" y="4.6" fill="#e8b04c" font-family="IBM Plex Mono, monospace" font-size="0.7">gap 2.5</text>
+      <line x1="21" y1="12" x2="23" y2="12" stroke="#e8b04c" stroke-width="0.06"></line>
+      <text x="20.6" y="13.1" fill="#e8b04c" font-family="IBM Plex Mono, monospace" font-size="0.7">2</text>
+      <text x="0.4" y="23.4" fill="#8c887d" font-family="IBM Plex Mono, monospace" font-size="0.6">24 × 24</text>
+    </svg>
+  </figure>
+
+  <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 40px;">
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #a7a398;">Geometry</h2>
+      <dl style="margin: 0; display: grid; grid-template-columns: 112px minmax(0, 1fr); row-gap: 8px; column-gap: 16px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; line-height: 20px;">
+        <dt style="color: #a7a398;">canvas</dt><dd style="margin: 0; color: #ece9e1;">24 × 24 units</dd>
+        <dt style="color: #a7a398;">ring</dt><dd style="margin: 0; color: #ece9e1;">r 10 · stroke 2 · outer Ø 22 · ink</dd>
+        <dt style="color: #a7a398;">gap</dt><dd style="margin: 0; color: #ece9e1;">2.5 between ring and fill</dd>
+        <dt style="color: #a7a398;">fill</dt><dd style="margin: 0; color: #ece9e1;">r 6.5 · right half · signal</dd>
+        <dt style="color: #a7a398;">small</dt><dd style="margin: 0; color: #ece9e1;">16–24 px: ring r 9.75 · stroke 2.5 · fill r 6</dd>
+        <dt style="color: #a7a398;">lockup</dt><dd style="margin: 0; color: #ece9e1;">symbol = wordmark size · gap 0.36× · centred on the x-height</dd>
+      </dl>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #a7a398;">The status dot</h2>
+      <div style="display: flex; gap: 8px; align-items: stretch;">
+        <div style="width: 88px; padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; border: 1px solid #2d2c28; border-radius: 4px;">
+          <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle></svg>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #a7a398;">○</span>
+        </div>
+        <div style="width: 88px; padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; border: 1px solid #2d2c28; border-radius: 4px;">
+          <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 12L12 5.5A6.5 6.5 0 0 1 18.5 12Z" fill="#5cc8bf"></path></svg>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #a7a398;">◔</span>
+        </div>
+        <div style="width: 88px; padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; background: #163230; border: 1px solid #5cc8bf; border-radius: 4px;">
+          <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#5cc8bf"></path></svg>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #6fd3ca;">◑ symbol</span>
+        </div>
+        <div style="width: 88px; padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; border: 1px solid #2d2c28; border-radius: 4px;">
+          <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><path d="M12 12L12 5.5A6.5 6.5 0 1 1 5.5 12Z" fill="#5cc8bf"></path></svg>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #a7a398;">◕</span>
+        </div>
+        <div style="width: 88px; padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; border: 1px solid #2d2c28; border-radius: 4px;">
+          <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#ece9e1" stroke-width="2"></circle><circle cx="12" cy="12" r="6.5" fill="#5cc8bf"></circle></svg>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 16px; color: #a7a398;">●</span>
+        </div>
+      </div>
+      <p style="margin: 0; max-width: 520px; font-size: 14px; line-height: 22px; color: #ece9e1;">The symbol is the board's own status dot at the halfway mark: work under way, on the record. It reads as the o in overseer and as an open eye, and the same geometry draws every status dot on the board.</p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
