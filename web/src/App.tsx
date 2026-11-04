@@ -8,6 +8,7 @@ import { NewItemDialog } from './NewItemDialog';
 import { BoardPage } from './pages/BoardPage';
 import { CoveragePage } from './pages/CoveragePage';
 import { ItemPage } from './pages/ItemPage';
+import { OverviewPage } from './pages/OverviewPage';
 import { RequirementsPage } from './pages/RequirementsPage';
 import { hrefFor, useRoute, type Route } from './router';
 import { useToast } from './toast';
@@ -41,6 +42,7 @@ const NAV: { route: Route; label: string }[] = [
   { route: { name: 'board' }, label: 'Board' },
   { route: { name: 'requirements' }, label: 'Requirements' },
   { route: { name: 'coverage' }, label: 'Coverage' },
+  { route: { name: 'overview' }, label: 'Overview' },
 ];
 
 export function App() {
@@ -115,6 +117,8 @@ export function App() {
           <RequirementsPage project={project.data} />
         ) : route.name === 'coverage' ? (
           <CoveragePage />
+        ) : route.name === 'overview' ? (
+          <OverviewPage project={project.data} />
         ) : (
           <ItemPage key={route.id} id={route.id} project={project.data} />
         )}

@@ -552,6 +552,7 @@ A failed MCP call has no result: leave it out and its entry stays pending for th
 - **Requirements**: table with filters and semantic search.
 - **Item pages**: editable fields, links, children, coverage and history, plus a comment box.
 - **Coverage**: counts, drift and the traceability matrix.
+- **Overview**: every item that is not closed in plain words, grouped as planned, in progress or done, for reviewing the project with a client.
 - **New item** dialog with duplicate hints, and an **Export** button.
 
 The page updates live when an agent or the CLI writes to the database, deletions included: a deleted item's card disappears. The server listens on 127.0.0.1 only and rejects requests whose `Host` is not localhost. Writes need a token generated each time the server starts.
