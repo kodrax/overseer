@@ -9,7 +9,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - The board has an Overview page (`#/overview`) for reviewing the project with a non-technical client: every item that is not closed sits in one of three groups, Planned, In progress or Done, with its kind and state in plain words ("Feature · In review" instead of `story` and `review`). Cancelled, deferred, rejected and obsolete items are left out. It refreshes with live updates like the other pages (TASK-0075).
-
 ### Changed
 
 - The board uses the overseer design system (`design/system/`): Terminal (dark, the default) and Paper (light) themes from the semantic tokens, following `prefers-color-scheme` with a Theme switch in the header; IBM Plex Sans and Mono shipped in `dist/web/assets` with their SIL Open Font License, never from a CDN; item IDs, statuses and coverage as the `ItemId`, `StatusBadge` and `CoverageTrack` components with the stored values; lint and drift as `LintNote`, duplicate hints as `SimilarityHint`; a 2px signal focus ring on every control; the brand lockup (symbol and wordmark) in the header and the brand app icon as the favicon. Priority marks keep their shapes and words in neutral inks only. Tailwind is no longer a dependency (TASK-0074).
