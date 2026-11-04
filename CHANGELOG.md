@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - The README's architecture diagram is a PNG rendered from `docs/assets/architecture.mmd` (`node scripts/render-diagrams.mjs`) instead of a Mermaid block, so the npm package page shows the picture instead of its source, same as GitHub; the packed-tarball smoke test fails on a Mermaid block or a relative image path in the README (BUG-0020).
+
 ## [0.3.0] - 2026-10-26
 
 ### Added
