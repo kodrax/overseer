@@ -272,7 +272,12 @@ async function main() {
     // npm shows the README from the tarball: it renders no Mermaid and cannot resolve relative image paths.
     const { stdout: readme } = await run('tar', ['-xzOf', tarball, 'package/README.md'], { env });
     assert(!/^\s*(```|~~~)\s*mermaid\b/im.test(readme), 'README.md has a Mermaid block, which npm shows as code; use an image');
-    const images = [...readme.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)/g), ...readme.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]+)/gi)].map((match) => match[1]);
+    const images = [...readme.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)/g), ...readme.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]+)/gi),
+      // Each srcset candidate is "<url> [descriptor]", comma-separated.
+      ...[...readme.matchAll(/<source\b[^>]*\bsrcset\s*=\s*["']([^"']+)["']/gi)].flatMap((match) =>
+        match[1].split(',').map((candidate) => [, candidate.trim().split(/\s+/)[0]]),
+      ),
+    ].map((match) => match[1]);
     const relative = images.filter((src) => !/^https?:\/\//i.test(src));
     assert(relative.length === 0, `README.md has relative image paths, which npm cannot resolve: ${relative.join(', ')}`);
     log(`  ${images.length} images, all absolute; no Mermaid block`);

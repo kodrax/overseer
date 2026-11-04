@@ -1,6 +1,14 @@
-# overseer
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/logo-terminal.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/logo-paper.png">
+    <img src="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/logo-paper.png" width="194" height="32" alt="overseer">
+  </picture>
+</h1>
 
-A requirements registry and Agile board for coding agents. overseer stores each project's functional and non-functional requirements, epics, user stories, tasks and bugs in a local SQLite database with multilingual semantic search. It plugs into the coding harnesses you use (Claude Code, OMP, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor, OpenCode) as a subagent, five skills and an MCP server. You can ask your agent "is password reset already covered?" or "record this requirement", or you can use the CLI and the local web board.
+A requirements registry and Agile board for coding agents. Local, opt-in and traceable. It never calls an LLM.
+
+overseer stores each project's functional and non-functional requirements, epics, user stories, tasks and bugs in a local SQLite database with multilingual semantic search. It plugs into the coding harnesses you use (Claude Code, OMP, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor, OpenCode) as a subagent, five skills and an MCP server. You can ask your agent "is password reset already covered?" or "record this requirement", or you can use the CLI and the local web board.
 
 - **Off until you turn it on**: overseer works only in the projects where you run `overseer enable`. Everywhere else its tools and commands refuse and create nothing.
 - **Local**: data stays in `<project>/.overseer/`. Embeddings run on your machine with `Xenova/multilingual-e5-small` (about 118 MB, downloaded once by `overseer install` or `overseer models pull`). overseer never calls an LLM; your harness's model does the reasoning.
@@ -8,7 +16,11 @@ A requirements registry and Agile board for coding agents. overseer stores each 
 - **Traceable**: stories and tasks `implement` requirements, and bugs `affect` them. Coverage (untracked → tracked → in progress → delivered → verified) is worked out from the linked work, so nobody has to keep it up to date by hand.
 - **Catches duplicates**: every new item is compared with the existing items of the same kind, across languages too (an English request matches a Spanish requirement).
 
-<img src="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/architecture.png" width="784" alt="Architecture: in the coding harness, the overseer skills instruct the main agent and the overseer subagent, and the main agent delegates bulk work to the subagent; both call the overseer mcp server through MCP tools. The overseer CLI, the web board and overseer mcp all use OverseerService, which stores data in project/.overseer/overseer.db and uses the local embedding model.">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/architecture-terminal.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/architecture-paper.png">
+  <img src="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/architecture-terminal.png" width="784" alt="Architecture: in the coding harness, the overseer skills instruct the main agent and the overseer subagent, and the main agent delegates bulk work to the subagent; both call the overseer mcp server through MCP tools. The overseer CLI, the web board and overseer mcp all use OverseerService, which stores data in project/.overseer/overseer.db and uses the local embedding model.">
+</picture>
 
 ## Requirements
 
@@ -148,10 +160,10 @@ overseer disable    # off again; the data is kept
 
 - **Nothing is written into the project.** The folder goes into your user config (`enabled_projects` or `disabled_projects`; see the table above). `.overseer/` appears only when something is first recorded. `disable` keeps it; delete it yourself to remove the data.
 - **Off means off at every entry point.** In a project that is off, every overseer MCP tool and every project command of the CLI (including `board`) answers `DISABLED` and creates nothing. The switch is read on every call, so running sessions follow it too. The MCP instructions, the skills and the subagent tell the agent to stop there, not to look for another way in, and not to run `overseer enable` itself unless you ask it to.
-- **Folders cover what's below them, and the closest rule wins.** `overseer enable` in `~/work` turns on every project under it, and `overseer disable` in `~/work/client-x` then makes an exception. Running `overseer enable` in `~/work/client-x` again just removes the exception.
+- **Folders cover what's below them, and the closest rule wins.** `overseer enable` in `~/work` turns on every project under it, and `overseer disable` in `~/work/client-x` then makes an exception. Running `overseer enable` in `~/work/client-x` again removes the exception.
 - **Other ways to turn a project on**: `overseer init` and `overseer install --scope project` do it too.
 - **Existing registries**: a project that already has a `.overseer/` folder is off too, until you run `overseer enable` there; its data is then used as before.
-- **What being off doesn't hide.** The harness still lists the skills and the subagent, and still starts the MCP server. To keep overseer's tool descriptions out of the model's context in a project, also turn the server off in the harness if it supports that per project. In Claude Code, toggle `overseer` off in `/mcp`; Claude Code saves that per project in `~/.claude.json`. OMP's `disabledServers` list applies to every project, not just one.
+- **What being off doesn't hide.** The harness still lists the skills and the subagent, and still starts the MCP server. To keep overseer's tool descriptions out of the model's context in a project, also turn the server off in the harness if it supports that per project. In Claude Code, toggle `overseer` off in `/mcp`; Claude Code saves that per project in `~/.claude.json`. OMP's `disabledServers` list applies to every project, not only one.
 - **Checking the state.** `overseer doctor` shows whether overseer is off for the current project.
 
 ## Using it
@@ -182,7 +194,7 @@ overseer add story --title "Reset forgotten password" \
   --description "As a user I want to reset my password so that I can regain access" --implements REQ-0001
 overseer add --batch dictation.json         # up to 50 items in one call (see below)
 overseer update US-0001 --status done --delivered-in "PR #42"
-overseer coverage "password reset"          # covered / partially / not_found
+overseer coverage "password reset"          # covered / partially / not_found (unknown without the model)
 overseer similar "Restablecer la contraseña por correo"
 overseer report drift
 overseer export                             # writes docs/overseer/
@@ -438,7 +450,7 @@ These commands read and write only the project database: they make no GitHub or 
 
 When a write queues (or merges into) an outbox entry for a connection with auto-sync on whose [sync has started](#sync-start), its result names that connection: `"sync_pending": [{"connection_id", "host", "repository"}]`, sorted by `connection_id`. This holds for `create_item` (single and batch, compact or `full`), `update_item`, `delete_item`, `link_items` and `import_items`, and for the `--json` output of `add` (also `--batch`), `update`, `delete`, `link` / `unlink` and `import`. A batch, an import or a link gives one list for the whole write, not one per item. The field is omitted when nothing was queued for such a connection: no connection, auto-sync off, sync not started, or an update that only adds a comment.
 
-overseer itself makes no network call. The `overseer` and `overseer-ship` skills run the `overseer-sync` skill's **Sync** step for the listed connections once per user request, after its last write. When the user said not to sync, or the session lacks the host's MCP tools, they say the changes stay in the outbox; so does a failed push, and `sync status` counts them in `pending_outbox`.
+overseer itself makes no network call. The `overseer` and `overseer-ship` skills run the `overseer-sync` skill's **Sync** step for the listed connections once per request of yours, after its last write. When you said not to sync, or the session lacks the host's MCP tools, they say the changes stay in the outbox; so does a failed push, and `sync status` counts them in `pending_outbox`.
 
 ### Sync start
 
@@ -556,6 +568,8 @@ A failed MCP call has no result: leave it out and its entry stays pending for th
 - **New item** dialog with duplicate hints, and an **Export** button.
 
 The page updates live when an agent or the CLI writes to the database, deletions included: a deleted item's card disappears. The server listens on 127.0.0.1 only and rejects requests whose `Host` is not localhost. Writes need a token generated each time the server starts.
+
+<img src="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/board-terminal.png" width="1280" alt="The overseer board in the Terminal theme with the README sample data: the bug On Safari the login button does nothing in Backlog, the story Pay with a gift card in Ready, the task Add the gift card field to checkout in progress, and the story Reset forgotten password, which implements REQ-0001, in Review.">
 
 ### MCP tools
 
