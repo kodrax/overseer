@@ -1,0 +1,13 @@
+flowchart LR
+  subgraph harness["Coding harness"]
+    main["Main agent"] -->|delegates bulk work| sub["overseer subagent"]
+    skills["overseer skills"] -.->|instructions| main
+    skills -.-> sub
+  end
+  main -->|MCP tools| mcp["overseer mcp"]
+  sub -->|MCP tools| mcp
+  cli["overseer CLI"] --> svc
+  board["Web board"] --> svc
+  mcp --> svc["OverseerService"]
+  svc --> db[("project/.overseer/overseer.db")]
+  svc -.-> model["Local embedding model"]

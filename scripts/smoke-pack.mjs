@@ -261,10 +261,21 @@ async function main() {
     for (const required of ['package.json', pkg.bin.overseer.replace(/^\.\//, ''), 'dist/web/index.html', 'templates/skills/overseer/SKILL.md']) {
       assert(files.has(required), `the tarball has no ${required}`);
     }
+    assert(files.has('README.md'), 'the tarball has no README.md');
     const path = join(dirs.pack, info.filename);
     assert(existsSync(path), `npm pack reported ${info.filename}, but ${path} does not exist`);
     log(`  ${info.filename}: ${info.entryCount} files, ${info.size} bytes packed`);
     return path;
+  });
+
+  await step('packed README renders on npm', async () => {
+    // npm shows the README from the tarball: it renders no Mermaid and cannot resolve relative image paths.
+    const { stdout: readme } = await run('tar', ['-xzOf', tarball, 'package/README.md'], { env });
+    assert(!/^\s*(```|~~~)\s*mermaid\b/im.test(readme), 'README.md has a Mermaid block, which npm shows as code; use an image');
+    const images = [...readme.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)/g), ...readme.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]+)/gi)].map((match) => match[1]);
+    const relative = images.filter((src) => !/^https?:\/\//i.test(src));
+    assert(relative.length === 0, `README.md has relative image paths, which npm cannot resolve: ${relative.join(', ')}`);
+    log(`  ${images.length} images, all absolute; no Mermaid block`);
   });
 
   await step('npm install -g <tarball> into an empty prefix', async () => {

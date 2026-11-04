@@ -8,21 +8,7 @@ A requirements registry and Agile board for coding agents. overseer stores each 
 - **Traceable**: stories and tasks `implement` requirements, and bugs `affect` them. Coverage (untracked → tracked → in progress → delivered → verified) is worked out from the linked work, so nobody has to keep it up to date by hand.
 - **Catches duplicates**: every new item is compared with the existing items of the same kind, across languages too (an English request matches a Spanish requirement).
 
-```mermaid
-flowchart LR
-  subgraph harness["Coding harness"]
-    main["Main agent"] -->|delegates bulk work| sub["overseer subagent"]
-    skills["overseer skills"] -.->|instructions| main
-    skills -.-> sub
-  end
-  main -->|MCP tools| mcp["overseer mcp"]
-  sub -->|MCP tools| mcp
-  cli["overseer CLI"] --> svc
-  board["Web board"] --> svc
-  mcp --> svc["OverseerService"]
-  svc --> db[("project/.overseer/overseer.db")]
-  svc -.-> model["Local embedding model"]
-```
+<img src="https://raw.githubusercontent.com/kodrax/overseer/main/docs/assets/architecture.png" width="784" alt="Architecture: in the coding harness, the overseer skills instruct the main agent and the overseer subagent, and the main agent delegates bulk work to the subagent; both call the overseer mcp server through MCP tools. The overseer CLI, the web board and overseer mcp all use OverseerService, which stores data in project/.overseer/overseer.db and uses the local embedding model.">
 
 ## Requirements
 
