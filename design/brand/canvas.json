@@ -1,0 +1,35 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-10-11T11:50:00Z"},
+  "title": "overseer brand",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1280, "h": 720, "title": "Primary lockup"},
+    "Lockups-Terminal.dc.html": {"x": 1360, "y": 0, "w": 1280, "h": 720, "title": "Lockups · Terminal"},
+    "Lockups-Paper.dc.html": {"x": 2720, "y": 0, "w": 1280, "h": 720, "title": "Lockups · Paper"},
+    "Contrast.dc.html": {"x": 0, "y": 840, "w": 1280, "h": 720, "title": "Contrast variants"},
+    "Construction.dc.html": {"x": 1360, "y": 840, "w": 1280, "h": 720, "title": "Symbol construction"},
+    "Sizes.dc.html": {"x": 2720, "y": 840, "w": 1280, "h": 720, "title": "Sizes, app icons, clear space"},
+    "Social.dc.html": {"x": 0, "y": 1680, "w": 1280, "h": 640, "title": "Social preview 1280×640"},
+    "Surfaces.dc.html": {"x": 1360, "y": 1680, "w": 1280, "h": 720, "title": "In use"},
+    "Misuse.dc.html": {"x": 2720, "y": 1680, "w": 1280, "h": 720, "title": "Misuse"}
+  },
+  "order": [
+    "Main.dc.html",
+    "Lockups-Terminal.dc.html",
+    "Lockups-Paper.dc.html",
+    "Contrast.dc.html",
+    "Construction.dc.html",
+    "Sizes.dc.html",
+    "Social.dc.html",
+    "Surfaces.dc.html",
+    "Misuse.dc.html"
+  ],
+  "notes": {
+    "title": {"x": 0, "y": -300, "text": "overseer brand: symbol, wordmark and lockups", "kind": "title1", "maxW": 4000}
+  },
+  "designSystems": [
+    {"title": "overseer", "namespace": "overseer", "artifact": "https://claude.ai/code/artifact/e40f7d52-9ce3-44ba-a158-8098497da183", "version": "1791718830-dac8", "copiedAt": "2026-10-11T11:50:00Z"}
+  ]
+}

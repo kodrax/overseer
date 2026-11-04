@@ -1,0 +1,98 @@
+/* Generated from design/system/tokens.json by scripts/generate-tokens-css.mjs (npm run tokens). Do not edit. */
+
+:root {
+  color-scheme: dark;
+  --bg: #131311;
+  --surface: #1b1b18;
+  --sunken: #0e0e0c;
+  --line: #2d2c28;
+  --line-strong: #6f6c63;
+  --ink: #ece9e1;
+  --ink-muted: #a7a398;
+  --ink-faint: #8c887d;
+  --signal: #5cc8bf;
+  --signal-ink: #6fd3ca;
+  --on-signal: #0a1c1a;
+  --signal-soft: #163230;
+  --warn: #e8b04c;
+  --warn-soft: #352a12;
+  --danger: #f2785f;
+  --danger-soft: #3b1d17;
+  --shadow-lift: 0 8px 24px rgba(0,0,0,0.55);
+  --focus-ring: var(--signal);
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --type-display: 600 40px/44px var(--font-mono);
+  --tracking-display: -0.02em;
+  --type-h1: 600 24px/32px var(--font-sans);
+  --tracking-h1: -0.01em;
+  --type-h2: 600 18px/26px var(--font-sans);
+  --tracking-h2: 0;
+  --type-h3: 600 15px/22px var(--font-sans);
+  --tracking-h3: 0;
+  --type-body: 400 14px/22px var(--font-sans);
+  --tracking-body: 0;
+  --type-body-sm: 400 13px/20px var(--font-sans);
+  --tracking-body-sm: 0;
+  --type-label: 500 11px/16px var(--font-sans);
+  --tracking-label: 0.06em;
+  --type-id: 500 12px/16px var(--font-mono);
+  --tracking-id: 0;
+  --type-code: 400 13px/20px var(--font-mono);
+  --tracking-code: 0;
+  --type-terminal: 400 13px/20px var(--font-mono);
+  --tracking-terminal: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --sunken: #ebe8e1;
+    --line: #dcd8cf;
+    --line-strong: #8a857a;
+    --ink: #1a1916;
+    --ink-muted: #5b574e;
+    --ink-faint: #6d695f;
+    --signal: #0d7a78;
+    --signal-ink: #0a6866;
+    --on-signal: #ffffff;
+    --signal-soft: #d8eeeb;
+    --warn: #8a5a00;
+    --warn-soft: #f8ecd2;
+    --danger: #b1321c;
+    --danger-soft: #f8e2dc;
+    --shadow-lift: 0 8px 24px rgba(26,25,22,0.14);
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f5f3ee;
+  --surface: #ffffff;
+  --sunken: #ebe8e1;
+  --line: #dcd8cf;
+  --line-strong: #8a857a;
+  --ink: #1a1916;
+  --ink-muted: #5b574e;
+  --ink-faint: #6d695f;
+  --signal: #0d7a78;
+  --signal-ink: #0a6866;
+  --on-signal: #ffffff;
+  --signal-soft: #d8eeeb;
+  --warn: #8a5a00;
+  --warn-soft: #f8ecd2;
+  --danger: #b1321c;
+  --danger-soft: #f8e2dc;
+  --shadow-lift: 0 8px 24px rgba(26,25,22,0.14);
+}
