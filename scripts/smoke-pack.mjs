@@ -269,7 +269,8 @@ async function main() {
   });
 
   await step('packed README renders on npm', async () => {
-    // npm shows the README from the tarball: it renders no Mermaid and cannot resolve relative image paths.
+    // npm shows the README from the tarball: it renders no Mermaid and cannot resolve relative image paths or links
+    // (docs/ is not in the package).
     const { stdout: readme } = await run('tar', ['-xzOf', tarball, 'package/README.md'], { env });
     assert(!/^\s*(```|~~~)\s*mermaid\b/im.test(readme), 'README.md has a Mermaid block, which npm shows as code; use an image');
     const images = [...readme.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)/g), ...readme.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]+)/gi),
@@ -280,7 +281,11 @@ async function main() {
     ].map((match) => match[1]);
     const relative = images.filter((src) => !/^https?:\/\//i.test(src));
     assert(relative.length === 0, `README.md has relative image paths, which npm cannot resolve: ${relative.join(', ')}`);
-    log(`  ${images.length} images, all absolute; no Mermaid block`);
+    const prose = readme.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '');
+    const links = [...prose.matchAll(/(?<!!)\[[^\]]*\]\(\s*<?([^)\s>]+)/g), ...prose.matchAll(/<a\b[^>]*\bhref\s*=\s*["']?([^"'\s>]+)/gi)].map((match) => match[1]);
+    const relativeLinks = links.filter((href) => !/^(https?:|mailto:|#)/i.test(href));
+    assert(relativeLinks.length === 0, `README.md has relative links, which npm cannot resolve: ${relativeLinks.join(', ')}`);
+    log(`  ${images.length} images and ${links.length} links, all absolute; no Mermaid block`);
   });
 
   await step('npm install -g <tarball> into an empty prefix', async () => {

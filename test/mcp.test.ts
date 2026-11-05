@@ -248,15 +248,12 @@ describe('mcp server', () => {
     expect((await call(client, 'create_item', { kind: 'story', title: 'Sign out' })).data).toMatchObject({ id: 'US-0002' });
   });
 
-  it('names every tool in the overseer skill tool table and the README tool list', async () => {
+  it('names every tool in the overseer skill tool table', async () => {
     const client = await connect({ cwd: tempRepo() });
     const { tools } = await client.listTools();
     const skill = readFileSync(join(import.meta.dirname, '../templates/skills/overseer/SKILL.md'), 'utf8');
-    const readme = readFileSync(join(import.meta.dirname, '../README.md'), 'utf8');
-    const readmeTools = readme.slice(readme.indexOf('### MCP tools'), readme.indexOf('## Data model'));
     for (const { name } of tools) {
       expect(skill, name).toMatch(new RegExp(`^\\| \`${name}\` \\| .+ \\| \`overseer .+\\|$`, 'm'));
-      expect(readmeTools, name).toContain(`\`${name}\``);
     }
   });
 

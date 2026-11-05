@@ -57,17 +57,49 @@ Check a name and title before pushing:
 
 ## Development
 
-Setup, test and build commands are in the README's [Development](README.md#development) section.
+To build from a checkout of this repository:
 
-### README images
+```sh
+npm install
+npm link                  # after `npm run build`: puts this checkout's `overseer` on your PATH (or: npm install -g .)
+npm run typecheck
+npm test                  # vitest; a deterministic hash embedder, no model download; SPA tests in jsdom
+npm run build             # tsdown → dist/cli.js, vite → dist/web/
+node scripts/smoke-pack.mjs   # after build: pack, install the tarball in a temp prefix and HOME, run --version, install, doctor, mcp, board
+npm run dev:web           # SPA dev server; proxies /api to `overseer board` on 4477
+OVERSEER_REAL_MODEL=1 npx vitest run test/real-model.test.ts   # duplicate detection with the real model
+npm run calibrate         # suggested similarity thresholds; regenerates src/core/reference-means.ts
+OVERSEER_UPDATE_GOLDEN=1 npx vitest run test/install.test.ts   # regenerate installer golden files
+npm run measure:capture -- --out docs/measurements/capture-<label> [--live]   # capture calls, CLI latency, tokens
+```
 
-The README shows only PNGs, linked by absolute `raw.githubusercontent.com/kodrax/overseer/main/docs/assets/...` URLs: npm renders no Mermaid, cannot resolve relative paths, and raw.githubusercontent.com serves SVG as `text/plain`, which browsers refuse in `<img>`. A new or changed image therefore shows only once it is on `main`. `scripts/smoke-pack.mjs` fails on a Mermaid block or a relative image path (`<img src>`, `<source srcset>`, Markdown images) in the packed README. Regenerate an image after changing its source and commit both:
+`npm ci` (its `prepare` script) points `core.hooksPath` at `.githooks/`. The hooks run `scripts/ensure-build.mjs` after `git pull`/`git merge` (including the fast-forward in `overseer worktree finish`), branch switches and rebases: it hashes the build inputs (files under `src/` and `web/`, `package.json`, `package-lock.json`, `tsconfig.json`, `tsdown.config.ts`, `vite.config.ts`), compares the hash with `dist/.build-hash` and runs `npm run build` when they differ, so the global `overseer` command runs the merged code. `npm run build` records the hash itself (`postbuild`). In a checkout without `node_modules` the hooks skip the build with a message. Run `node scripts/ensure-build.mjs` to check by hand.
+
+`npm run measure:capture` records the fixed 20-item dictation in a temp project seeded with 300 items, the way the `overseer` skill prescribes, and writes `<prefix>.json` and `<prefix>.md`: overseer calls, CLI latency p50/p95 per command, and the tokens of the skill, subagent prompt, references and MCP tool definitions. `--live` also sends the dictation 3 times to `omp -p --mode json` in throwaway repositories and records tool calls and tokens; it spends model tokens. It is not part of `npm test`. Any label other than `baseline` adds a table against the committed baseline and a verdict on REQ-0254's fit criterion. The baseline (per-item flow) is in [docs/measurements/capture-baseline.md](docs/measurements/capture-baseline.md), the repeat after the batch capture flow in [docs/measurements/capture-after.md](docs/measurements/capture-after.md).
+
+| Path | Contents |
+|---|---|
+| `src/core/` | `OverseerService`, database and migrations, search and embeddings, coverage, lint, reports, export, import, repository connections |
+| `src/mcp/` | MCP server |
+| `src/cli/` | CLI |
+| `src/board/`, `web/` | board server and React app |
+| `src/install/` | harness installer and doctor checks |
+| `templates/` | skills and the subagent prompt that `install` copies |
+| `scripts/` | build check, git hooks, `measure-capture.mjs` |
+| `docs/measurements/` | committed measurement results |
+| `test/` | test suites and fixtures; `test/web/` tests the React app in jsdom with Testing Library against a stubbed `/api` |
+
+### README and docs
+
+The README is the page GitHub and npm show: the brand header, what overseer is, install, a first run and links to `docs/`, in at most 150 lines. Everything else lives in `docs/`, indexed by [`docs/README.md`](docs/README.md): a Start here path (getting started, concepts, web board, each page linking to the next) and the reference pages. npm ships only `dist` and `templates`, so every link in the README is an absolute `https://github.com/kodrax/overseer/blob/main/...` URL; links between pages in `docs/` are relative. A page that first uses a term from [`docs/concepts.md`](docs/concepts.md) (harness, MCP, skill, subagent, EARS, coverage) links to it, and commands with output shown in the docs are real runs.
+
+The README and the docs show only PNGs, linked by absolute `raw.githubusercontent.com/kodrax/overseer/main/docs/assets/...` URLs: npm renders no Mermaid, cannot resolve relative paths, and raw.githubusercontent.com serves SVG as `text/plain`, which browsers refuse in `<img>`. A new or changed image therefore shows only once it is on `main`. `scripts/smoke-pack.mjs` fails on a Mermaid block, a relative image path (`<img src>`, `<source srcset>`, Markdown images) or a relative link in the packed README. Regenerate an image after changing its source and commit both:
 
 | Image | Source | Command |
 |---|---|---|
 | `docs/assets/logo-{paper,terminal}.{svg,png}` | the horizontal lockup of `design/brand/` (Surfaces, "README header"), wordmark outlined from `design/system/fonts/IBMPlexMono-600.woff2` | `python3 scripts/render-logos.py` |
 | `docs/assets/<name>-{paper,terminal}.png` | `docs/assets/<name>.mmd`, colours in `docs/assets/mermaid-{paper,terminal}.json` (from `design/system/tokens.json`) | `node scripts/render-diagrams.mjs` |
-| `docs/assets/board-terminal.png` | the board after `npm run build`, 1280 px wide, Terminal theme, seeded with the README's sample data only | `node scripts/screenshot-board.mjs` |
+| `docs/assets/board-terminal.png` | the board after `npm run build`, 1280 px wide, Terminal theme, seeded with the sample data of the docs only | `node scripts/screenshot-board.mjs` |
 
 - **Python**: `render-logos.py` and `render-diagrams.mjs` need fontTools with brotli, e.g. `python3 -m venv /tmp/ft && /tmp/ft/bin/pip install fonttools brotli`, then run `/tmp/ft/bin/python scripts/render-logos.py` and `PYTHON=/tmp/ft/bin/python node scripts/render-diagrams.mjs`.
 - **Chrome**: `render-logos.py` and `screenshot-board.mjs` run headless Chrome (`CHROME`, default `google-chrome`). `render-diagrams.mjs` runs `@mermaid-js/mermaid-cli` through `npx`; if Puppeteer cannot find its Chromium, point it at an installed Chrome with `PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome`.

@@ -153,7 +153,7 @@ describe('skill templates', () => {
     expect(map).toMatch(/Show the full proposal/);
   });
 
-  it('overseer-sync and the README map kinds to labels only; issue types are information, never targets (BUG-0016 AC1)', () => {
+  it('overseer-sync maps kinds to labels only; issue types are information, never targets (BUG-0016 AC1)', () => {
     const skill = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
     const map = mappingSection();
     expect(skill).not.toMatch(/issue types? \(else labels\)/i);
@@ -161,13 +161,6 @@ describe('skill templates', () => {
     expect(map).toMatch(/map kinds to existing labels only/);
     expect(map).toMatch(/`issue_types` are information only, never mapping targets/);
     expect(map).not.toMatch(/"(Feature|Task|Bug)"/);
-    const readme = readFileSync(fileURLToPath(new URL('../README.md', import.meta.url)), 'utf8');
-    const section = readme.slice(readme.indexOf('### Kind, status and priority mapping'));
-    const intro = section.slice(0, section.indexOf('| Dimension'));
-    expect(intro).not.toMatch(/issue types or states/);
-    expect(intro).toMatch(/issue types listed by `sync inspect` are information only, never mapping targets/);
-    expect(readme).not.toMatch(/map one local value to a label, issue type or state/);
-    expect(readme).not.toMatch(/--local task --remote Task/);
   });
 
   it('overseer-sync proposes a new kind label in step 5 for an issue type without a matching label (BUG-0016 AC2)', () => {
@@ -304,18 +297,13 @@ describe('skill templates', () => {
     expect(several).toMatch(/`overwritten` list/);
   });
 
-  it('overseer-sync and the README say each repository keeps its existing issues and only new board items fan out (BUG-0019 AC3)', () => {
+  it('overseer-sync says each repository keeps its existing issues and only new board items fan out (BUG-0019 AC3)', () => {
     const text = readFileSync(join(skillsDir, 'overseer-sync', 'SKILL.md'), 'utf8');
     const several = text.slice(text.indexOf('\n### Several connections\n'));
     expect(several).toMatch(/Each repository's existing issues stay in that repository/);
     expect(several).toMatch(/never created on another\s+connection, even when it changes later; its entries there come under `ack`/);
     expect(several).toMatch(/Only new board items fan\s+out: an item created on the board after the starts is pushed to every started connection\./);
     expect(text).toMatch(/its\s+issues are never created in the other connected repositories/);
-    const readme = readFileSync(join(import.meta.dirname, '../README.md'), 'utf8');
-    const section = readme.slice(readme.indexOf('\n#### Several connections\n'), readme.indexOf('\n### Sync plan\n'));
-    expect(section).toMatch(/^\n#### Several connections\n\nEach repository's existing issues stay in that repository; only new board items fan out\./);
-    expect(section).toMatch(/Another connection never gets a `create` for it, even when it changes later/);
-    expect(section).toMatch(/created on the board after the starts is queued for and pushed to every connection/);
   });
 
   it('overseer-sync passes the plan op overwritten to sync confirm and reports the overwritten fields of sync status (TASK-0024)', () => {
