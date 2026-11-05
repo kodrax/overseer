@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Screenshots the board for the README: docs/assets/board-terminal.png, 1280 px wide, Terminal theme, with only the
-// README's sample data (Ana's API latency requirement, password reset, the Safari login bug, the gift card checkout).
+// Screenshots the board for docs/board.md: docs/assets/board-terminal.png, 1280 px wide, Terminal theme, with only the
+// docs' sample data (Ana's API latency requirement, password reset, the Safari login bug, the gift card checkout).
 // Run after `npm run build`:
 //   node scripts/screenshot-board.mjs
 // It seeds a throwaway project in a temp dir with this checkout's dist/cli.js (temp HOME and OVERSEER_CONFIG_DIR, no
@@ -65,7 +65,7 @@ try {
   mkdirSync(project, { recursive: true });
   spawnSync('git', ['init', '--quiet', project], { stdio: 'inherit' });
   overseer('enable');
-  // The README's sample data (Using it → From your harness, CLI, Batch create), nothing else.
+  // The docs' sample data (getting-started.md: From your harness; cli.md: Examples, Batch create), nothing else.
   overseer('add', 'requirement', '--title', 'Password reset by email', '--type', 'functional', '--status', 'approved',
     '--description', 'When a user requests a password reset, the system shall email a single-use link that expires after 30 minutes.',
     '--ac', 'Given a registered email, when a reset is requested, then a link valid for 30 minutes is sent');
