@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-05
+
 ### Added
 
 - The board has an Overview page (`#/overview`) for reviewing the project with a non-technical client: every item that is not closed sits in one of three groups, Planned, In progress or Done, with its kind and state in plain words ("Feature · In review" instead of `story` and `review`). Cancelled, deferred, rejected and obsolete items are left out. It refreshes with live updates like the other pages (TASK-0075).
@@ -20,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The README's architecture diagram is a PNG rendered from `docs/assets/architecture.mmd` (`node scripts/render-diagrams.mjs`) instead of a Mermaid block, so the npm package page shows the picture instead of its source, same as GitHub; the packed-tarball smoke test fails on a Mermaid block or a relative image path in the README (BUG-0020).
 - On Windows, `overseer install` registers the MCP server with Claude Code when `claude` was installed with npm (or any CLI is a `.cmd`/`.bat` shim), from PowerShell, cmd or Git Bash. It used to pick npm's extensionless Git Bash shim, which Windows cannot run (`ENOENT`), and Node refuses to start `.cmd` files without a shell (`EINVAL`). `PATH` lookup now matches only `PATHEXT` names on Windows, and batch files run through `cmd.exe` with each argument quoted, so paths with spaces, parentheses or accents reach `claude mcp add` unchanged. `overseer doctor`, `uninstall` and the OpenCode version check use the same lookup (BUG-0021).
+
 ## [0.3.0] - 2026-10-26
 
 ### Added
@@ -83,7 +86,8 @@ First release.
 - **Ship workflow**: `overseer worktree start`/`finish`/`list` for per-item branches and worktrees, `overseer pr draft` for pull request titles and bodies, and `overseer pr opened`.
 - **Sync commands (early, manual)**: repository connections, source of truth, kind/status/priority mapping, outbox, `sync plan`, `sync pull` and `sync confirm`, driven by the `overseer-sync` skill through the harness's GitHub or GitLab MCP server.
 
-[Unreleased]: https://github.com/kodrax/overseer/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kodrax/overseer/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kodrax/overseer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kodrax/overseer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kodrax/overseer/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kodrax/overseer/compare/v0.1.0...v0.1.1
