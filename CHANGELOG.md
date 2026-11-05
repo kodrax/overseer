@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - The README's architecture diagram is a PNG rendered from `docs/assets/architecture.mmd` (`node scripts/render-diagrams.mjs`) instead of a Mermaid block, so the npm package page shows the picture instead of its source, same as GitHub; the packed-tarball smoke test fails on a Mermaid block or a relative image path in the README (BUG-0020).
+- On Windows, `overseer install` registers the MCP server with Claude Code when `claude` was installed with npm (or any CLI is a `.cmd`/`.bat` shim), from PowerShell, cmd or Git Bash. It used to pick npm's extensionless Git Bash shim, which Windows cannot run (`ENOENT`), and Node refuses to start `.cmd` files without a shell (`EINVAL`). `PATH` lookup now matches only `PATHEXT` names on Windows, and batch files run through `cmd.exe` with each argument quoted, so paths with spaces, parentheses or accents reach `claude mcp add` unchanged. `overseer doctor`, `uninstall` and the OpenCode version check use the same lookup (BUG-0021).
 ## [0.3.0] - 2026-10-26
 
 ### Added

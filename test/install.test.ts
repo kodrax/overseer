@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 import { parse as parseYaml } from 'yaml';
+import { findExecutable } from '../src/install/exec.js';
 import type { InstallReport, Scope, TargetId } from '../src/install/index.js';
 import { detectTargets, formatInstallReport, harnessStatus, install, TARGET_IDS } from '../src/install/index.js';
 import { CLI_PATH, GOLDEN_DIR, mtimes, NODE_PATH, sandbox, snapshotTree } from './fixtures/install/harness.js';
@@ -254,5 +255,21 @@ describe('dry run', () => {
     const text = formatInstallReport(report);
     expect(text).toContain('planned');
     expect(text).toContain(join(box.home, '.agents/skills/overseer'));
+  });
+});
+
+describe('Windows PATH lookup', () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  afterEach(() => Object.defineProperty(process, 'platform', platform));
+
+  test('picks the npm .cmd shim, never the extensionless Git Bash shim beside it', () => {
+    // Lowercase: Windows matches PATHEXT case-insensitively, this filesystem does not.
+    const box = sandbox({ env: { PATHEXT: '.com;.exe;.bat;.cmd' } });
+    for (const name of ['claude', 'claude.cmd', 'claude.ps1']) {
+      writeFileSync(join(box.bin, name), '');
+      chmodSync(join(box.bin, name), 0o755);
+    }
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    expect(findExecutable(box.ctx('user'), 'claude')).toBe(join(box.bin, 'claude.cmd'));
   });
 });
